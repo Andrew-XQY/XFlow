@@ -76,9 +76,9 @@ pip install -e .
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. :contentReference[oaicite:0]{index=0}
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. 
 
 ## Author
 
-Qiyuan Xu – [LinkedIn](https://www.linkedin.com/in/qiyuan-xu-129b9196/) :contentReference[oaicite:1]{index=1}
+Qiyuan Xu – [LinkedIn](https://www.linkedin.com/in/qiyuan-xu-129b9196/)
 ---
