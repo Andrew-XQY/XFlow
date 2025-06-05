@@ -70,3 +70,15 @@ Clone the repository and install in editable mode:
 git clone https://github.com/Andrew-XQY/XFlow.git
 cd XFlow
 pip install -e .
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. :contentReference[oaicite:0]{index=0}
+
+## Author
+
+Qiyuan Xu – [LinkedIn](https://www.linkedin.com/in/qiyuan-xu-129b9196/) :contentReference[oaicite:1]{index=1}
+---
