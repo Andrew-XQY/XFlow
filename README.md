@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/Andrew-XQY/XFlow">
-    <img src="https://github.com/Andrew-XQY/OptiBeam/assets/26278255/59e6e340-e3c1-4b4b-8762-5f73c1ca44bd" alt="Logo" width="128" height="128">
+    <img src="images/logo.png" alt="XFlow Logo" width="128" height="128">
   </a>
   <p align="center">
     A modular deep learning library for flexible research workflows and scalable training pipelines.
@@ -24,10 +24,6 @@
 - [Features](#features)
 - [Built With](#built-with)
 - [Getting Started](#getting-started)
-  - [Installation](#installation)
-  - [Quick Example](#quick-example)
-- [Project Structure](#project-structure)
-- [Roadmap](#roadmap)
 - [License](#license)
 - [Author](#author)
 
