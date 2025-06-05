@@ -9,7 +9,6 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import tensorflow as tf
 
-
 class ImageToImageDataset:
     """
     Wraps two parallel folders of images (inputs and targets) into a tf.data.Dataset. for image-to-image tasks.
