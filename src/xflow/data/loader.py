@@ -2,62 +2,87 @@
 """
 xflow.data.loader
 -----------------
-Defines a minimal, framework-agnostic dataset API.
+Defines a minimal, framework-agnostic data-pipeline API.
 """
 
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, Generic, Optional, Tuple, TypeVar
+from typing import Callable, Iterable, Iterator, TypeVar, Any, Optional
+import logging
 
-TInput = TypeVar("TInput")
-TLabel = TypeVar("TLabel")
+TData = TypeVar("TData")   # “thing” produced by preprocess_fn
+TRaw = TypeVar("TRaw")     # raw item from data_provider
 
 
-class BaseDataset(ABC, Generic[TInput, TLabel]):
+class BasePipeline(ABC):
     """
-    Abstract base class for all datasets in XFlow.
+    Abstract blueprint for any ML data pipeline.
 
-    Each dataset must return a pair (input, label) for a given index.
-    Subclasses should implement:
-      - __len__(): total number of samples.
-      - __getitem__(): load and return (input, label) at a given index.
+    Core ideas:
+      1. data_provider(): returns an iterable of raw items (e.g. file paths, stream tokens).
+      2. preprocess_fn(raw) -> item: turns each raw item into 
+         a final “thing” (e.g. for supervised: (input, label), 
+         or for generative: just input, etc.).
+
+    Two core methods:
+      • get_dataset(): yields each item (of type TData) as a plain Python iterator.
+      • to_framework_dataset(): wraps get_dataset() into a framework-native dataset; 
+        implemented in subclasses.
+
+    Args:
+        data_provider: callable → Iterable[TRaw]
+        preprocess_fn: callable(raw: TRaw) → TData
     """
+    def __init__(
+        self,
+        data_provider: Callable[[], Iterable[TRaw]],
+        preprocess_fn: Callable[[TRaw], TData],
+        *,
+        logger: Optional[logging.Logger] = None,
+    ) -> None:
+        self.data_provider = data_provider
+        self.preprocess_fn = preprocess_fn
+        self.logger = logger
 
-    def __init__(self, root_dir: Path, transform: Optional[Any] = None) -> None:
+    def __getitem__(self, idx: int) -> TData:
         """
+        Optional: Fetch a single preprocessed item by index.
+        Only valid if the data_provider returns an indexable collection.
+
         Args:
-            root_dir (Path):
-                Path to the dataset’s root directory.
-            transform (Optional[Any]):
-                A callable taking (input, label) and returning transformed
-                (input, label). If None, no transform is applied.
+            idx (int): Index of the item.
+
+        Returns:
+            TData: Preprocessed item.
+
+        Raises:
+            NotImplementedError: By default, indexing is not supported.
         """
-        self.root_dir: Path = root_dir
-        self.transform: Optional[Any] = transform
+        raise NotImplementedError("This pipeline does not support indexing. Override if needed.")
+
+    def __iter__(self) -> Iterator[TData]:
+        """
+        Each call to __iter__ fetches a fresh iterable from data_provider().
+        Wrap preprocess_fn(raw) in try/except. If a logger was passed in, log failures; otherwise, skip silently.
+        """
+        for raw_item in self.data_provider():
+            try:
+                yield self.preprocess_fn(raw_item)
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to preprocess {raw_item!r}: {e!s}")
 
     @abstractmethod
     def __len__(self) -> int:
         """
-        Returns:
-            int: Total number of samples in the dataset.
+        Total number of items. 
+        - If finite, return that count (e.g. len(list_of_paths)).
+        - If streaming/unknown, raise NotImplementedError().
         """
         ...
-
+        
     @abstractmethod
-    def __getitem__(self, index: int) -> Tuple[TInput, TLabel]:
+    def to_framework_dataset(self) -> Any:
         """
-        Load and return a single sample pair.
-
-        Args:
-            index (int): Index of the sample (0 ≤ index < len(self)).
-
-        Returns:
-            Tuple[TInput, TLabel]:
-                - input: model input (e.g., an image array)
-                - label: corresponding ground truth (e.g., a mask or target image)
-
-        Raises:
-            IndexError: If `index` is out of bounds.
-            FileNotFoundError: If expected files for this index are missing.
+        Wrap get_dataset() as a framework-native dataset (e.g. tf.data.Dataset, torch.utils.data.Dataset).
         """
         ...
