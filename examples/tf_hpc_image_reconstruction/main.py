@@ -1,4 +1,4 @@
-from xflow.data.tf_pipeline import test
+from xflow.data.tf_loader import test
 from pathlib import Path
 
 # Suppose BASE_DIR is something you set in a config or env var
