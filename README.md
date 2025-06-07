@@ -53,10 +53,11 @@
 
 <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
 <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
+<a href="https://keras.io/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/keras/keras-original.svg" height="40px" /></a>
 
-- Python 3.12.8
-- TensorFlow 2.16.2
-- Keras 3.4.1
+- Python 3.12
+- TensorFlow 2.x
+- Keras 3.x
 
 ---
 
