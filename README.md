@@ -31,7 +31,12 @@
 
 ## 🔍 About the Project
 
-**XFlow** is a modular machine learning framework designed for training and evaluating models in structured research workflows. Originally built for image-based tasks in accelerator physics, it is flexible enough to generalize to broader deep learning applications.
+**XFlow** is a modular machine‑learning framework that blends the spontaneity of vibe coding with a clean, high‑level architecture and thorough verification. Originally shaped by image‑based studies in accelerator physics, it now adapts just as easily to broader deep‑learning workflows.
+
+* **Vibe‑coding friendly:** rapid, iterative prototyping without sacrificing clarity.
+* **Higher‑level structure:** clearly separated data, model, and experiment layers keep complex projects manageable.
+* **Verified and tested:** exhaustive unit & integration tests, plus CI benchmarks, give confidence in every result.
+
 
 > _Includes reusable modules for datasets, models, training loops, visualization, and logging._  
 > _Current version: 0.1.0_
