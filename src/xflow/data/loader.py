@@ -76,6 +76,9 @@ class BasePipeline(ABC):
         if cache:
             self._cached_data = list(self._iter_uncached())
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(cached={self.cache}, items={len(self) if hasattr(self, '__len__') else '?'})"
+
     def _iter_uncached(self) -> Iterator[TData]:
         """Internal iterator for non-cached data processing.
 
@@ -189,7 +192,7 @@ class BasePipeline(ABC):
         """
         ...
         
-    def shuffle(self, buffer_size: int):
+    def shuffle(self, buffer_size: int)  -> 'BasePipeline':
         """Return a new pipeline that shuffles items with a reservoir buffer.
         
         Args:
@@ -201,7 +204,7 @@ class BasePipeline(ABC):
         from .transforms import ShufflePipeline  # Local import
         return ShufflePipeline(self, buffer_size)
 
-    def batch(self, batch_size: int):
+    def batch(self, batch_size: int)  -> 'BasePipeline':
         """Return a new pipeline that batches items into lists.
         
         Args:
