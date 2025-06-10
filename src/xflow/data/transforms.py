@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Callable, TypeVar, Sequence, Generic
 import random
 import itertools
+from .transforms import BasePipeline
 
 SampleT = TypeVar("SampleT")
 PreprocessFn = Callable[[SampleT], SampleT]

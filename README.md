@@ -44,10 +44,6 @@
 
 - Modular `core/` for dataset/model/trainer abstraction
 - Plug-and-play task logic (`tasks/`)
-- Built-in U-Net and ResNet models
-- TensorFlow + custom trainer support
-- Logging, metrics, and visualization helpers
-- Clean `src/` layout with PyPI/pip support
 
 ---
 

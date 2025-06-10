@@ -13,6 +13,10 @@ documentation for details.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
-   xflow
+   modules
+   xflow.data
+   xflow.evaluation
+   xflow.models
+   xflow.trainers
+   xflow.utils

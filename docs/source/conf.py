@@ -23,7 +23,7 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
+html_theme = 'furo'
 html_static_path = ['_static']
 
 
@@ -36,9 +36,14 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",  # for Google/NumPy docstring formats
     "sphinx_autodoc_typehints",  # nice type hints support
+    'sphinx.ext.viewcode',
+    'sphinx.ext.autosummary',
+    'sphinx.ext.todo',
 ]
 autodoc_default_options = {
     "members": True,
     "undoc-members": True,
     "show-inheritance": True,
 }
+
+autosummary_generate = True
