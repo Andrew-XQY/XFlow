@@ -1,49 +1,45 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
-
-project = 'xflow'
-copyright = '2025, Andrew Xu'
-author = 'Andrew Xu'
-
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
-
-extensions = []
-
-templates_path = ['_templates']
-exclude_patterns = []
-
-
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
-
-html_theme = 'furo'
-html_static_path = ['_static']
-
-
-
 import os
 import sys
+
+# Add your source code to the Python path
 sys.path.insert(0, os.path.abspath('../../src'))
 
+# Project information
+project = 'XFlow'
+copyright = '2025, Andrew Xu'
+author = 'Andrew Xu'
+release = '0.1.0'
+
+# Extensions
 extensions = [
-    "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",  # for Google/NumPy docstring formats
-    "sphinx_autodoc_typehints",  # nice type hints support
+    'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
+    'sphinx.ext.napoleon',
     'sphinx.ext.autosummary',
-    'sphinx.ext.todo',
+    'sphinx_rtd_theme',
 ]
+
+# Theme
+html_theme = 'sphinx_rtd_theme'
+
+# Autodoc settings
 autodoc_default_options = {
-    "members": True,
-    "undoc-members": True,
-    "show-inheritance": True,
+    'members': True,
+    'member-order': 'bysource',
+    'special-members': '__init__',
+    'undoc-members': True,
+    'exclude-members': '__weakref__'
 }
 
+# Napoleon settings for Google/NumPy style docstrings
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+napoleon_include_init_with_doc = False
+napoleon_include_private_with_doc = False
+
+# Autosummary
 autosummary_generate = True
+
+# HTML options
+html_static_path = ['_static']
+html_show_sourcelink = True
