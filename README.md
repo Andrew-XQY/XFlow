@@ -31,7 +31,7 @@
 
 ## 🔍 About the Project
 
-**XFlow** is a modular machine learning framework designed for training and evaluating models in structured research workflows. Originally built for image-based tasks in accelerator physics, it is flexible enough to generalize to broader deep learning applications.
+**XFlow** is a modular machine-learning framework, built with a clear high-level structure and developed through hands-on vibe coding. It was first created for physics research, where many problems can be seen as forms of data compression and optimisation. XFlow trying to keep things simple and clean.
 
 > _Includes reusable modules for datasets, models, training loops, visualization, and logging._  
 > _Current version: 0.1.0_
@@ -53,10 +53,11 @@
 
 <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
 <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
+<a href="https://keras.io/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/keras/keras-original.svg" height="40px" /></a>
 
-- Python 3.12.8
-- TensorFlow 2.16.2
-- Keras 3.4.1
+- Python 3.12
+- TensorFlow 2.x
+- Keras 3.x
 
 ---
 
