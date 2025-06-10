@@ -31,7 +31,7 @@ class BasePipeline(ABC):
         preprocess_fns: List of callables to transform raw items into final outputs
             (e.g., `(input, label)` NumPy arrays). Each function takes the output of the
             previous function (or the raw item for the first function) and returns the
-            transformed item. At least one function is required.
+            transformed item. At least one function is required. can be identity function.
         logger: Optional logger for error messages. Defaults to a logger named after
             the module (`__name__`).
         on_error: Error handling strategy for preprocessing failures. Options:
