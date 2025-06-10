@@ -41,5 +41,5 @@ napoleon_include_private_with_doc = False
 autosummary_generate = True
 
 # HTML options
-html_static_path = ['source/_static']
+html_static_path = []
 html_show_sourcelink = True

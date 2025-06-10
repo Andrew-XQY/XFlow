@@ -7,6 +7,7 @@ Welcome to XFlow - a comprehensive machine learning framework.
    :maxdepth: 2
    :caption: API Reference:
    
+   modules
    xflow
 
 Installation
