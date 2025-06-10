@@ -1,7 +1,5 @@
 """
 xflow.data.loader
------------------
-Defines a minimal, framework-agnostic data pipeline API for scientific ML.
 """
 
 from abc import ABC, abstractmethod
