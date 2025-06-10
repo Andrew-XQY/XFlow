@@ -1,0 +1,242 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>xflow.data.loader module &mdash; XFlow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            XFlow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">xflow.data.loader module</a><ul>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline"><code class="docutils literal notranslate"><span class="pre">BasePipeline</span></code></a><ul>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline.__init__"><code class="docutils literal notranslate"><span class="pre">BasePipeline.__init__()</span></code></a></li>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline.sample"><code class="docutils literal notranslate"><span class="pre">BasePipeline.sample()</span></code></a></li>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline.to_framework_dataset"><code class="docutils literal notranslate"><span class="pre">BasePipeline.to_framework_dataset()</span></code></a></li>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline.shuffle"><code class="docutils literal notranslate"><span class="pre">BasePipeline.shuffle()</span></code></a></li>
+<li><a class="reference internal" href="#xflow.data.loader.BasePipeline.batch"><code class="docutils literal notranslate"><span class="pre">BasePipeline.batch()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">XFlow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">xflow.data.loader module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/xflow.data.loader.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-xflow.data.loader">
+<span id="xflow-data-loader-module"></span><h1>xflow.data.loader module<a class="headerlink" href="#module-xflow.data.loader" title="Link to this heading"></a></h1>
+<p>xflow.data.loader</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">xflow.data.loader.</span></span><span class="sig-name descname"><span class="pre">BasePipeline</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data_provider</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">TRaw</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocess_fns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">on_error</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'skip'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_handler</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">TRaw</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Exception</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<p>Abstract base class for data pipelines in scientific machine learning.</p>
+<p>Provides a flexible interface for complex data sources (experiment files, sensor
+streams) with preprocessing pipelines, yielding preprocessed items like
+<code class="docutils literal notranslate"><span class="pre">(input,</span> <span class="pre">label)</span></code> NumPy arrays for ML training.</p>
+<p><strong>Key Features:</strong></p>
+<ul class="simple">
+<li><p>Iterator support (<code class="docutils literal notranslate"><span class="pre">__iter__</span></code>) for TensorFlow/PyTorch compatibility</p></li>
+<li><p>Optional indexing (<code class="docutils literal notranslate"><span class="pre">__getitem__</span></code>) for cached datasets</p></li>
+<li><p>Framework-native conversion (<code class="docutils literal notranslate"><span class="pre">to_framework_dataset</span></code>)</p></li>
+<li><p>Optional caching for small datasets</p></li>
+<li><p>Robust error handling for noisy experimental data</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data_provider</strong> – Callable returning fresh iterable of raw items (file paths,
+database records). Must return new iterable on each call.</p></li>
+<li><p><strong>preprocess_fns</strong> – List of transform functions. Each takes previous output
+and returns transformed item. At least one required.</p></li>
+<li><p><strong>logger</strong> – Optional logger. Defaults to module logger.</p></li>
+<li><p><strong>on_error</strong> – Error handling - “skip” (default), “log”, or “raise”.</p></li>
+<li><p><strong>error_handler</strong> – Optional callable for custom error handling.</p></li>
+<li><p><strong>cache</strong> – If True, cache preprocessed items in memory during init.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – If <code class="docutils literal notranslate"><span class="pre">preprocess_fns</span></code> is empty.</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">data_provider</span><span class="p">():</span>
+    <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;/data/file1.csv&quot;</span><span class="p">,</span> <span class="s2">&quot;/data/file2.csv&quot;</span><span class="p">]</span>
+
+<span class="n">preprocess_fns</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="k">lambda</span> <span class="n">path</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s2">&quot;,&quot;</span><span class="p">),</span>
+    <span class="k">lambda</span> <span class="n">data</span><span class="p">:</span> <span class="n">data</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">data</span><span class="p">),</span>  <span class="c1"># normalize</span>
+    <span class="k">lambda</span> <span class="n">data</span><span class="p">:</span> <span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>  <span class="c1"># (input, label)</span>
+<span class="p">]</span>
+
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">MyPipeline</span><span class="p">(</span><span class="n">data_provider</span><span class="p">,</span> <span class="n">preprocess_fns</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">epochs</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>  <span class="c1"># Direct use with TensorFlow</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data_provider</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">TRaw</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocess_fns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">on_error</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'skip'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_handler</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="pre">TRaw</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Exception</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline.sample">
+<span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">5</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">TData</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline.sample"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline.sample" title="Link to this definition"></a></dt>
+<dd><p>Return up to n preprocessed items for debugging or inspection.</p>
+<p>Uses cached data if available; otherwise, processes items on-the-fly.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> – Maximum number of items to return (default: 5).</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of up to n preprocessed items.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List[TData]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline.to_framework_dataset">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">to_framework_dataset</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline.to_framework_dataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline.to_framework_dataset" title="Link to this definition"></a></dt>
+<dd><p>Convert the pipeline to a framework-native dataset.</p>
+<p>Subclasses implement this to return framework-specific datasets (e.g.,
+<cite>tf.data.Dataset</cite> for TensorFlow, <cite>torch.utils.data.Dataset</cite> for PyTorch).
+Enables high-performance features like batching, prefetching, and distributed
+training.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Framework-native dataset object.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Any</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>NotImplementedError</strong> – If not implemented by a subclass.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline.shuffle">
+<span class="sig-name descname"><span class="pre">shuffle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">buffer_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#xflow.data.loader.BasePipeline" title="xflow.data.loader.BasePipeline"><span class="pre">BasePipeline</span></a></span></span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline.shuffle"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline.shuffle" title="Link to this definition"></a></dt>
+<dd><p>Return a new pipeline that shuffles items with a reservoir buffer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>buffer_size</strong> – Size of the shuffle buffer for reservoir sampling.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new pipeline instance with shuffling applied.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="xflow.data.transforms.html#xflow.data.transforms.ShufflePipeline" title="xflow.data.transforms.ShufflePipeline">ShufflePipeline</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="xflow.data.loader.BasePipeline.batch">
+<span class="sig-name descname"><span class="pre">batch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#xflow.data.loader.BasePipeline" title="xflow.data.loader.BasePipeline"><span class="pre">BasePipeline</span></a></span></span><a class="reference internal" href="_modules/xflow/data/loader.html#BasePipeline.batch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#xflow.data.loader.BasePipeline.batch" title="Link to this definition"></a></dt>
+<dd><p>Return a new pipeline that batches items into lists.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>batch_size</strong> – Number of items per batch.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new pipeline instance with batching applied.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="xflow.data.transforms.html#xflow.data.transforms.BatchPipeline" title="xflow.data.transforms.BatchPipeline">BatchPipeline</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Andrew Xu.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
