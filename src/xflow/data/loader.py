@@ -11,61 +11,47 @@ TData = TypeVar("TData")  # Preprocessed item (e.g., NumPy array tuple)
 TRaw = TypeVar("TRaw")    # Raw item from data_provider
 
 class BasePipeline(ABC):
-    """Abstract base class for a data pipeline in scientific machine learning.
+    """Abstract base class for data pipelines in scientific machine learning.
 
-    This class provides a minimal, flexible interface to handle complex data sources
-    (e.g., local experiment files, sensor streams) and preprocessing pipelines, yielding
-    preprocessed items (e.g., `(input, label)` NumPy arrays) for training ML models.
-    It supports iteration (`__iter__`) for compatibility with frameworks like
-    TensorFlow's `.fit()` or PyTorch's `DataLoader`, optional indexing (`__getitem__`)
-    for cached datasets, and framework-native conversion (`to_framework_dataset`) for
-    efficiency (e.g., `tf.data.Dataset`). Optional caching is provided for small
-    datasets, and robust error handling ensures reliability with noisy experimental data.
+    Provides a flexible interface for complex data sources (experiment files, sensor 
+    streams) with preprocessing pipelines, yielding preprocessed items like 
+    ``(input, label)`` NumPy arrays for ML training.
+
+    **Key Features:**
+    
+    * Iterator support (``__iter__``) for TensorFlow/PyTorch compatibility
+    * Optional indexing (``__getitem__``) for cached datasets  
+    * Framework-native conversion (``to_framework_dataset``)
+    * Optional caching for small datasets
+    * Robust error handling for noisy experimental data
 
     Args:
-        data_provider: Callable returning a fresh iterable of raw items (e.g., file
-            paths, database records). Must return a new iterable on each call to ensure
-            reusability across multiple `__iter__` calls.
-        preprocess_fns: List of callables to transform raw items into final outputs
-            (e.g., `(input, label)` NumPy arrays). Each function takes the output of the
-            previous function (or the raw item for the first function) and returns the
-            transformed item. At least one function is required. can be identity function.
-        logger: Optional logger for error messages. Defaults to a logger named after
-            the module (`__name__`).
-        on_error: Error handling strategy for preprocessing failures. Options:
-            - "skip" (default): Skip failed items silently or with logging.
-            - "log": Log errors and skip failed items.
-            - "raise": Raise exceptions on preprocessing failures.
-        error_handler: Optional callable to handle preprocessing errors. Takes the raw
-            item and exception as arguments. Useful for custom error handling (e.g.,
-            collecting failed items).
-        cache: If True, cache preprocessed items in memory during initialization.
-            Suitable for small datasets; use with caution for large or streaming data
-            due to memory constraints.
+        data_provider: Callable returning fresh iterable of raw items (file paths, 
+            database records). Must return new iterable on each call.
+        preprocess_fns: List of transform functions. Each takes previous output 
+            and returns transformed item. At least one required.
+        logger: Optional logger. Defaults to module logger.
+        on_error: Error handling - "skip" (default), "log", or "raise".
+        error_handler: Optional callable for custom error handling.
+        cache: If True, cache preprocessed items in memory during init.
 
     Raises:
-        ValueError: If `preprocess_fns` is empty, as at least one function is required
-            to ensure valid output.
+        ValueError: If ``preprocess_fns`` is empty.
 
     Example:
-        ```python
-        import numpy as np
-        def data_provider():
-            return ["/path/to/file1.csv", "/path/to/file2.csv"]
-        preprocess_fns = [
-            lambda path: np.loadtxt(path, delimiter=","),  # Load CSV
-            lambda data: data / np.max(data),             # Normalize
-            lambda data: (data[:-1], data[-1])            # Split into (input, label)
-        ]
-        pipeline = MyPipeline(data_provider, preprocess_fns, cache=True)
-        # Use with TensorFlow
-        import tensorflow as tf
-        model = tf.keras.Sequential([...])
-        model.fit(pipeline, epochs=10)  # Uses __iter__
-        # Or use framework-native dataset
-        dataset = pipeline.to_framework_dataset().batch(32)
-        model.fit(dataset, epochs=10)
-        ```
+        .. code-block:: python
+
+            def data_provider():
+                return ["/data/file1.csv", "/data/file2.csv"]
+            
+            preprocess_fns = [
+                lambda path: np.loadtxt(path, delimiter=","),
+                lambda data: data / np.max(data),  # normalize
+                lambda data: (data[:-1], data[-1])  # (input, label)
+            ]
+            
+            pipeline = MyPipeline(data_provider, preprocess_fns, cache=True)
+            model.fit(pipeline, epochs=10)  # Direct use with TensorFlow
     """
     
     def __init__(
@@ -204,11 +190,25 @@ class BasePipeline(ABC):
         ...
         
     def shuffle(self, buffer_size: int):
-        """Return a new pipeline that shuffles items with a reservoir buffer."""
-        from .transforms import ShufflePipeline
+        """Return a new pipeline that shuffles items with a reservoir buffer.
+        
+        Args:
+            buffer_size: Size of the shuffle buffer for reservoir sampling.
+            
+        Returns:
+            ShufflePipeline: A new pipeline instance with shuffling applied.
+        """
+        from .transforms import ShufflePipeline  # Local import
         return ShufflePipeline(self, buffer_size)
 
     def batch(self, batch_size: int):
-        """Return a new pipeline that batches items into lists of size `batch_size`."""
-        from .transforms import BatchPipeline
+        """Return a new pipeline that batches items into lists.
+        
+        Args:
+            batch_size: Number of items per batch.
+            
+        Returns:
+            BatchPipeline: A new pipeline instance with batching applied.
+        """
+        from .transforms import BatchPipeline  # Local import
         return BatchPipeline(self, batch_size)
