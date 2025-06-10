@@ -49,3 +49,14 @@ if __name__ == "__main__":
     model.evaluate(val_ds)
 
 
+
+import numpy as np
+def data_provider():
+    return ["/path/to/file1.csv", "/path/to/file2.csv"]
+preprocess_fns = [
+    lambda path: np.loadtxt(path, delimiter=","),  # Load CSV
+    lambda data: data / np.max(data),             # Normalize
+    lambda data: (data[:-1], data[-1])            # Split into (input, label)
+]
+pipeline = MyPipeline(data_provider, preprocess_fns, cache=True)
+model.fit(pipeline, epochs=10)  # Works with TensorFlow

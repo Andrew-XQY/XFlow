@@ -204,3 +204,13 @@ class BasePipeline(ABC):
             NotImplementedError: If not implemented by a subclass.
         """
         ...
+        
+    def shuffle(self, buffer_size: int):
+        """Return a new pipeline that shuffles items with a reservoir buffer."""
+        from .transforms import ShufflePipeline
+        return ShufflePipeline(self, buffer_size)
+
+    def batch(self, batch_size: int):
+        """Return a new pipeline that batches items into lists of size `batch_size`."""
+        from .transforms import BatchPipeline
+        return BatchPipeline(self, batch_size)
