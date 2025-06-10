@@ -1,10 +1,12 @@
 <p align="center">
-  <a href="https://github.com/Andrew-XQY/XFlow">
+  <a href="https://andrew-xqy.github.io/XFlow/">
     <img src="images/logo.png" alt="XFlow Logo" width="128" height="128">
   </a>
   <p align="center">
     A modular deep learning library for flexible research workflows and scalable training pipelines.
     <br/>
+    <a href="https://andrew-xqy.github.io/XFlow/"><b>Documentation</b></a>
+    ·
     <a href="https://github.com/Andrew-XQY/XFlow/issues">Report Bug</a>
     ·
     <a href="https://github.com/Andrew-XQY/XFlow/issues">Request Feature</a>
