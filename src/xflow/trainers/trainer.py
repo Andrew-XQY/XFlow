@@ -48,6 +48,7 @@ class BaseTrainer(ABC):
         self.data_pipeline = data_pipeline
         self.config = config.copy() if config is not None else {} 
         self._configured = False
+        self._callbacks = []
         
     @property
     def is_configured(self) -> bool:
@@ -122,6 +123,22 @@ class BaseTrainer(ABC):
             }
         """
         ...
+    
+    def register_callback(self, cb):
+        self._callbacks.append(cb)
+
+    def _run_hook(self, name: str, *args, **kwargs) -> None:
+        """Run callback hook by name.
+        
+        Standard hooks: on_train_start, on_epoch_start, on_epoch_end, on_train_end
+        """
+        for cb in self._callbacks:
+            fn = getattr(cb, name, None)
+            if callable(fn): 
+                try:
+                    fn(self, *args, **kwargs)
+                except Exception as e:
+                    print(f"Callback error in {name}: {e}")
     
     @abstractmethod
     def fit(self, **kwargs) -> Any:
