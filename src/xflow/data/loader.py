@@ -3,7 +3,7 @@ xflow.data.loader
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Iterable, Iterator, TypeVar, Any, Optional, List
+from typing import Callable, Iterable, Iterator, TypeVar, Any, Optional, List, Dict
 import logging
 import itertools
 
@@ -215,3 +215,38 @@ class BasePipeline(ABC):
         """
         from .transforms import BatchPipeline  # Local import
         return BatchPipeline(self, batch_size)
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get pipeline metadata for experiment logging.
+        
+        Returns basic pipeline information. Subclasses can override to provide
+        more specific metadata.
+        
+        Returns:
+            Dict containing pipeline metadata.
+        """
+        metadata = {
+            "cache_enabled": self.cache,
+            "error_handling": self.on_error,
+            "preprocessing_steps": len(self.preprocess_fns),
+        }
+        
+        # Try to get size
+        try:
+            metadata["dataset_size"] = len(self)
+        except (NotImplementedError, TypeError):
+            metadata["dataset_size"] = "unknown"
+        
+        # Add sample of first few items for inspection (if cached)
+        if self.cache and self._cached_data:
+            try:
+                sample_size = min(3, len(self._cached_data))
+                sample = self.sample(sample_size)
+                metadata["sample_data_shapes"] = [
+                    {str(type(item)): getattr(item, 'shape', 'no_shape')} 
+                    for item in sample
+                ]
+            except Exception:
+                pass
+        
+        return metadata
