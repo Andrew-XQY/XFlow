@@ -53,6 +53,26 @@ class BaseTrainer(ABC):
     def is_configured(self) -> bool:
         """Check if trainer has been configured."""
         return self._configured
+    
+    def get_params(self) -> dict:
+        """Get configuration parameters.
+        
+        Returns:
+            Copy of current configuration parameters.
+        """
+        return self.config.copy()
+
+    def set_params(self, **params) -> 'BaseTrainer':
+        """Set configuration parameters.
+        
+        Args:
+            **params: Configuration parameters to set.
+            
+        Returns:
+            Self for method chaining.
+        """
+        self.config.update(params)  
+        return self
 
     def configure(self) -> 'BaseTrainer':
         """Configure the trainer with the provided settings.
