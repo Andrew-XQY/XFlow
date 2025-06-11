@@ -3,7 +3,6 @@
     <img src="images/logo.png" alt="XFlow Logo" width="128" height="128">
   </a>
   <p align="center">
-    A modular deep learning library for flexible research workflows and scalable training pipelines.
     <br/>
     <a href="https://andrew-xqy.github.io/XFlow/"><b>Documentation</b></a>
     ·
@@ -33,7 +32,7 @@
 
 ## 🔍 About the Project
 
-**XFlow** is a modular machine-learning framework, built with a clear high-level structure and developed through hands-on vibe coding. It was first created for physics research, and trying to extend to a wider applications. XFlow keeps things simple.
+**XFlow** is a modular machine-learning framework, built with a clear high-level structure and developed through hands-on vibe coding. Originally created for physics research, it's now evolving toward broader scientific applications ML workflows: Data → Processing → Modeling. XFlow keeps things simple and minimal.
 
 > _Includes reusable modules for datasets, models, training loops, visualization, and logging._  
 > _Current version: 0.1.0_
