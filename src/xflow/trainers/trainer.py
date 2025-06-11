@@ -6,7 +6,6 @@ Ultra-minimal trainer for ML model training across frameworks.
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict
-from pathlib import Path
 from ..data.loader import BasePipeline
 
 # Type aliases
@@ -31,6 +30,7 @@ class BaseTrainer(ABC):
             
             # Trainer only needs to know about one data source
             trainer = TFTrainer(model, pipeline, config)
+            trainer.configure()  # Add this line
             trainer.fit()
     """
     
@@ -40,60 +40,66 @@ class BaseTrainer(ABC):
         data_pipeline: BasePipeline,
         config: Optional[Dict[str, Any]] = None
     ) -> None:
+        if model is None:
+            raise ValueError("Model cannot be None")
+        if data_pipeline is None:
+            raise ValueError("Data pipeline cannot be None")
         self.model = model
         self.data_pipeline = data_pipeline
-        self.config = config or {}
-        self.configure(self.config)
-    
-    def configure(self, config: Dict[str, Any]) -> 'BaseTrainer':
+        self.config = config.copy() if config is not None else {} 
+        self._configured = False
+        
+    @property
+    def is_configured(self) -> bool:
+        """Check if trainer has been configured."""
+        return self._configured
+
+    def configure(self) -> 'BaseTrainer':
         """Configure the trainer with the provided settings.
 
         Default no-op implementation: does nothing and returns self.
         Subclasses can override to extract and apply their own 'trainer'
         section from the config dict.
 
-        Args:
-            config: Configuration dictionary containing trainer-specific settings.
-
         Returns:
             Self, to allow method chaining.
         """
+        self._configured = True 
         return self
     
     def get_metadata(self) -> Dict[str, Any]:
-        """Collect metadata from all components with fallback handling.
+        """Get trainer-specific metadata only.
         
         Returns:
-            Dict containing config and metadata from trainer, model, and data_pipeline.
+            Dict with trainer metadata (type, framework info, config summary, etc.).
         """
-        metadata = {'config': self.config}
-        
-        components = [
-            ('trainer', self),
-            ('model', self.model),
-            ('data_pipeline', self.data_pipeline)
-        ]
-        for name, component in components:
-            try:
-                if hasattr(component, '_get_metadata'):
-                    component_metadata = component._get_metadata()
-                    if isinstance(component_metadata, dict):
-                        metadata[name] = component_metadata
-                    else:
-                        metadata[name] = {'type': type(component).__name__, 'status': 'invalid_metadata'}
-                else:
-                    metadata[name] = {'type': type(component).__name__, 'status': 'no_metadata_api'}
-            except Exception as e:
-                metadata[name] = {'type': type(component).__name__, 'status': 'metadata_error', 'error': str(e)}
-        
-        return metadata
+        try:
+            framework_info = self._get_framework_info()
+        except Exception as e:
+            framework_info = {'error': str(e), 'type': 'framework_error'}
+        return {
+            'type': type(self).__name__,
+            'framework_info': framework_info,
+            'config_keys': list(self.config.keys()) if self.config else []
+        }
     
     @abstractmethod
-    def _get_metadata(self) -> Dict[str, Any]:
-        """Get trainer-specific metadata.
+    def _get_framework_info(self) -> Dict[str, Any]:
+        """Get comprehensive framework information.
+        
+        The trainer orchestrates the training loop and knows which framework
+        it's using, so it's responsible for providing framework details.
         
         Returns:
-            Dict with trainer metadata (framework, type, etc.).
+            Dict containing framework name, version, and other relevant info.
+            
+        Example:
+            {
+                'name': 'tensorflow',
+                'version': '2.13.0',
+                'gpu_available': True,
+                'device_count': 2
+            }
         """
         ...
     
