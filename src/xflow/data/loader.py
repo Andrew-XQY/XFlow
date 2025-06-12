@@ -1,6 +1,4 @@
-"""
-xflow.data.loader
-"""
+"""Data Pipeline Base Class for Scientific Machine Learning"""
 
 from abc import ABC, abstractmethod
 from typing import Callable, Iterable, Iterator, TypeVar, Any, Optional, List, Dict

@@ -1,8 +1,4 @@
-"""
-xflow.utils.metadata
--------------------
-Decoupled metadata collection with extensible hooks - no training dependencies.
-"""
+"""Decoupled metadata collection with extensible hooks"""
 
 import logging
 from typing import Mapping, Dict, Callable, Any, Optional

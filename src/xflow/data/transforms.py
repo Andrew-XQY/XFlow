@@ -1,8 +1,4 @@
-"""
-xflow.data.transforms
---------------------
-Pipeline transformation utilities for data preprocessing.
-"""
+"""Pipeline transformation utilities for data preprocessing."""
 
 from __future__ import annotations
 import random

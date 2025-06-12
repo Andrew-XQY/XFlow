@@ -31,9 +31,9 @@
 
 ## 🔍 About the Project
 
-**XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through hands-on vibe coding. 
+**XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through vibe coding. 
 
-Originally created for physics research, it's now evolving toward broader scientific applications ML workflows: **Data → Processing → Modeling**
+Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
 **XFlow** keeps things simple and minimal.
 

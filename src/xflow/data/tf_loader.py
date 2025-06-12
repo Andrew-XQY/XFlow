@@ -1,6 +1,1 @@
-# src/xflow/data/tf_pipeline.py
-"""
-xflow.data.tf_pipeline
-----------------------
-TensorFlow-compatible dataset pipeline.
-"""
+"""TensorFlow-compatible dataset pipeline."""
