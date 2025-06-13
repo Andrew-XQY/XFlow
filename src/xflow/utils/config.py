@@ -1,99 +1,92 @@
-"""General puerpose configuration file parser."""
+"""Config Manager Module"""
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Union, Type
+import copy
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Self, Union, Type
 from pathlib import Path
-import yaml
-import json
+from .parser import load_file, save_file
 
 
-SUPPORTED_FORMATS: Dict[str, Type["ConfigParser"]] = {}
-
-def register_parser(*extensions: str):
-    """
-    Class decorator to register a ConfigParser under one or more file extensions.
-    """
-    def decorator(cls: Type["ConfigParser"]) -> Type["ConfigParser"]:
-        for ext in extensions:
-            key = ext.lower()
-            SUPPORTED_FORMATS[key] = cls
-        return cls
-    return decorator
-
-class ConfigParser(ABC):
-    """Abstract base for configuration parsers."""
+# Pydantic schemas
+class BaseDataConfig(BaseModel):
+    """Base data configuration schema."""
+    batch_size: int = Field(..., gt=0)
     
-    @abstractmethod
-    def parse(self, filepath: Union[str, Path]) -> Any:
-        """Parse configuration file and return data."""  
-        ...
-    
-    @abstractmethod
-    def save(self, data: Any, filepath: Union[str, Path]) -> None:
-        """Save data to configuration file.""" 
-        ...
+    class Config:
+        extra = "forbid"
 
-@register_parser('.yaml', '.yml')
-class YAMLParser(ConfigParser):
-    """YAML configuration parser."""
+
+class BaseTrainerConfig(BaseModel):
+    """Base trainer configuration schema."""
+    learning_rate: float = Field(..., gt=0)
+    epochs: int = Field(1, gt=0)
     
-    def parse(self, filepath: Union[str, Path]) -> Any: 
-        """Parse YAML configuration file."""
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) 
+    class Config:
+        extra = "forbid"
+
+
+class BaseModelConfig(BaseModel):
+    """Base model configuration schema."""
+    model_type: str = Field(..., min_length=1)
     
-    def save(self, data: Any, filepath: Union[str, Path]) -> None:
-        """Save data to YAML file."""
-        filepath = Path(filepath)
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+    class Config:
+        extra = "forbid"
         
-        with open(filepath, 'w', encoding='utf-8') as f:
-            yaml.dump(
-                data, 
-                f, 
-                default_flow_style=False,
-                indent=2,
-                sort_keys=False,  # Preserve order
-                allow_unicode=True
-            )
 
-@register_parser('.json')
-class JSONParser(ConfigParser):
-    """JSON configuration parser."""
+def load_validated_config(
+    filepath: Union[str, Path],
+    schema: Type[BaseModel]
+) -> Dict[str, Any]:
+    """Load and validate config using Pydantic schema.
     
-    def parse(self, filepath: Union[str, Path]) -> Any: 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+    Single validation point - all validation flows through here.
+    Returns native dict for downstream consumption.
+    """
+    raw = load_file(filepath)
+    validated = schema(**raw)
+    return validated.model_dump()
+
+
+class ConfigManager:
+    """In-memory config manager.
+
+    Keeps an immutable “source of truth” (_original_config) and a mutable working copy (_config).
+    """
     
-    def save(self, data: Any, filepath: Union[str, Path]) -> None: 
-        path = Path(filepath)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            
+    def __init__(self, initial_config: Dict[str, Any]):
+        if not isinstance(initial_config, dict):
+            raise TypeError("initial_config must be a dictionary")
+        self._original_config = copy.deepcopy(initial_config)
+        self._config = copy.deepcopy(initial_config)
 
-def get_parser_for_file(filepath: Union[str, Path]) -> ConfigParser:
-    """
-    Return a parser instance for the given file, based on its extension.
-    Raises a ValueError listing all supported extensions if none match.
-    """
-    path = Path(filepath)
-    suffix = path.suffix.lower()
-    parser_cls = SUPPORTED_FORMATS.get(suffix)
-    if not parser_cls:
-        supported = ', '.join(sorted(SUPPORTED_FORMATS.keys()))
-        raise ValueError(
-            f"Unsupported format '{suffix}'. "
-            f"Supported extensions: {supported}"
-        )
-    return parser_cls()
-
-def load_config(filepath: Union[str, Path]) -> Any:  
-    """Load config file."""
-    parser = get_parser_for_file(filepath)
-    return parser.parse(filepath)
-
-def save_config(data: Any, filepath: Union[str, Path]) -> None:  
-    """Save data to file. Format determined by file extension."""
-    parser = get_parser_for_file(filepath)
-    parser.save(data, filepath)
+    def __repr__(self) -> str:
+        return f"ConfigManager(keys={list(self._config.keys())})"
+    
+    def get(self) -> Dict[str, Any]:
+        """Return a fully independent snapshot of the working config."""
+        return copy.deepcopy(self._config)
+        
+    def reset(self) -> None:
+        """Revert working config back to original."""
+        self._config = copy.deepcopy(self._original_config)
+    
+    def update(self, updates: Dict[str, Any]) -> Self:
+        """Recursively update in config, Nested dictionaries are merged, other values are replaced."""
+        self._deep_update(self._config, updates)
+        return self
+        
+    def validate(self, schema: Type[BaseModel]) -> Self:
+        """Validate working config against provided schema. Raises Error if invalid."""
+        schema(**self._config)
+        return self
+    
+    def save(self, output_path: Union[str, Path]) -> None:
+        """Write the working config to disk (ext-driven format)."""
+        save_file(self._config, output_path)
+    
+    def _deep_update(self, base: Dict[str, Any], upd: Dict[str, Any]) -> None:
+        for k, v in upd.items():
+            if isinstance(v, dict) and isinstance(base.get(k), dict):
+                self._deep_update(base[k], v)
+            else:
+                base[k] = v  
