@@ -48,32 +48,40 @@ def load_validated_config(
 
 
 class ConfigManager:
-    """Simple in-memory config manager."""
+    """In-memory config manager.
+
+    Keeps an immutable “source of truth” (_original_config) and a mutable working copy (config).
+    """
     
     def __init__(self, initial_config: Dict[str, Any]):
-        # keep the source of truth and a mutable working copy
-        self._original = copy.deepcopy(initial_config)
+        self._original_config = copy.deepcopy(initial_config)
         self.config = copy.deepcopy(initial_config)
     
     def get(self) -> Dict[str, Any]:
-        """Return the working config (by reference)."""
-        return self.config
-    
+        """Return a fully independent snapshot of the working config."""
+        return copy.deepcopy(self.config)
+        
     def reset(self) -> None:
         """Revert working config back to original."""
-        self.config = copy.deepcopy(self._original)
+        self.config = copy.deepcopy(self._original_config)
     
-    def update(self, updates: Dict[str, Any]) -> None:
+    def update(self, updates: Dict[str, Any]) -> "ConfigManager":
         """Recursively merge in updates (dicts override, everything else replaces)."""
         self._deep_update(self.config, updates)
+        return self
+        
+    def validate(self, schema: Type[BaseModel]) -> "ConfigManager":
+        """Validate working config against `schema`. Raises ValidationError if invalid"""
+        schema(**self.config)
+        return self
     
     def save(self, output_path: Union[str, Path]) -> None:
         """Write the working config to disk (ext-driven format)."""
         save_config(self.config, output_path)
     
     def _deep_update(self, base: Dict[str, Any], upd: Dict[str, Any]) -> None:
-        for key, val in upd.items():
-            if isinstance(val, dict) and isinstance(base.get(key), dict):
-                self._deep_update(base[key], val)
+        for k, v in upd.items():
+            if isinstance(v, dict) and isinstance(base.get(k), dict):
+                self._deep_update(base[k], v)
             else:
-                base[key] = val
+                base[k] = v
