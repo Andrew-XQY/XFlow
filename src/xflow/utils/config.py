@@ -1,96 +1,101 @@
-"""Pure configuration management - completely isolated logic."""
+"""General puerpose configuration file parser."""
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Union, Type
 from pathlib import Path
-from pydantic import BaseModel, Field
-import json
 import yaml
+import json
 
+
+SUPPORTED_FORMATS: Dict[str, Type["ConfigParser"]] = {}
+
+def register_parser(*extensions: str):
+    """
+    Class decorator to register a ConfigParser under one or more file extensions.
+    """
+    def decorator(cls: Type["ConfigParser"]) -> Type["ConfigParser"]:
+        for ext in extensions:
+            key = ext.lower()
+            SUPPORTED_FORMATS[key] = cls
+        return cls
+    return decorator
 
 class ConfigParser(ABC):
     """Abstract base for configuration parsers."""
     
     @abstractmethod
-    def parse(self, filepath: Union[str, Path]) -> Dict[str, Any]:
-        """Parse configuration file and return dict."""
+    def parse(self, filepath: Union[str, Path]) -> Any:
+        """Parse configuration file and return data."""  
+        ...
+    
+    @abstractmethod
+    def save(self, data: Any, filepath: Union[str, Path]) -> None:
+        """Save data to configuration file.""" 
         ...
 
-
-class JSONParser(ConfigParser):
-    """JSON configuration parser."""
-    
-    def parse(self, filepath: Union[str, Path]) -> Dict[str, Any]:
-        """Parse JSON configuration file."""
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-
-
+@register_parser('.yaml', '.yml')
 class YAMLParser(ConfigParser):
     """YAML configuration parser."""
     
-    def parse(self, filepath: Union[str, Path]) -> Dict[str, Any]:
+    def parse(self, filepath: Union[str, Path]) -> Any: 
         """Parse YAML configuration file."""
         with open(filepath, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+            return yaml.safe_load(f) 
+    
+    def save(self, data: Any, filepath: Union[str, Path]) -> None:
+        """Save data to YAML file."""
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            yaml.dump(
+                data, 
+                f, 
+                default_flow_style=False,
+                indent=2,
+                sort_keys=False,  # Preserve order
+                allow_unicode=True
+            )
 
+@register_parser('.json')
+class JSONParser(ConfigParser):
+    """JSON configuration parser."""
+    
+    def parse(self, filepath: Union[str, Path]) -> Any: 
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def save(self, data: Any, filepath: Union[str, Path]) -> None: 
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            
 
-SUPPORTED_FORMATS: Dict[str, Type[ConfigParser]] = {
-    '.json': JSONParser,
-    '.yaml': YAMLParser, 
-    '.yml': YAMLParser,
-}
-
-def load_config(filepath: Union[str, Path]) -> Dict[str, Any]:
-    """Load config file. Supported formats: JSON, YAML."""
+def get_parser_for_file(filepath: Union[str, Path]) -> ConfigParser:
+    """
+    Return a parser instance for the given file, based on its extension.
+    Raises a ValueError listing all supported extensions if none match.
+    """
     path = Path(filepath)
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
-
     suffix = path.suffix.lower()
+    
+
     parser_cls = SUPPORTED_FORMATS.get(suffix)
     if not parser_cls:
-        supported = ', '.join(SUPPORTED_FORMATS.keys())
-        raise ValueError(f"Unsupported format '{suffix}'. Supported: {supported}")
-    
-    parser = parser_cls()
-    return parser.parse(path)
+        supported = ', '.join(sorted(SUPPORTED_FORMATS.keys()))
+        raise ValueError(
+            f"Unsupported format '{suffix}'. "
+            f"Supported extensions: {supported}"
+        )
+    return parser_cls()
 
-# Pydantic schemas
-class BaseDataConfig(BaseModel):
-    """Base data configuration schema."""
-    batch_size: int = Field(..., gt=0)
-    
-    class Config:
-        extra = "forbid"
+def load_config(filepath: Union[str, Path]) -> Any:  
+    """Load config file."""
+    parser = get_parser_for_file(filepath)
+    return parser.parse(filepath)
 
-
-class BaseTrainerConfig(BaseModel):
-    """Base trainer configuration schema."""
-    learning_rate: float = Field(..., gt=0)
-    epochs: int = Field(1, gt=0)
-    
-    class Config:
-        extra = "forbid"
-
-
-class BaseModelConfig(BaseModel):
-    """Base model configuration schema."""
-    model_type: str = Field(..., min_length=1)
-    
-    class Config:
-        extra = "forbid"
-        
-
-def load_validated_config(
-    filepath: Union[str, Path],
-    schema: Type[BaseModel]
-) -> Dict[str, Any]:
-    """Load and validate config using Pydantic schema.
-    
-    Single validation point - all validation flows through here.
-    Returns native dict for downstream consumption.
-    """
-    raw = load_config(filepath)
-    validated = schema(**raw)
-    return validated.model_dump()
+def save_config(data: Any, filepath: Union[str, Path]) -> None:  
+    """Save data to file. Format determined by file extension."""
+    parser = get_parser_for_file(filepath)
+    parser.save(data, filepath)
