@@ -79,8 +79,6 @@ def get_parser_for_file(filepath: Union[str, Path]) -> ConfigParser:
     """
     path = Path(filepath)
     suffix = path.suffix.lower()
-    
-
     parser_cls = SUPPORTED_FORMATS.get(suffix)
     if not parser_cls:
         supported = ', '.join(sorted(SUPPORTED_FORMATS.keys()))
