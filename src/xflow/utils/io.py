@@ -2,9 +2,9 @@
 
 import shutil
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
-def copy_file(source: Union[str, Path], target_dir: Union[str, Path], filename: str = None) -> Path:
+def copy_file(source: Union[str, Path], target_dir: Union[str, Path], filename: Optional[str] = None) -> Path:
     """Copy a file to target directory.
     
     Args:

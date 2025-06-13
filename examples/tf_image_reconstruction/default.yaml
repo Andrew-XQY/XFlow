@@ -1,31 +1,57 @@
-# training_config.yaml
-epochs: 100
-batch_size: 32
-validation_freq: 1
+experiment:
+  name: "bert_fine_tuning_v1"
+  output_dir: "experiments/bert_fine_tuning_v1"
+  seed: 42
+  tags: ["bert", "classification", "production"]
 
-optimizer:
-  name: adam
-  lr: 0.001
-  weight_decay: 0.0001
-
-early_stopping:
-  enabled: true
-  patience: 10
-  monitor: val_loss
-
-checkpointing:
-  enabled: true
-  save_best: true
-  filepath: "checkpoints/best_model.h5"
-
-callbacks:
-  - name: reduce_lr_on_plateau
-    patience: 5
-    factor: 0.5
-  - name: tensorboard
-    log_dir: "logs"
-
-metrics:
-  - loss
-  - accuracy
-  - f1_score
+model:
+  type: "transformer"
+  architecture:
+    num_layers: 12
+    hidden_size: 768
+    num_attention_heads: 12
+    intermediate_size: 3072
+    dropout: 0.1
+    activation: "gelu"
+  pretrained_path: "/models/bert-base-uncased"
+  
+data:
+  train_path: "data/train"
+  val_path: "data/val"
+  test_path: "data/test"
+  source: "database"
+  connection:
+    type: "postgresql"
+    host: "localhost"
+    port: 5432
+    database: "ml_experiments"
+  query: |
+    SELECT text, label 
+    FROM training_data 
+    WHERE created_at > '2024-01-01'
+    AND quality_score > 0.8
+  preprocessing:
+    tokenizer: "bert-base-uncased"
+    max_length: 512
+    padding: true
+    truncation: true
+  batch_size: 32
+  
+training:
+  optimizer:
+    type: "adamw"
+    lr: 2e-5
+    weight_decay: 0.01
+    warmup_steps: 1000
+  scheduler:
+    type: "linear"
+    num_training_steps: 10000
+  epochs: 3
+  gradient_accumulation_steps: 4
+  
+logging:
+  wandb:
+    project: "my-ml-project"
+    entity: "my-team"
+  tensorboard:
+    log_dir: "./logs"
