@@ -16,6 +16,14 @@ training:
   checkpoint_interval: 5000
   checkpoint_dir: "./training_checkpoints"
 
+transforms:
+  - name: "load_image"
+  - name: "resize"
+    params:
+      size: [224, 224]
+  - name: "to_tensor"
+  - name: "normalize"
+  
 data:  
   root: "DataHub/local_images/MMF/"
   train_size: 0.9

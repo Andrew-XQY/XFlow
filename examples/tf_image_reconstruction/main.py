@@ -3,7 +3,7 @@ from pix2pix import Pix2Pix
 from xflow.utils.config import ConfigManager, load_validated_config
 from xflow.trainers.trainer import BaseTrainer 
 from xflow.data.provider import FileProvider
-from xflow.data.loader import BasePipeline
+from xflow.data.pipeline import BasePipeline
 from pathlib import Path
 import os
 

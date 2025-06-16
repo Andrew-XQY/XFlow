@@ -1,10 +1,49 @@
 """Pipeline transformation utilities for data preprocessing."""
-from typing import Iterator, List, Any, Optional, Tuple, Iterable
-from .loader import BasePipeline
+from typing import Iterator, List, Any, Optional, Tuple, Iterable, Callable, Dict
+from .pipeline import BasePipeline
 from ..utils.decorators import with_progress
 import random
 import logging
 import itertools
+
+
+@with_progress
+def apply_transforms_to_dataset(
+    data: Iterable[Any],
+    transforms: List[Any],  # Transform objects or callables
+    *,
+    logger: Optional[logging.Logger] = None,
+    skip_errors: bool = True
+) -> Tuple[List[Any], int]:
+    """Apply transforms to all items in an iterable.
+    
+    Args:
+        data: Iterable of raw data items
+        transforms: List of transform functions to apply sequentially
+        logger: Optional logger for error reporting
+        skip_errors: Whether to skip failed items or raise errors
+    
+    Returns:
+        Tuple of (processed_items, error_count)
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    processed_items = []
+    error_count = 0
+    
+    for item in data:
+        try:
+            for transform in transforms:
+                item = transform(item)
+            processed_items.append(item)
+        except Exception as e:
+            error_count += 1
+            logger.warning(f"Failed to process item: {e}")
+            if not skip_errors:
+                raise
+    
+    return processed_items, error_count
 
 class ShufflePipeline(BasePipeline):
     """Pipeline that shuffles items using reservoir sampling.
@@ -97,42 +136,50 @@ class BatchPipeline(BasePipeline):
     def to_framework_dataset(self) -> Any:
         """Convert to framework-native dataset with batching applied."""
         return self.base.to_framework_dataset().batch(self.batch_size)
-    
 
-@with_progress
-def apply_transforms_to_dataset(
-    data: Iterable[Any],
-    transforms: List[Any],  # Transform objects or callables
-    *,
-    logger: Optional[logging.Logger] = None,
-    skip_errors: bool = True
-) -> Tuple[List[Any], int]:
-    """Apply transforms to all items in an iterable.
+
+class TransformRegistry:
+    """Registry for all available transforms."""
+    _transforms: Dict[str, Callable] = {}
     
-    Args:
-        data: Iterable of raw data items
-        transforms: List of transform functions to apply sequentially
-        logger: Optional logger for error reporting
-        skip_errors: Whether to skip failed items or raise errors
+    @classmethod
+    def register(cls, name: str):
+        """Decorator to register transforms."""
+        def decorator(func):
+            cls._transforms[name] = func
+            return func
+        return decorator
     
-    Returns:
-        Tuple of (processed_items, error_count)
-    """
-    if logger is None:
-        logger = logging.getLogger(__name__)
+    @classmethod
+    def get(cls, name: str) -> Callable:
+        """Get transform by name."""
+        if name not in cls._transforms:
+            raise ValueError(f"Transform '{name}' not found. Available: {list(cls._transforms.keys())}")
+        return cls._transforms[name]
     
-    processed_items = []
-    error_count = 0
-    
-    for item in data:
-        try:
-            for transform in transforms:
-                item = transform(item)
-            processed_items.append(item)
-        except Exception as e:
-            error_count += 1
-            logger.warning(f"Failed to process item: {e}")
-            if not skip_errors:
-                raise
-    
-    return processed_items, error_count
+    @classmethod
+    def list_transforms(cls) -> list:
+        """List all registered transforms."""
+        return list(cls._transforms.keys())
+
+
+# Register transforms
+@TransformRegistry.register("load_image")
+def load_image(path: str):
+    from PIL import Image
+    return Image.open(path)
+
+@TransformRegistry.register("resize")
+def resize(image, size: tuple):
+    return image.resize(size)
+
+# Framework-specific transforms
+@TransformRegistry.register("tf_decode_image")
+def tf_decode_image(image_bytes):
+    import tensorflow as tf
+    return tf.image.decode_image(image_bytes)
+
+@TransformRegistry.register("tf_resize")
+def tf_resize(image, size: list):
+    import tensorflow as tf
+    return tf.image.resize(image, size)

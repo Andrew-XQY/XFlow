@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict
-from ..data.loader import BasePipeline
+from ..data.pipeline import BasePipeline
 from ..utils.io import create_directory
 import copy
 
