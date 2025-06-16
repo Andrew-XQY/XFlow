@@ -1,34 +1,28 @@
 """Pipeline transformation utilities for data preprocessing."""
 from typing import Iterator, List, Any, Optional, Tuple, Iterable, Callable, Dict
+from functools import partial
+from pathlib import Path
+import itertools
+import logging
+import random
+
+import numpy as np
+from PIL import Image
+
 from .pipeline import BasePipeline
 from ..utils.decorators import with_progress
-import random
-import logging
-import itertools
 
 
 @with_progress
 def apply_transforms_to_dataset(
     data: Iterable[Any],
-    transforms: List[Any],  # Transform objects or callables
+    transforms: List[Callable],
     *,
     logger: Optional[logging.Logger] = None,
     skip_errors: bool = True
 ) -> Tuple[List[Any], int]:
-    """Apply transforms to all items in an iterable.
-    
-    Args:
-        data: Iterable of raw data items
-        transforms: List of transform functions to apply sequentially
-        logger: Optional logger for error reporting
-        skip_errors: Whether to skip failed items or raise errors
-    
-    Returns:
-        Tuple of (processed_items, error_count)
-    """
-    if logger is None:
-        logger = logging.getLogger(__name__)
-    
+    """Apply sequential transforms to dataset items."""
+    logger = logger or logging.getLogger(__name__)
     processed_items = []
     error_count = 0
     
@@ -45,83 +39,63 @@ def apply_transforms_to_dataset(
     
     return processed_items, error_count
 
+
 class ShufflePipeline(BasePipeline):
-    """Pipeline that shuffles items using reservoir sampling.
-    
-    Applies shuffle transformation to a base pipeline using a fixed-size buffer
-    for memory-efficient shuffling of large datasets.
-    
-    Args:
-        base: Base pipeline to shuffle.
-        buffer_size: Size of the shuffle buffer for reservoir sampling.
-    """
+    """Memory-efficient shuffle using reservoir sampling."""
     
     def __init__(self, base: BasePipeline, buffer_size: int) -> None:
-        # Copy essential attributes from base pipeline
+        self._copy_base_attributes(base)
+        self.base = base
+        self.buffer_size = buffer_size
+
+    def _copy_base_attributes(self, base: BasePipeline) -> None:
+        """Copy essential attributes from base pipeline."""
         self.data_provider = base.data_provider
         self.preprocess_fns = base.preprocess_fns
         self.logger = base.logger
         self.on_error = base.on_error
         self.error_handler = base.error_handler
-        self.cache = False  # Disable caching for transforms
+        self.cache = False
         self._cached_data = None
-        
-        # Transform-specific attributes
-        self.base = base
-        self.buffer_size = buffer_size
 
     def __iter__(self) -> Iterator[Any]:
-        """Iterate over shuffled items using reservoir sampling."""
         it = self.base.__iter__()
         buf = list(itertools.islice(it, self.buffer_size))
         random.shuffle(buf)
         
-        # Yield initial buffer
         for x in buf:
             yield x
             
-        # Reservoir sampling for remaining items
         for x in it:
             buf[random.randrange(self.buffer_size)] = x
             random.shuffle(buf)
             yield buf.pop()
 
     def __len__(self) -> int:
-        """Return the number of items (same as base pipeline)."""
         return len(self.base)
 
     def to_framework_dataset(self) -> Any:
-        """Convert to framework-native dataset with shuffle applied."""
         return self.base.to_framework_dataset().shuffle(self.buffer_size)
 
 
 class BatchPipeline(BasePipeline):
-    """Pipeline that batches items into lists of specified size.
-    
-    Groups items from a base pipeline into batches for efficient processing.
-    The last batch may be smaller if the dataset size is not divisible by batch_size.
-    
-    Args:
-        base: Base pipeline to batch.
-        batch_size: Number of items per batch.
-    """
+    """Groups items into fixed-size batches."""
     
     def __init__(self, base: BasePipeline, batch_size: int) -> None:
-        # Copy essential attributes from base pipeline
+        self._copy_base_attributes(base)
+        self.base = base
+        self.batch_size = batch_size
+
+    def _copy_base_attributes(self, base: BasePipeline) -> None:
         self.data_provider = base.data_provider
         self.preprocess_fns = base.preprocess_fns
         self.logger = base.logger
         self.on_error = base.on_error
         self.error_handler = base.error_handler
-        self.cache = False  # Disable caching for transforms
+        self.cache = False
         self._cached_data = None
-        
-        # Transform-specific attributes
-        self.base = base
-        self.batch_size = batch_size
 
     def __iter__(self) -> Iterator[List[Any]]:
-        """Iterate over batched items."""
         it = self.base.__iter__()
         while True:
             batch = list(itertools.islice(it, self.batch_size))
@@ -130,11 +104,9 @@ class BatchPipeline(BasePipeline):
             yield batch
 
     def __len__(self) -> int:
-        """Return the number of batches."""
         return (len(self.base) + self.batch_size - 1) // self.batch_size
 
     def to_framework_dataset(self) -> Any:
-        """Convert to framework-native dataset with batching applied."""
         return self.base.to_framework_dataset().batch(self.batch_size)
 
 
@@ -144,7 +116,6 @@ class TransformRegistry:
     
     @classmethod
     def register(cls, name: str):
-        """Decorator to register transforms."""
         def decorator(func):
             cls._transforms[name] = func
             return func
@@ -152,34 +123,140 @@ class TransformRegistry:
     
     @classmethod
     def get(cls, name: str) -> Callable:
-        """Get transform by name."""
         if name not in cls._transforms:
             raise ValueError(f"Transform '{name}' not found. Available: {list(cls._transforms.keys())}")
         return cls._transforms[name]
     
     @classmethod
-    def list_transforms(cls) -> list:
-        """List all registered transforms."""
+    def list_transforms(cls) -> List[str]:
         return list(cls._transforms.keys())
 
 
-# Register transforms
+# Core transforms
 @TransformRegistry.register("load_image")
-def load_image(path: str):
-    from PIL import Image
-    return Image.open(path)
+def load_image(path) -> Image.Image:
+    """Load image from file path."""
+    return Image.open(Path(path))
+
+
+@TransformRegistry.register("to_narray")
+def to_numpy_array(image) -> np.ndarray:
+    """Convert image to numpy array."""
+    if hasattr(image, 'numpy'):  # TensorFlow tensor
+        return image.numpy()
+    elif isinstance(image, Image.Image):  # PIL Image
+        return np.array(image)
+    elif hasattr(image, '__array__'):  # Array-like objects
+        return np.asarray(image)
+    else:
+        raise ValueError(f"Cannot convert {type(image)} to numpy array")
+
+
+@TransformRegistry.register("to_grayscale")
+def to_grayscale(image: np.ndarray) -> np.ndarray:
+    """Convert image to grayscale using channel averaging."""
+    if len(image.shape) == 2:
+        return image
+    elif len(image.shape) == 3:
+        return np.mean(image, axis=2).astype(image.dtype)
+    elif len(image.shape) == 4:
+        if image.shape[2] == 4:  # RGBA format (H, W, 4)
+            return np.mean(image[:, :, :3], axis=2).astype(image.dtype)
+        elif image.shape[3] == 4:  # RGBA format (H, W, 1, 4)
+            return np.mean(image[:, :, 0, :3], axis=2).astype(image.dtype)
+        else:
+            return np.mean(image.reshape(image.shape[:2] + (-1,)), axis=2).astype(image.dtype)
+    else:
+        spatial_dims = image.shape[:2]
+        flattened = image.reshape(spatial_dims + (-1,))
+        return np.mean(flattened, axis=2).astype(image.dtype)
+
+
+@TransformRegistry.register("remap_range")
+def remap_range(image: np.ndarray, target_min: float = 0.0, target_max: float = 1.0) -> np.ndarray:
+    """Remap pixel values to target range."""
+    current_min = np.min(image)
+    current_max = np.max(image)
+    
+    if current_max == current_min:
+        return np.full_like(image, target_min, dtype=np.float32)
+    
+    normalized = (image - current_min) / (current_max - current_min)
+    remapped = normalized * (target_max - target_min) + target_min
+    
+    return remapped.astype(np.float32)
+
 
 @TransformRegistry.register("resize")
-def resize(image, size: tuple):
-    return image.resize(size)
+def resize(image: np.ndarray, size: Tuple[int, int], interpolation: str = "lanczos") -> np.ndarray:
+    """Resize image using OpenCV."""
+    import cv2
+    
+    target_height, target_width = size
+    
+    interp_map = {
+        "lanczos": cv2.INTER_LANCZOS4,
+        "cubic": cv2.INTER_CUBIC,
+        "area": cv2.INTER_AREA,
+        "linear": cv2.INTER_LINEAR,
+        "nearest": cv2.INTER_NEAREST
+    }
+    
+    cv_interpolation = interp_map.get(interpolation, cv2.INTER_LANCZOS4)
+    return cv2.resize(image, (target_width, target_height), interpolation=cv_interpolation)
 
-# Framework-specific transforms
+
+@TransformRegistry.register("split_width")
+def split_width(image: np.ndarray) -> List[np.ndarray]:
+    """Split image at width midpoint."""
+    height, width = image.shape[:2]
+    mid_point = width // 2
+    
+    return [image[:, :mid_point], image[:, mid_point:]]
+
+
+# TensorFlow transforms
 @TransformRegistry.register("tf_decode_image")
 def tf_decode_image(image_bytes):
+    """Decode image bytes using TensorFlow."""
     import tensorflow as tf
     return tf.image.decode_image(image_bytes)
 
+
 @TransformRegistry.register("tf_resize")
-def tf_resize(image, size: list):
+def tf_resize(image, size: List[int]):
+    """Resize image using TensorFlow."""
     import tensorflow as tf
     return tf.image.resize(image, size)
+
+
+@TransformRegistry.register("tf_to_grayscale")
+def tf_to_grayscale(image):
+    """Convert to grayscale using TensorFlow."""
+    import tensorflow as tf
+    return tf.image.rgb_to_grayscale(image)
+
+
+def build_transforms_from_config(
+    config: List[Dict[str, Any]], 
+    name_key: str = "name",
+    params_key: str = "params"
+) -> List[Callable]:
+    """Build transform pipeline from configuration."""
+    transforms = []
+    
+    for transform_config in config:
+        if name_key not in transform_config:
+            raise ValueError(f"Transform config missing '{name_key}' key: {transform_config}")
+        
+        name = transform_config[name_key]
+        params = transform_config.get(params_key, {})
+        
+        transform_fn = TransformRegistry.get(name)
+        
+        if params:
+            transform_fn = partial(transform_fn, **params)
+        
+        transforms.append(transform_fn)
+    
+    return transforms

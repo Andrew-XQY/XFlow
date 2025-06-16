@@ -135,3 +135,6 @@ class InMemoryPipeline(BasePipeline):
     
     def __getitem__(self, index: int) -> Any:
         return self.dataset[index]
+    
+    def to_framework_dataset(self) -> Any:
+        pass

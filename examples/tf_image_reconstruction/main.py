@@ -3,7 +3,8 @@ from pix2pix import Pix2Pix
 from xflow.utils.config import ConfigManager, load_validated_config
 from xflow.trainers.trainer import BaseTrainer 
 from xflow.data.provider import FileProvider
-from xflow.data.pipeline import BasePipeline
+from xflow.data.pipeline import InMemoryPipeline
+from xflow.data.transforms import build_transforms_from_config
 from pathlib import Path
 import os
 
@@ -21,7 +22,9 @@ base = Path(config["paths"]["base"])
 # ====================================
 provider = FileProvider(base / config["data"]["root"])
 print(f"total files found:{len(provider)}")
-pipeline = BasePipeline(provider, )
+transforms = build_transforms_from_config(config['transforms'])
+print(f"total transforms: {len(transforms)}")
+pipeline = InMemoryPipeline(provider, transforms)
 exit()
 
 
@@ -35,7 +38,7 @@ model = Pix2Pix(config["model"])
 # ====================================
 # Training pipeline
 # ====================================
-trainer = BaseTrainer(
+trainer = BaseTrainer(  # will use TF Trainer 
     model=model,
     pipeline=pipeline,
     config=config["training"]

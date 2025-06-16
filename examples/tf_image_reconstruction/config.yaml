@@ -18,12 +18,11 @@ training:
 
 transforms:
   - name: "load_image"
-  - name: "resize"
-    params:
-      size: [224, 224]
-  - name: "to_tensor"
-  - name: "normalize"
-  
+  - name: "to_narray"
+  - name: "to_grayscale"
+  - name: "remap_range"
+  - name: "split_width"
+
 data:  
   root: "DataHub/local_images/MMF/"
   train_size: 0.9
