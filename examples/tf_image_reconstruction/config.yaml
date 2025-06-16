@@ -1,8 +1,13 @@
+# top‐level paths
+paths:
+  base: "C:/Users/qiyuanxu/Documents/"    # machine-specific root
+
 model:
   channels: 1
   lambda_l1: 100
   learning_rate: 0.0002
   beta_1: 0.5
+  save_path: "DataHub/results/dev/"
 
 training:
   epochs: 50
@@ -11,8 +16,8 @@ training:
   checkpoint_interval: 5000
   checkpoint_dir: "./training_checkpoints"
 
-data:
-  data_root: "C:\\Users\\qiyuanxu\\Documents\\DataWarehouse\\MMF\\procIMGs\\processed\\"
+data:  
+  root: "DataHub/local_images/MMF/"
   train_size: 0.9
   val_size: 0.1
   image_size: [256, 256]

@@ -2,7 +2,9 @@
 from pix2pix import Pix2Pix
 from xflow.utils.config import ConfigManager, load_validated_config
 from xflow.trainers.trainer import BaseTrainer 
-from xflow.data.loader import BasePipeline      
+from xflow.data.provider import FileProvider
+from xflow.data.loader import BasePipeline
+from pathlib import Path
 import os
 
 cur_dir = os.path.dirname(__file__)
@@ -12,25 +14,21 @@ cur_dir = os.path.dirname(__file__)
 # ====================================
 config_manager = ConfigManager(load_validated_config(os.path.join(cur_dir, "config.yaml")))
 config = config_manager.get()
-model_config = config.get("model", {})
-training_config = config.get("training", {})
-data_config = config.get("data", {})
-
-print("Model configuration:", model_config)
-print("Training configuration:", training_config)
-print("Data configuration:", data_config)
+base = Path(config["paths"]["base"])
 
 # ====================================
 # Data pipeline
 # ====================================
-pipeline = BasePipeline(data_config)
-
+provider = FileProvider(base / config["data"]["root"])
+print(f"total files found:{len(provider)}")
+pipeline = BasePipeline(provider, )
+exit()
 
 
 # ====================================
 # Model definition
 # ====================================
-model = Pix2Pix(config)
+model = Pix2Pix(config["model"])
 
 
 
@@ -40,7 +38,7 @@ model = Pix2Pix(config)
 trainer = BaseTrainer(
     model=model,
     pipeline=pipeline,
-    config=training_config
+    config=config["training"]
 )
 trainer.fit()
 

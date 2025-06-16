@@ -1,4 +1,4 @@
-"""General puerpose configuration file parser."""
+"""General puerpose file parser."""
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Union, Type

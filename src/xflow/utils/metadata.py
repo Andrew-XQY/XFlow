@@ -1,4 +1,4 @@
-"""Decoupled metadata collection with extensible hooks"""
+"""Metadata collection with extensible hooks"""
 
 import logging
 from typing import Mapping, Dict, Callable, Any, Optional

@@ -1,20 +1,14 @@
-"""pipeline.py
-Core abstractions for building reusable, named preprocessing pipelines:
-- DataProvider / ListProvider
-- Transform (named transform)
-- BasePipeline
-"""
-
-from abc import ABC, abstractmethod
+"""Core abstractions for building reusable, named preprocessing pipelines:"""
 from dataclasses import dataclass
-from typing import Callable, Iterable, Iterator, Any, Optional, List, Dict, Union
+from abc import ABC, abstractmethod
+from typing import Callable, Iterator, Any, Optional, List, Union
+from .provider import DataProvider
 import logging
 import itertools
 
-
 @dataclass
 class Transform:
-    """Wrapper for a preprocessing function with metadata."""
+    """Wrapper for a preprocessing function with metadata. (like len)"""
     fn: Callable[[Any], Any]
     name: str
 
@@ -23,30 +17,7 @@ class Transform:
 
     def __repr__(self) -> str:
         return self.name
-
-class DataProvider(ABC):
-    """Minimal wrapper to add attributes to data sources."""
     
-    @abstractmethod
-    def __call__(self) -> Iterable[Any]:
-        """Return iterable of data items."""
-        ...
-    
-    @abstractmethod  
-    def __len__(self) -> int:
-        """Return number of items."""
-        ...
-
-class ListProvider(DataProvider):
-    """Wrap a list/array as a data provider."""
-    def __init__(self, data: List[Any]):
-        self._data = data
-    
-    def __call__(self) -> Iterable[Any]:
-        return self._data
-    
-    def __len__(self) -> int:
-        return len(self._data)
     
 class BasePipeline(ABC):
     """Base class for data pipelines in scientific machine learning.
@@ -92,9 +63,7 @@ class BasePipeline(ABC):
         ]
         self.logger = logger or logging.getLogger(__name__)
         self.skip_errors = skip_errors
-    
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(items={len(self)})"
+        self.error_count = 0
 
     def __iter__(self) -> Iterator[Any]:
         """Iterate over preprocessed items."""
@@ -105,6 +74,7 @@ class BasePipeline(ABC):
                     item = fn(item)
                 yield item
             except Exception as e:
+                self.error_count += 1
                 self.logger.warning(f"Failed to preprocess item: {e}")
                 if not self.skip_errors:
                     raise
@@ -127,19 +97,41 @@ class BasePipeline(ABC):
         from .transforms import BatchPipeline
         return BatchPipeline(self, batch_size)
     
-    def get_metadata(self) -> Dict[str, Any]:
-        """Get comprehensive pipeline metadata for experiment reproducibility."""
-        metadata = {
-            "pipeline_type": self.__class__.__name__,
-            "preprocessing_functions": [str(fn) for fn in self.transforms]
-        }
-        try:
-            metadata["dataset_size"] = len(self)
-        except (TypeError, NotImplementedError):
-            metadata["dataset_size"] = "unknown"
-        return metadata
+    def reset_error_count(self) -> None:
+        """Reset the error count to zero."""
+        self.error_count = 0
     
     @abstractmethod
     def to_framework_dataset(self) -> Any:
         """Convert pipeline to framework-native dataset."""
         ...
+        
+class InMemoryPipeline(BasePipeline):
+    """In-memory pipeline that processes all data upfront."""
+    
+    def __init__(
+        self,
+        data_provider: DataProvider, 
+        transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
+        *,
+        logger: Optional[logging.Logger] = None,
+        skip_errors: bool = True,
+    ) -> None:
+        super().__init__(data_provider, transforms, logger=logger, skip_errors=skip_errors)
+        
+        from .transforms import apply_transforms_to_dataset
+        self.dataset, self.error_count = apply_transforms_to_dataset(
+            self.data_provider(),
+            self.transforms,
+            logger=self.logger,
+            skip_errors=self.skip_errors
+        )
+    
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self.dataset)
+    
+    def __len__(self) -> int:
+        return len(self.dataset)
+    
+    def __getitem__(self, index: int) -> Any:
+        return self.dataset[index]
