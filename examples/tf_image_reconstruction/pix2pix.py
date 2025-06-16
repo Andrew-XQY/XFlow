@@ -239,7 +239,7 @@ class Pix2Pix(BaseModel):
             json.dump(config, f)
 
     @classmethod
-    def load(cls, path: str, **kwargs) -> "Pix2PixGAN":
+    def load(cls, path: str, **kwargs) -> "Pix2Pix":
         """Load model from saved weights and config"""
         import json
         
