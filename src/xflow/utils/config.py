@@ -2,7 +2,7 @@
 
 import copy
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Self, Union, Type
+from typing import Dict, Any, Self, Union, Type, Optional
 from pathlib import Path
 from .parser import load_file, save_file
 
@@ -35,14 +35,20 @@ class BaseModelConfig(BaseModel):
 
 def load_validated_config(
     filepath: Union[str, Path],
-    schema: Type[BaseModel]
+    schema: Optional[Type[BaseModel]] = None
 ) -> Dict[str, Any]:
-    """Load and validate config using Pydantic schema.
+    """Load and optionally validate config using Pydantic schema.
     
-    Single validation point - all validation flows through here.
-    Returns native dict for downstream consumption.
+    Args:
+        filepath: Path to config file
+        schema: Optional Pydantic model for validation. If None, returns raw dict
+        
+    Returns:
+        Dict containing configuration data (validated if schema provided)
     """
     raw = load_file(filepath)
+    if schema is None:
+        return raw
     validated = schema(**raw)
     return validated.model_dump()
 

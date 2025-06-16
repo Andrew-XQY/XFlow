@@ -1,61 +1,54 @@
-import tensorflow as tf
-import pandas as pd
-import cv2
-import numpy as np
+"""Example of experiment specific code for image reconstruction task using the framework"""
+from pix2pix import Pix2Pix
+from xflow.utils.config import ConfigManager, load_validated_config
+from xflow.trainers.trainer import BaseTrainer 
+from xflow.data.loader import BasePipeline      
+import os
 
-from pathlib import Path
+cur_dir = os.path.dirname(__file__)
 
-# Suppose BASE_DIR is something you set in a config or env var
-BASE_DIR = Path("/path/to/your/project")
-data_dir = BASE_DIR / "data" / "images"
+# ====================================
+# Training configuration
+# ====================================
+config_manager = ConfigManager(load_validated_config(os.path.join(cur_dir, "config.yaml")))
+config = config_manager.get()
+model_config = config.get("model", {})
+training_config = config.get("training", {})
+data_config = config.get("data", {})
 
-# 1 Preprocessing: read, normalize, split
-def load_and_process_image(path: tf.Tensor) -> (tf.Tensor, tf.Tensor):
-    raw = tf.io.read_file(path)
-    img = tf.image.decode_image(raw, channels=1, expand_animations=False)
-    img = tf.image.convert_image_dtype(img, tf.float32)
-    w = tf.shape(img)[1] // 2
-    label = img[:, :w, :]
-    inp = img[:, w:, :]
-    return inp, label
+print("Model configuration:", model_config)
+print("Training configuration:", training_config)
+print("Data configuration:", data_config)
 
-# 2 Data provider: SQL → list of paths
-def data_provider() -> list[str]:
-    sql = """
-        SELECT image_path
-        FROM mmf_dataset_metadata
-        WHERE is_calibration = 0
-          AND purpose = 'testing'
-          AND comments IS NULL
-    """
-    df = DB.sql_select(sql)
-    paths = [ABS_DIR + p for p in df["image_path"].to_list()]
-    return paths[::5]
-
-# 3 Build tf.data.Dataset
-def build_dataset(batch_size: int) -> tf.data.Dataset:
-    pipeline = TFPipeline(
-        data_provider=data_provider,
-        map_fn=load_and_process_image
-    )
-    return pipeline.get_dataset(batch_size=batch_size, shuffle=False)
-
-# 4 Example: evaluate a model
-if __name__ == "__main__":
-    val_ds = build_dataset(batch_size=32)
-    model = ...  # your tf.keras.Model
-    model.compile(optimizer="adam", loss="mse")
-    model.evaluate(val_ds)
+# ====================================
+# Data pipeline
+# ====================================
+pipeline = BasePipeline(data_config)
 
 
 
-import numpy as np
-def data_provider():
-    return ["/path/to/file1.csv", "/path/to/file2.csv"]
-preprocess_fns = [
-    lambda path: np.loadtxt(path, delimiter=","),  # Load CSV
-    lambda data: data / np.max(data),             # Normalize
-    lambda data: (data[:-1], data[-1])            # Split into (input, label)
-]
-pipeline = MyPipeline(data_provider, preprocess_fns, cache=True)
-model.fit(pipeline, epochs=10)  # Works with TensorFlow
+# ====================================
+# Model definition
+# ====================================
+model = Pix2Pix(config)
+
+
+
+# ====================================
+# Training pipeline
+# ====================================
+trainer = BaseTrainer(
+    model=model,
+    pipeline=pipeline,
+    config=training_config
+)
+trainer.fit()
+
+
+
+# ====================================
+# Save results
+# ====================================
+model.save("./checkpoints/pix2pix_model")
+loaded_model = Pix2Pix.load("./checkpoints/pix2pix_model")
+
