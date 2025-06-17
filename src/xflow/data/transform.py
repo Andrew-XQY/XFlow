@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 from .pipeline import BasePipeline
-from ..utils.decorators import with_progress
+from ..utils.decorator import with_progress
 
 
 @with_progress

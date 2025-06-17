@@ -4,7 +4,7 @@ from xflow.utils.config import ConfigManager, load_validated_config
 from xflow.trainers.trainer import BaseTrainer 
 from xflow.data.provider import FileProvider
 from xflow.data.pipeline import InMemoryPipeline
-from xflow.data.transforms import build_transforms_from_config
+from xflow.data.transform import build_transforms_from_config
 from xflow.utils.helper import get_base_dir
 from pathlib import Path
 import os

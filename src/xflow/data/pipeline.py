@@ -89,12 +89,12 @@ class BasePipeline(ABC):
         
     def shuffle(self, buffer_size: int) -> 'BasePipeline':
         """Return a new pipeline that shuffles items with a reservoir buffer."""
-        from .transforms import ShufflePipeline
+        from .transform import ShufflePipeline
         return ShufflePipeline(self, buffer_size)
 
     def batch(self, batch_size: int) -> 'BasePipeline':
         """Return a new pipeline that batches items into lists."""
-        from .transforms import BatchPipeline
+        from .transform import BatchPipeline
         return BatchPipeline(self, batch_size)
     
     def reset_error_count(self) -> None:
@@ -119,7 +119,7 @@ class InMemoryPipeline(BasePipeline):
     ) -> None:
         super().__init__(data_provider, transforms, logger=logger, skip_errors=skip_errors)
         
-        from .transforms import apply_transforms_to_dataset
+        from .transform import apply_transforms_to_dataset
         self.dataset, self.error_count = apply_transforms_to_dataset(
             self.data_provider(),
             self.transforms,

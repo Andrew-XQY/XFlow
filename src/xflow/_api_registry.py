@@ -22,25 +22,30 @@ class APIItem:
 # Core API - most commonly used items at package root
 CORE_API = {
     # Data pipeline components
-    "BasePipeline": APIItem("data.loader", "BasePipeline"),
-    "Pipeline": APIItem("data.loader", "BasePipeline", alias="Pipeline"),
-    "ShufflePipeline": APIItem("data.transforms", "ShufflePipeline"),
-    "BatchPipeline": APIItem("data.transforms", "BatchPipeline"),
+    "FileProvider": APIItem("data.provider", "FileProvider"),
+    "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
+    "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
+    "InMemoryPipeline": APIItem("data.pipeline", "InMemoryPipeline"),
+    "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
+    "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
+    "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
+    "ConfigManager": APIItem("utils.config", "ConfigManager"),
     
     # Models
     "BaseModel": APIItem("models.base", "BaseModel"),
     
     # Utilities
     "plot_image": APIItem("utils.visualization", "plot_image"),
+    "get_base_dir": APIItem("utils.helper", "get_base_dir"),
 }
 
 # Package-level API organization
 PACKAGE_API = {
     "data": {
-        "BasePipeline": APIItem("data.loader", "BasePipeline"),
-        "Pipeline": APIItem("data.loader", "BasePipeline", alias="Pipeline"),
-        "ShufflePipeline": APIItem("data.transforms", "ShufflePipeline"),
-        "BatchPipeline": APIItem("data.transforms", "BatchPipeline"),
+        "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
+        "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
+        "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
+        "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
         "InMemoryPipeline": APIItem("data.pipeline", "InMemoryPipeline"),
     },
     "models": {
