@@ -29,10 +29,9 @@ CORE_API = {
     
     # Models
     "BaseModel": APIItem("models.base", "BaseModel"),
-    "AutoEncoder": APIItem("models.autoencoder", "AutoEncoder"),
     
     # Utilities
-    "get_logger": APIItem("utils.logger", "get_logger"),
+    "plot_image": APIItem("utils.visualization", "plot_image"),
 }
 
 # Package-level API organization
@@ -46,14 +45,13 @@ PACKAGE_API = {
     },
     "models": {
         "BaseModel": APIItem("models.base", "BaseModel"),
-        "AutoEncoder": APIItem("models.autoencoder", "AutoEncoder"),
     },
     "utils": {
-        "get_logger": APIItem("utils.logger", "get_logger"),
+        "plot_image": APIItem("utils.visualization", "plot_image"),
     }
 }
 
-def generate_init_content(api_dict: Dict[str, APIItem], 
+def generate_init(api_dict: Dict[str, APIItem], 
                          package_name: str = "xflow") -> str:
     """Generate __init__.py content from API dictionary"""
     imports = []

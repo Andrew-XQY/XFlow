@@ -2,7 +2,6 @@
 Script to generate __init__.py files from API registry.
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -10,7 +9,7 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from xflow._api_registry import CORE_API, PACKAGE_API, generate_init_content
+from xflow._api_registry import CORE_API, PACKAGE_API, generate_init
 
 def generate_all_apis():
     """Generate all __init__.py files"""
@@ -18,7 +17,7 @@ def generate_all_apis():
     
     # Generate main package __init__.py
     main_init = src_dir / "xflow" / "__init__.py"
-    main_content = generate_init_content(CORE_API, "xflow")
+    main_content = generate_init(CORE_API, "xflow")
     
     print(f"Generating {main_init}")
     with open(main_init, "w") as f:
@@ -29,7 +28,7 @@ def generate_all_apis():
         package_init = src_dir / "xflow" / package_name / "__init__.py"
         package_init.parent.mkdir(parents=True, exist_ok=True)
         
-        package_content = generate_init_content(api_dict, f"xflow.{package_name}")
+        package_content = generate_init(api_dict, f"xflow.{package_name}")
         
         print(f"Generating {package_init}")
         with open(package_init, "w") as f:
