@@ -1,6 +1,7 @@
-from typing import Any, Iterable, List, Union, Optional
+from typing import Any, Iterable, List, Union, Optional, Tuple
 from abc import ABC, abstractmethod
 from pathlib import Path
+import random
     
     
 class DataProvider(ABC):
@@ -15,6 +16,22 @@ class DataProvider(ABC):
     def __len__(self) -> int:
         """Return number of items."""
         ...
+        
+    def split(self, train_ratio: float = 0.8, seed: int = 42) -> Tuple['DataProvider', 'DataProvider']:
+        """
+        Split provider into train/val providers.
+        
+        Args:
+            train_ratio: Portion for training set (0.0 to 1.0)
+            seed: Random seed for reproducible splits
+            
+        Returns:
+            Tuple of (train_provider, val_provider)
+            
+        Raises:
+            NotImplementedError: If provider doesn't support splitting
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} doesn't support splitting. Create separate providers manually.")
     
     
 class FileProvider(DataProvider):
@@ -61,3 +78,42 @@ class FileProvider(DataProvider):
     def __len__(self):
         """Return number of files found."""
         return len(self._file_paths)
+    
+    @classmethod
+    def _from_file_list(cls, file_paths: List[str], extensions: Optional[List[str]] = None) -> 'FileProvider':
+        """Create FileProvider from explicit file list (internal helper)."""
+        instance = cls.__new__(cls)
+        instance.root_paths = []  # Not used when created from file list
+        instance.extensions = extensions
+        instance._file_paths = sorted(file_paths)
+        return instance
+    
+    def split(self, train_ratio: float = 0.8, seed: int = 42) -> Tuple['FileProvider', 'FileProvider']:
+        """
+        Split files into train/val providers.
+        
+        Args:
+            train_ratio: Portion for training set (0.0 to 1.0)
+            seed: Random seed for reproducible splits
+            
+        Returns:
+            Tuple of (train_provider, val_provider)
+        """
+        if not 0.0 <= train_ratio <= 1.0:
+            raise ValueError(f"train_ratio must be between 0.0 and 1.0, got {train_ratio}")
+        
+        # Create reproducible shuffle
+        files = self._file_paths.copy()
+        rng = random.Random(seed)
+        rng.shuffle(files)
+        
+        # Split files
+        split_idx = int(len(files) * train_ratio)
+        train_files = files[:split_idx]
+        val_files = files[split_idx:]
+        
+        # Create new providers with same extensions
+        train_provider = self._from_file_list(train_files, self.extensions)
+        val_provider = self._from_file_list(val_files, self.extensions)
+        
+        return train_provider, val_provider
