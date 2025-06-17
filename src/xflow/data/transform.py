@@ -253,7 +253,7 @@ def tf_split_width(image):
     mid_point = width // 2
     left_half = image[:, :mid_point]
     right_half = image[:, mid_point:]
-    return [left_half, right_half]
+    return left_half, right_half
 
 @TransformRegistry.register("tf_expand_dims")
 def tf_expand_dims(image, axis: int = -1):
@@ -290,3 +290,58 @@ def build_transforms_from_config(
         transforms.append(transform_fn)
     
     return transforms
+
+
+class DatasetOperationRegistry:
+    """Registry for dataset-level operations."""
+    _operations: Dict[str, Callable] = {}
+    
+    @classmethod
+    def register(cls, name: str):
+        def decorator(fn):
+            cls._operations[name] = fn
+            return fn
+        return decorator
+    
+    @classmethod
+    def get(cls, name: str):
+        if name not in cls._operations:
+            raise ValueError(f"Unknown dataset operation: {name}")
+        return cls._operations[name]
+    
+    @classmethod
+    def list_operations(cls):
+        return list(cls._operations.keys())
+    
+    
+# Dataset operations (applied to entire dataset)
+@DatasetOperationRegistry.register("tf_batch")
+def tf_batch(dataset, batch_size: int, drop_remainder: bool = False):
+    return dataset.batch(batch_size, drop_remainder=drop_remainder)
+
+@DatasetOperationRegistry.register("tf_prefetch") 
+def tf_prefetch(dataset, buffer_size: int = None):
+    import tensorflow as tf
+    if buffer_size is None:
+        buffer_size = tf.data.AUTOTUNE
+    return dataset.prefetch(buffer_size)
+
+@DatasetOperationRegistry.register("tf_shuffle")
+def tf_shuffle(dataset, buffer_size: int, seed: int = None):
+    return dataset.shuffle(buffer_size, seed=seed)
+
+@DatasetOperationRegistry.register("tf_repeat")
+def tf_repeat(dataset, count: int = None):
+    return dataset.repeat(count)
+
+@DatasetOperationRegistry.register("tf_cache")
+def tf_cache(dataset, filename: str = ""):
+    return dataset.cache(filename)
+
+@DatasetOperationRegistry.register("tf_take")
+def tf_take(dataset, count: int):
+    return dataset.take(count)
+
+@DatasetOperationRegistry.register("tf_skip")
+def tf_skip(dataset, count: int):
+    return dataset.skip(count)

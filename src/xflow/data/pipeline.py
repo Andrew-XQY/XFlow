@@ -1,10 +1,12 @@
 """Core abstractions for building reusable, named preprocessing pipelines:"""
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Callable, Iterator, Any, Optional, List, Union
+from typing import Callable, Iterator, Any, Optional, List, Union, Dict, TYPE_CHECKING
 from .provider import DataProvider
 import logging
 import itertools
+if TYPE_CHECKING:
+    import tensorflow as tf
 
 @dataclass
 class Transform:
@@ -136,5 +138,59 @@ class InMemoryPipeline(BasePipeline):
     def __getitem__(self, index: int) -> Any:
         return self.dataset[index]
     
-    def to_framework_dataset(self) -> Any:
-        pass
+    def to_framework_dataset(self, framework: str = "tensorflow", dataset_ops: List[Dict] = None) -> Any:
+        """Convert to framework-native dataset using already processed data."""
+        if framework.lower() == "tensorflow":
+            try:
+                import tensorflow as tf
+                dataset = tf.data.Dataset.from_tensor_slices(self.dataset)
+                
+                # Apply dataset operations using registry
+                if dataset_ops:
+                    from .transform import DatasetOperationRegistry
+                    for op_config in dataset_ops:
+                        name = op_config["name"]
+                        params = op_config.get("params", {})
+                        operation = DatasetOperationRegistry.get(name)
+                        dataset = operation(dataset, **params)
+                
+                return dataset
+            except ImportError:
+                raise RuntimeError("TensorFlow not available")
+        else:
+            raise NotImplementedError(f"Framework {framework} not implemented")
+    
+class TensorFlowPipeline(BasePipeline):
+    """Pipeline that uses TensorFlow-native transforms without preprocessing."""
+    
+    def to_framework_dataset(self, framework: str = "tensorflow", dataset_ops: List[Dict] = None):
+        """Convert to TensorFlow dataset."""
+        if framework.lower() != "tensorflow":
+            raise ValueError(f"TensorFlowPipeline only supports tensorflow, got {framework}")
+            
+        try:
+            import tensorflow as tf
+            
+            file_paths = list(self.data_provider())
+            dataset = tf.data.Dataset.from_tensor_slices(file_paths)
+            
+            # Apply TF transforms sequentially
+            for transform in self.transforms:
+                if hasattr(transform.fn, '__name__') and transform.fn.__name__.startswith('tf_'):
+                    dataset = dataset.map(transform.fn, num_parallel_calls=tf.data.AUTOTUNE)
+                else:
+                    self.logger.warning(f"Transform {transform.name} is not TF-native, skipping")
+            
+            # Apply dataset operations using registry
+            if dataset_ops:
+                from .transform import DatasetOperationRegistry
+                for op_config in dataset_ops:
+                    name = op_config["name"]
+                    params = op_config.get("params", {})
+                    operation = DatasetOperationRegistry.get(name)
+                    dataset = operation(dataset, **params)
+            
+            return dataset
+            
+        except ImportError:
+            raise RuntimeError("TensorFlow not available")

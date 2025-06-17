@@ -26,6 +26,7 @@ CORE_API = {
     "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
     "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
     "InMemoryPipeline": APIItem("data.pipeline", "InMemoryPipeline"),
+    "TensorFlowPipeline": APIItem("data.pipeline", "TensorFlowPipeline"),
     "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
     "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
     "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
