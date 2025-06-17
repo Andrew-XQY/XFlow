@@ -1,5 +1,5 @@
 """
-Script to generate __init__.py files from API registry.
+Script to generate __init__.py files from API registry. Simply run: python path_to_dir/generate_api.py
 """
 
 import sys

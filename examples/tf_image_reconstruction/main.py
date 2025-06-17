@@ -1,11 +1,8 @@
 """Example of experiment specific code for image reconstruction task using the framework"""
 from pix2pix import Pix2Pix
-from xflow.utils.config import ConfigManager, load_validated_config
-from xflow.trainers.trainer import BaseTrainer 
-from xflow.data.provider import FileProvider
-from xflow.data.pipeline import InMemoryPipeline
-from xflow.data.transform import build_transforms_from_config
-from xflow.utils.helper import get_base_dir
+from xflow import FileProvider, InMemoryPipeline, BaseTrainer, ConfigManager
+from xflow.data import build_transforms_from_config
+from xflow.utils import get_base_dir, plot_image, load_validated_config
 from pathlib import Path
 import os
 
