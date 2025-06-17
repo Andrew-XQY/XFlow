@@ -216,12 +216,22 @@ def split_width(image: np.ndarray) -> List[np.ndarray]:
 
 
 # TensorFlow transforms
+@TransformRegistry.register("tf_read_file")
+def tf_read_file(filepath):
+    """Read file contents as bytes using TensorFlow."""
+    import tensorflow as tf
+    return tf.io.read_file(filepath)
+
 @TransformRegistry.register("tf_decode_image")
 def tf_decode_image(image_bytes):
-    """Decode image bytes using TensorFlow."""
+    """Decode image bytes to tensor using TensorFlow."""
     import tensorflow as tf
     return tf.image.decode_image(image_bytes)
 
+@TransformRegistry.register("tf_normalize")
+def tf_normalize(image, mean: float = 0.0, std: float = 1.0):
+    import tensorflow as tf
+    return tf.cast(image, tf.float32) / 255.0 * std + mean
 
 @TransformRegistry.register("tf_resize")
 def tf_resize(image, size: List[int]):
@@ -229,13 +239,33 @@ def tf_resize(image, size: List[int]):
     import tensorflow as tf
     return tf.image.resize(image, size)
 
-
 @TransformRegistry.register("tf_to_grayscale")
 def tf_to_grayscale(image):
     """Convert to grayscale using TensorFlow."""
     import tensorflow as tf
     return tf.image.rgb_to_grayscale(image)
 
+@TransformRegistry.register("tf_split_width")
+def tf_split_width(image):
+    """Split image at width midpoint using TensorFlow."""
+    import tensorflow as tf
+    width = tf.shape(image)[1]
+    mid_point = width // 2
+    left_half = image[:, :mid_point]
+    right_half = image[:, mid_point:]
+    return [left_half, right_half]
+
+@TransformRegistry.register("tf_expand_dims")
+def tf_expand_dims(image, axis: int = -1):
+    """Add dimension to tensor."""
+    import tensorflow as tf
+    return tf.expand_dims(image, axis)
+
+@TransformRegistry.register("tf_squeeze")
+def tf_squeeze(image, axis: List[int] = None):
+    """Remove dimensions of size 1."""
+    import tensorflow as tf
+    return tf.squeeze(image, axis)
 
 def build_transforms_from_config(
     config: List[Dict[str, Any]], 
