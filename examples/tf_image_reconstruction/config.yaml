@@ -1,13 +1,13 @@
-# top‐level paths
+# sample configuration file for image reconstruction task
 paths:
-  base: "C:/Users/qiyuanxu/Documents/"    # machine-specific root
+  base: "C:/Users/username/Documents/"    # machine-specific root
 
 model:
   channels: 1
   lambda_l1: 100
   learning_rate: 0.0002
   beta_1: 0.5
-  save_path: "DataHub/results/dev/"
+  save_path: "DataHub/results/"
 
 training:
   epochs: 50
@@ -24,7 +24,7 @@ transforms:
   - name: "split_width"
 
 data:  
-  root: "DataHub/local_images/MMF/"
+  root: "DataHub/local_images/"
   train_size: 0.9
   val_size: 0.1
   image_size: [256, 256]

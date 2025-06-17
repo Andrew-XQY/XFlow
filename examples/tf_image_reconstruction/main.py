@@ -5,10 +5,11 @@ from xflow.trainers.trainer import BaseTrainer
 from xflow.data.provider import FileProvider
 from xflow.data.pipeline import InMemoryPipeline
 from xflow.data.transforms import build_transforms_from_config
+from xflow.utils.helper import get_base_dir
 from pathlib import Path
 import os
 
-cur_dir = os.path.dirname(__file__)
+cur_dir = get_base_dir()
 
 # ====================================
 # Training configuration
@@ -25,14 +26,12 @@ print(f"total files found:{len(provider)}")
 transforms = build_transforms_from_config(config['transforms'])
 print(f"total transforms: {len(transforms)}")
 pipeline = InMemoryPipeline(provider, transforms)
-exit()
 
 
 # ====================================
 # Model definition
 # ====================================
 model = Pix2Pix(config["model"])
-
 
 
 # ====================================
@@ -50,6 +49,6 @@ trainer.fit()
 # ====================================
 # Save results
 # ====================================
-model.save("./checkpoints/pix2pix_model")
-loaded_model = Pix2Pix.load("./checkpoints/pix2pix_model")
+model.save(config["model"]["save_path"])
+
 
