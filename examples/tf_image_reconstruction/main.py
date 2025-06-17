@@ -10,6 +10,8 @@ from pathlib import Path
 import os
 
 cur_dir = get_base_dir()
+print(f"Current directory: {cur_dir}")
+exit()
 
 # ====================================
 # Training configuration

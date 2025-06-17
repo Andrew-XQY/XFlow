@@ -17,9 +17,25 @@ def print_caller_directory():
 
 def get_base_dir() -> Path:
     """
-    Returns the directory path of the calling context with enhanced robustness.
+    Returns the directory path of the calling context with cross-environment compatibility.
     """
-    # 1. Direct script execution: __main__.__file__ exists
+    # 1. Check if running in Jupyter notebook
+    try:
+        # Check for IPython/Jupyter environment
+        if 'ipykernel' in sys.modules or 'IPython' in sys.modules:
+            # Try to get notebook directory from IPython
+            try:
+                from IPython import get_ipython
+                ipython = get_ipython()
+                if ipython is not None:
+                    # Get the current working directory in Jupyter
+                    return Path(os.getcwd()).resolve()
+            except ImportError:
+                pass
+    except Exception:
+        pass
+
+    # 2. Direct script execution: __main__.__file__ exists
     try:
         main_file = getattr(__main__, '__file__', None)
         if main_file and os.path.exists(main_file):
@@ -27,24 +43,25 @@ def get_base_dir() -> Path:
     except Exception:
         pass
 
-    # 2. Check if running as frozen executable
+    # 3. Check if running as frozen executable
     try:
         if getattr(sys, 'frozen', False):
-            # Fix: Both branches do the same thing, could be simplified
             return Path(sys.executable).parent.resolve()
     except Exception:
         pass
 
-    # 3. Fallback: inspect stack for first external caller
+    # 4. Fallback: inspect stack for first external caller (skip IPython frames)
     try:
-        # Fix: Remove unused variable
         current_file = Path(__file__).resolve()
         
         for frame_info in inspect.stack()[1:]:  # skip current frame
             filename = frame_info.filename
-            # Skip interactive frames, this module, and built-ins
+            # Skip interactive frames, this module, IPython/Jupyter internals, and built-ins
             if (filename.startswith('<') or 
                 filename.startswith('[') or  # some REPLs use brackets
+                'IPython' in filename or
+                'ipykernel' in filename or
+                'jupyter' in filename or
                 Path(filename).resolve() == current_file):
                 continue
             
@@ -55,7 +72,7 @@ def get_base_dir() -> Path:
     except Exception:
         pass
 
-    # 4. Try sys.argv[0] if available
+    # 5. Try sys.argv[0] if available
     try:
         if sys.argv and sys.argv[0]:
             script_path = Path(sys.argv[0])
@@ -64,5 +81,5 @@ def get_base_dir() -> Path:
     except Exception:
         pass
 
-    # 5. Ultimate fallback: current working directory
+    # 6. Ultimate fallback: current working directory
     return Path(os.getcwd()).resolve()
