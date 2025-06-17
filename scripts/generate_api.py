@@ -5,14 +5,31 @@ Script to generate __init__.py files from API registry.
 import sys
 from pathlib import Path
 
-# Add src to path
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
-
-from xflow._api_registry import CORE_API, PACKAGE_API, generate_init
+def clean_init_files():
+    """Clean all __init__.py files to avoid circular imports during generation"""
+    src_dir = Path(__file__).parent.parent / "src"
+    
+    # Clean main package __init__.py
+    main_init = src_dir / "xflow" / "__init__.py"
+    if main_init.exists():
+        print(f"Cleaning {main_init}")
+        with open(main_init, "w") as f:
+            f.write('"""Auto-generated API exports"""\n# Temporarily empty during generation\n')
+    
+    # Clean known subpackage __init__.py files
+    known_packages = ["data", "models", "utils", "trainers"]  # Add your known packages
+    for package_name in known_packages:
+        package_init = src_dir / "xflow" / package_name / "__init__.py"
+        if package_init.exists():
+            print(f"Cleaning {package_init}")
+            with open(package_init, "w") as f:
+                f.write('"""Auto-generated API exports"""\n# Temporarily empty during generation\n')
 
 def generate_all_apis():
     """Generate all __init__.py files"""
+    # NOW it's safe to import from xflow
+    from xflow._api_registry import CORE_API, PACKAGE_API, generate_init
+    
     src_dir = Path(__file__).parent.parent / "src"
     
     # Generate main package __init__.py
@@ -35,5 +52,14 @@ def generate_all_apis():
             f.write(package_content)
 
 if __name__ == "__main__":
+    # Add src to path
+    src_path = Path(__file__).parent.parent / "src"
+    sys.path.insert(0, str(src_path))
+    
+    print("Step 1: Cleaning existing __init__.py files...")
+    clean_init_files()
+    
+    print("\nStep 2: Generating new __init__.py files...")
     generate_all_apis()
-    print("API generation complete!")
+    
+    print("\nAPI generation complete!")

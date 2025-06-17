@@ -35,24 +35,26 @@ CORE_API = {
     "BaseModel": APIItem("models.base", "BaseModel"),
     
     # Utilities
-    "plot_image": APIItem("utils.visualization", "plot_image"),
-    "get_base_dir": APIItem("utils.helper", "get_base_dir"),
+
 }
 
 # Package-level API organization
 PACKAGE_API = {
     "data": {
-        "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
-        "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
-        "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
-        "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
-        "InMemoryPipeline": APIItem("data.pipeline", "InMemoryPipeline"),
+        "BasePipeline": APIItem("pipeline", "BasePipeline"),
+        "Pipeline": APIItem("pipeline", "BasePipeline", alias="Pipeline"),
+        "ShufflePipeline": APIItem("transform", "ShufflePipeline"),
+        "BatchPipeline": APIItem("transform", "BatchPipeline"),
+        "InMemoryPipeline": APIItem("pipeline", "InMemoryPipeline"),
+        "build_transforms_from_config": APIItem("transform", "build_transforms_from_config"),
     },
     "models": {
-        "BaseModel": APIItem("models.base", "BaseModel"),
+        "BaseModel": APIItem("base", "BaseModel"),
     },
     "utils": {
-        "plot_image": APIItem("utils.visualization", "plot_image"),
+        "plot_image": APIItem("visualization", "plot_image"),
+        "get_base_dir": APIItem("helper", "get_base_dir"),
+        "load_validated_config": APIItem("config", "load_validated_config"),
     }
 }
 
