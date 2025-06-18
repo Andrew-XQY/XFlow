@@ -220,7 +220,6 @@ def split_width(image: np.ndarray) -> List[np.ndarray]:
     """Split image at width midpoint."""
     height, width = image.shape[:2]
     mid_point = width // 2
-    
     return [image[:, :mid_point], image[:, mid_point:]]
 
 
@@ -250,9 +249,25 @@ def tf_resize(image, size: List[int]):
 
 @TransformRegistry.register("tf_to_grayscale")
 def tf_to_grayscale(image):
-    """Convert to grayscale using TensorFlow."""
+    """Convert image to grayscale, handling RGB, RGBA, and single-channel images."""
     import tensorflow as tf
-    return tf.image.rgb_to_grayscale(image)
+    # Handle dynamic shapes properly
+    rank = tf.rank(image)
+    image = tf.cond(
+        tf.equal(rank, 2),
+        lambda: tf.expand_dims(image, -1),
+        lambda: image
+    )
+    ch = tf.shape(image)[-1]
+    
+    def rgb_branch():
+        rgb = image[..., :3]
+        return tf.image.rgb_to_grayscale(rgb)
+    
+    def gray_branch():
+        return image
+    
+    return tf.cond(tf.equal(ch, 1), gray_branch, rgb_branch)
 
 @TransformRegistry.register("tf_split_width")
 def tf_split_width(image):
