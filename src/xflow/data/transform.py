@@ -283,21 +283,15 @@ def build_transforms_from_config(
 ) -> List[Callable]:
     """Build transform pipeline from configuration."""
     transforms = []
-    
     for transform_config in config:
         if name_key not in transform_config:
             raise ValueError(f"Transform config missing '{name_key}' key: {transform_config}")
-        
         name = transform_config[name_key]
         params = transform_config.get(params_key, {})
-        
         transform_fn = TransformRegistry.get(name)
-        
         if params:
             transform_fn = partial(transform_fn, **params)
-        
         transforms.append(transform_fn)
-    
     return transforms
 
 
