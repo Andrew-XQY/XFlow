@@ -270,13 +270,16 @@ def tf_to_grayscale(image):
     return tf.cond(tf.equal(ch, 1), gray_branch, rgb_branch)
 
 @TransformRegistry.register("tf_split_width")
-def tf_split_width(image):
+def tf_split_width(image, swap: bool = False):
     """Split image at width midpoint using TensorFlow."""
     import tensorflow as tf
     width = tf.shape(image)[1]
     mid_point = width // 2
     left_half = image[:, :mid_point]
     right_half = image[:, mid_point:]
+    
+    if swap:
+        return right_half, left_half
     return left_half, right_half
 
 @TransformRegistry.register("tf_expand_dims")
