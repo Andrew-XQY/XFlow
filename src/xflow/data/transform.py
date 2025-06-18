@@ -317,10 +317,12 @@ class DatasetOperationRegistry:
 # Dataset operations (applied to entire dataset)
 @DatasetOperationRegistry.register("tf_batch")
 def tf_batch(dataset, batch_size: int, drop_remainder: bool = False):
+    """Group dataset elements into batches."""
     return dataset.batch(batch_size, drop_remainder=drop_remainder)
 
 @DatasetOperationRegistry.register("tf_prefetch") 
 def tf_prefetch(dataset, buffer_size: int = None):
+    """Prefetch data for better performance."""
     import tensorflow as tf
     if buffer_size is None:
         buffer_size = tf.data.AUTOTUNE
@@ -328,20 +330,25 @@ def tf_prefetch(dataset, buffer_size: int = None):
 
 @DatasetOperationRegistry.register("tf_shuffle")
 def tf_shuffle(dataset, buffer_size: int, seed: int = None):
+    """Randomly shuffle dataset elements."""
     return dataset.shuffle(buffer_size, seed=seed)
 
 @DatasetOperationRegistry.register("tf_repeat")
 def tf_repeat(dataset, count: int = None):
+    """Repeat dataset for multiple epochs."""
     return dataset.repeat(count)
 
 @DatasetOperationRegistry.register("tf_cache")
 def tf_cache(dataset, filename: str = ""):
+    """Cache dataset in memory or disk."""
     return dataset.cache(filename)
 
 @DatasetOperationRegistry.register("tf_take")
 def tf_take(dataset, count: int):
+    """Take first count elements from dataset."""
     return dataset.take(count)
 
 @DatasetOperationRegistry.register("tf_skip")
 def tf_skip(dataset, count: int):
+    """Skip first count elements from dataset."""
     return dataset.skip(count)
