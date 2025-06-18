@@ -205,6 +205,15 @@ def resize(image: np.ndarray, size: Tuple[int, int], interpolation: str = "lancz
     cv_interpolation = interp_map.get(interpolation, cv2.INTER_LANCZOS4)
     return cv2.resize(image, (target_width, target_height), interpolation=cv_interpolation)
 
+@TransformRegistry.register("expand_dims")
+def expand_dims(image: np.ndarray, axis: int = -1) -> np.ndarray:
+    """Add a dimension of size 1 at the specified axis."""
+    return np.expand_dims(image, axis=axis)
+
+@TransformRegistry.register("squeeze")
+def squeeze(image: np.ndarray, axis: Optional[Tuple[int, ...]] = None) -> np.ndarray:
+    """Remove dimensions of size 1 from the array."""
+    return np.squeeze(image, axis=axis)
 
 @TransformRegistry.register("split_width")
 def split_width(image: np.ndarray) -> List[np.ndarray]:
