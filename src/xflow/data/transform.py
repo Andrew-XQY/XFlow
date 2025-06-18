@@ -361,3 +361,21 @@ def tf_take(dataset, count: int):
 def tf_skip(dataset, count: int):
     """Skip first count elements from dataset."""
     return dataset.skip(count)
+
+def apply_dataset_operations_from_config(
+    dataset: Any,
+    operations_config: List[Dict[str, Any]],
+    name_key: str = "name", 
+    params_key: str = "params"
+) -> Any:
+    """Apply dataset operations from configuration."""
+    for op_config in operations_config:
+        if name_key not in op_config:
+            raise ValueError(f"Operation config missing '{name_key}' key: {op_config}")
+        name = op_config[name_key]
+        params = op_config.get(params_key, {})
+        operation = DatasetOperationRegistry.get(name)
+        dataset = operation(dataset, **params)
+    return dataset
+
+                

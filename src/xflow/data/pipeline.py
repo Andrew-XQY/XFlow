@@ -147,12 +147,8 @@ class InMemoryPipeline(BasePipeline):
                 
                 # Apply dataset operations using registry
                 if dataset_ops:
-                    from .transform import DatasetOperationRegistry
-                    for op_config in dataset_ops:
-                        name = op_config["name"]
-                        params = op_config.get("params", {})
-                        operation = DatasetOperationRegistry.get(name)
-                        dataset = operation(dataset, **params)
+                    from .transform import apply_dataset_operations_from_config
+                    dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
                 
                 return dataset
             except ImportError:
@@ -183,12 +179,8 @@ class TensorFlowPipeline(BasePipeline):
             
             # Apply dataset operations using registry
             if dataset_ops:
-                from .transform import DatasetOperationRegistry
-                for op_config in dataset_ops:
-                    name = op_config["name"]
-                    params = op_config.get("params", {})
-                    operation = DatasetOperationRegistry.get(name)
-                    dataset = operation(dataset, **params)
+                from .transform import apply_dataset_operations_from_config
+                dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
             
             return dataset
             
