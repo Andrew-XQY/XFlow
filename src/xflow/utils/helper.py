@@ -4,6 +4,7 @@ import sys
 import __main__
 from pathlib import Path
 
+
 def print_caller_directory():
     """
     Prints the directory path of the script that called this function.

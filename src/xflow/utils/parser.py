@@ -1,7 +1,8 @@
 """General puerpose file parser."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Union, Type
+from typing import Dict, Any, Type
+from .typing import PathLikeStr
 from pathlib import Path
 import yaml
 import json
@@ -24,12 +25,12 @@ class ConfigParser(ABC):
     """Abstract base for configuration parsers."""
     
     @abstractmethod
-    def parse(self, filepath: Union[str, Path]) -> Any:
+    def parse(self, file_path: PathLikeStr) -> Any:
         """Parse configuration file and return data."""  
         ...
     
     @abstractmethod
-    def save(self, data: Any, filepath: Union[str, Path]) -> None:
+    def save(self, data: Any, file_path: PathLikeStr) -> None:
         """Save data to configuration file.""" 
         ...
 
@@ -37,17 +38,17 @@ class ConfigParser(ABC):
 class YAMLParser(ConfigParser):
     """YAML configuration parser."""
     
-    def parse(self, filepath: Union[str, Path]) -> Any: 
+    def parse(self, file_path: PathLikeStr) -> Any: 
         """Parse YAML configuration file."""
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f) 
     
-    def save(self, data: Any, filepath: Union[str, Path]) -> None:
+    def save(self, data: Any, file_path: PathLikeStr) -> None:
         """Save data to YAML file."""
-        filepath = Path(filepath)
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+        file_path = Path(file_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             yaml.dump(
                 data, 
                 f, 
@@ -61,23 +62,23 @@ class YAMLParser(ConfigParser):
 class JSONParser(ConfigParser):
     """JSON configuration parser."""
     
-    def parse(self, filepath: Union[str, Path]) -> Any: 
-        with open(filepath, 'r', encoding='utf-8') as f:
+    def parse(self, file_path: PathLikeStr) -> Any: 
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
-    def save(self, data: Any, filepath: Union[str, Path]) -> None: 
-        path = Path(filepath)
+    def save(self, data: Any, file_path: PathLikeStr) -> None: 
+        path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
             
 
-def get_parser_for_file(filepath: Union[str, Path]) -> ConfigParser:
+def get_parser_for_file(file_path: PathLikeStr) -> ConfigParser:
     """
     Return a parser instance for the given file, based on its extension.
     Raises a ValueError listing all supported extensions if none match.
     """
-    path = Path(filepath)
+    path = Path(file_path)
     suffix = path.suffix.lower()
     parser_cls = SUPPORTED_FORMATS.get(suffix)
     if not parser_cls:
@@ -88,12 +89,12 @@ def get_parser_for_file(filepath: Union[str, Path]) -> ConfigParser:
         )
     return parser_cls()
 
-def load_file(filepath: Union[str, Path]) -> Any:  
+def load_file(file_path: PathLikeStr) -> Any:  
     """Load config file."""
-    parser = get_parser_for_file(filepath)
-    return parser.parse(filepath)
+    parser = get_parser_for_file(file_path)
+    return parser.parse(file_path)
 
-def save_file(data: Any, filepath: Union[str, Path]) -> None:  
+def save_file(data: Any, file_path: PathLikeStr) -> None:  
     """Save data to file. Format determined by file extension."""
-    parser = get_parser_for_file(filepath)
-    parser.save(data, filepath)
+    parser = get_parser_for_file(file_path)
+    parser.save(data, file_path)

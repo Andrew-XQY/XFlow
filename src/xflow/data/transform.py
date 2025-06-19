@@ -11,6 +11,7 @@ from PIL import Image
 
 from .pipeline import BasePipeline
 from ..utils.decorator import with_progress
+from ..utils.typing import PathLikeStr, TensorLike, ImageLike
 
 
 @with_progress
@@ -134,13 +135,13 @@ class TransformRegistry:
 
 # Core transforms
 @TransformRegistry.register("load_image")
-def load_image(path) -> Image.Image:
+def load_image(path: PathLikeStr) -> Image.Image:
     """Load image from file path."""
     return Image.open(Path(path))
 
 
 @TransformRegistry.register("to_narray")
-def to_numpy_array(image) -> np.ndarray:
+def to_numpy_array(image: ImageLike) -> np.ndarray:
     """Convert image to numpy array."""
     if hasattr(image, 'numpy'):  # TensorFlow tensor
         return image.numpy()
@@ -216,39 +217,39 @@ def squeeze(image: np.ndarray, axis: Optional[Tuple[int, ...]] = None) -> np.nda
     return np.squeeze(image, axis=axis)
 
 @TransformRegistry.register("split_width")
-def split_width(image: np.ndarray) -> List[np.ndarray]:
+def split_width(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Split image at width midpoint."""
     height, width = image.shape[:2]
     mid_point = width // 2
-    return [image[:, :mid_point], image[:, mid_point:]]
+    return image[:, :mid_point], image[:, mid_point:]
 
 
 # TensorFlow transforms
 @TransformRegistry.register("tf_read_file")
-def tf_read_file(filepath):
-    """Read file contents as bytes using TensorFlow."""
+def tf_read_file(file_path: str) -> TensorLike:
+    """Read file contents as bytes using TensorFlow. tf only supports string paths."""
     import tensorflow as tf
-    return tf.io.read_file(filepath)
+    return tf.io.read_file(file_path)
 
 @TransformRegistry.register("tf_decode_image")
-def tf_decode_image(image_bytes):
+def tf_decode_image(image_bytes) -> TensorLike:
     """Decode image bytes to tensor using TensorFlow."""
     import tensorflow as tf
     return tf.image.decode_image(image_bytes)
 
 @TransformRegistry.register("tf_normalize")
-def tf_normalize(image, mean: float = 0.0, std: float = 1.0):
+def tf_normalize(image: TensorLike, mean: float = 0.0, std: float = 1.0) -> TensorLike:
     import tensorflow as tf
     return tf.cast(image, tf.float32) / 255.0 * std + mean
 
 @TransformRegistry.register("tf_resize")
-def tf_resize(image, size: List[int]):
+def tf_resize(image: TensorLike, size: List[int]) -> TensorLike:
     """Resize image using TensorFlow."""
     import tensorflow as tf
     return tf.image.resize(image, size)
 
 @TransformRegistry.register("tf_to_grayscale")
-def tf_to_grayscale(image):
+def tf_to_grayscale(image: TensorLike) -> TensorLike:
     """Convert image to grayscale, handling RGB, RGBA, and single-channel images."""
     import tensorflow as tf
     # Handle dynamic shapes properly
@@ -270,7 +271,7 @@ def tf_to_grayscale(image):
     return tf.cond(tf.equal(ch, 1), gray_branch, rgb_branch)
 
 @TransformRegistry.register("tf_split_width")
-def tf_split_width(image, swap: bool = False):
+def tf_split_width(image: TensorLike, swap: bool = False) -> Tuple[TensorLike, TensorLike]:
     """Split image at width midpoint using TensorFlow."""
     import tensorflow as tf
     width = tf.shape(image)[1]
@@ -283,13 +284,13 @@ def tf_split_width(image, swap: bool = False):
     return left_half, right_half
 
 @TransformRegistry.register("tf_expand_dims")
-def tf_expand_dims(image, axis: int = -1):
+def tf_expand_dims(image: TensorLike, axis: int = -1) -> TensorLike:
     """Add dimension to tensor."""
     import tensorflow as tf
     return tf.expand_dims(image, axis)
 
 @TransformRegistry.register("tf_squeeze")
-def tf_squeeze(image, axis: List[int] = None):
+def tf_squeeze(image: TensorLike, axis: List[int] = None) -> TensorLike:
     """Remove dimensions of size 1."""
     import tensorflow as tf
     return tf.squeeze(image, axis)

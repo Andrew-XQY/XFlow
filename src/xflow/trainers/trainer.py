@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict
 from ..data.pipeline import BasePipeline
 from ..utils.io import create_directory
+from ..utils.typing import ModelType, PathLikeStr
 import copy
 
-ModelType = Any # Type aliases
 
 class BaseTrainer(ABC):
     """Abstract base trainer for ML models. Trainer is a stateless executor/orchestrator
@@ -42,15 +42,20 @@ class BaseTrainer(ABC):
     
     @abstractmethod
     def fit(self, **kwargs) -> Any:
-        """Train the model. Saves artifacts to self.output_dir."""
+        """Main training logic. Callbacks need to be injected, Ready to use compiled model need to be injected."""
         ...
     
     @abstractmethod
     def predict(self, **kwargs) -> Any:
-        """Generate predictions. Returns prediction results."""
+        """Inference-only mode. Do not change model parameters."""
         ...
     
     @abstractmethod
-    def save_model(self, path: str, **kwargs) -> None:
+    def save_model(self, path: PathLikeStr, **kwargs) -> None:
         """Save model to path. Trainer knows best how to save its own model."""
+        ...
+        
+    @abstractmethod
+    def save_history(self, path: PathLikeStr, **kwargs) -> None:
+        """Save training history to path. Trainer knows best how to save training history."""
         ...

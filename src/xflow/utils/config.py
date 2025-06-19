@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, Self, Union, Type, Optional
 from pathlib import Path
 from .parser import load_file, save_file
+from .typing import PathLikeStr
 
 
 # Pydantic schemas
@@ -34,19 +35,19 @@ class BaseModelConfig(BaseModel):
         
 
 def load_validated_config(
-    filepath: Union[str, Path],
+    file_path: PathLikeStr,
     schema: Optional[Type[BaseModel]] = None
 ) -> Dict[str, Any]:
     """Load and optionally validate config using Pydantic schema.
     
     Args:
-        filepath: Path to config file
+        file_path: Path to config file
         schema: Optional Pydantic model for validation. If None, returns raw dict
         
     Returns:
         Dict containing configuration data (validated if schema provided)
     """
-    raw = load_file(filepath)
+    raw = load_file(file_path)
     if schema is None:
         return raw
     validated = schema(**raw)
@@ -86,7 +87,7 @@ class ConfigManager:
         schema(**self._config)
         return self
     
-    def save(self, output_path: Union[str, Path]) -> None:
+    def save(self, output_path: PathLikeStr) -> None:
         """Write the working config to disk (ext-driven format)."""
         save_file(self._config, output_path)
     

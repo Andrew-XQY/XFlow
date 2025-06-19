@@ -1,6 +1,7 @@
 """Lightweight model coordination layer for plugin to training frameworks."""
 from abc import ABC, abstractmethod
 from typing import Any, Tuple
+from ..utils.typing import PathLikeStr
 
 class BaseModel(ABC):
     @abstractmethod
@@ -28,12 +29,12 @@ class BaseModel(ABC):
         """
     
     @abstractmethod
-    def save(self, path: str) -> None:
+    def save(self, path: PathLikeStr) -> None:
         """Persist weights (and any config) to disk."""
     
     @classmethod
     @abstractmethod
-    def load(cls, path: str, **kwargs) -> "BaseModel":
-        """Reconstruct the model from disk."""
+    def load(cls, path: PathLikeStr, **kwargs) -> "BaseModel":
+        """Load the model weights to the model structure."""
 
 

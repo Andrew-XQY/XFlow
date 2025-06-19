@@ -1,9 +1,9 @@
 """Metadata collection with extensible hooks"""
 
 import logging
-from typing import Mapping, Dict, Callable, Any, Optional
+from typing import Mapping, Dict, Any, Optional
+from .typing import MetaHook
 
-MetaHook = Callable[[Mapping[str, Any]], Dict[str, Any]]
 
 class MetadataCollector:
     """
