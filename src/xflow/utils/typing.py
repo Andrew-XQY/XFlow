@@ -24,7 +24,7 @@ class ArrayLike(Protocol):
 PathLikeStr: TypeAlias = Union[str, PathLike[str]]
 MetaHook: TypeAlias = Callable[[Mapping[str, Any]], Dict[str, Any]]
 ModelType: TypeAlias = Any
-T = TypeVar('T')  # Generic type for items in the sequence
+T = TypeVar('T')  # Generic type
 
 # Numeric types
 Numeric: TypeAlias = Union[int, float, complex]
