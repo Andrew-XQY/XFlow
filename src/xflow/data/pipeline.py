@@ -172,10 +172,7 @@ class TensorFlowPipeline(BasePipeline):
             
             # Apply TF transforms sequentially
             for transform in self.transforms:
-                if hasattr(transform.fn, '__name__') and transform.fn.__name__.startswith('tf_'):
-                    dataset = dataset.map(transform.fn, num_parallel_calls=tf.data.AUTOTUNE)
-                else:
-                    self.logger.warning(f"Transform {transform.name} is not TF-native, skipping")
+                dataset = dataset.map(transform.fn, num_parallel_calls=tf.data.AUTOTUNE)
             
             # Apply dataset operations using registry
             if dataset_ops:
