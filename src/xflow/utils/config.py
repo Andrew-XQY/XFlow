@@ -2,8 +2,7 @@
 
 import copy
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Self, Union, Type, Optional
-from pathlib import Path
+from typing import Dict, Any, Self, Type, Optional
 from .parser import load_file, save_file
 from .typing import PathLikeStr
 

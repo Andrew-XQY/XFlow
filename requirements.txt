@@ -1,9 +1,0 @@
-numpy
-pandas
-matplotlib
-opencv-python
-tensorflow==2.16.2
-keras==3.4.1
-scikit-image
-scikit-learn
-tqdm

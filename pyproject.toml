@@ -10,12 +10,20 @@ authors = [{ name = "Qiyuan Xu" }]
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.12"
+keywords = ["machine-learning", "tensorflow", "data-pipeline"]
 dependencies = [
     "tensorflow==2.16.2",
     "keras==3.4.1",
     "numpy",
-    "matplotlib"
+    "matplotlib",
+    "opencv-python",
+    "tqdm",
+    "pydantic"
 ]
+
+[project.optional-dependencies]
+dev = ["mypy"]
+docs = ["sphinx", "sphinx-rtd-theme"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
