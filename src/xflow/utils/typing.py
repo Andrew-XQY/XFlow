@@ -4,7 +4,7 @@ Provides common type aliases and optional dependency type hints without
 importing heavy libraries at runtime.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Protocol, Union, Callable, Mapping, Any, Dict, TypeAlias, Sequence
+from typing import TYPE_CHECKING, Protocol, Union, Callable, Mapping, Any, Dict, TypeAlias, Sequence, TypeVar
 from os import PathLike
 
 # Only import heavy libraries for type checking
@@ -24,6 +24,7 @@ class ArrayLike(Protocol):
 PathLikeStr: TypeAlias = Union[str, PathLike[str]]
 MetaHook: TypeAlias = Callable[[Mapping[str, Any]], Dict[str, Any]]
 ModelType: TypeAlias = Any
+T = TypeVar('T')  # Generic type for items in the sequence
 
 # Numeric types
 Numeric: TypeAlias = Union[int, float, complex]

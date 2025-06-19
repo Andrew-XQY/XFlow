@@ -2,6 +2,7 @@ from typing import Any, Iterable, List, Union, Optional, Tuple, Literal
 from abc import ABC, abstractmethod
 from pathlib import Path
 from ..utils.typing import PathLikeStr
+from ..utils.helper import subsample
 import random
     
     
@@ -17,7 +18,24 @@ class DataProvider(ABC):
     def __len__(self) -> int:
         """Return number of items."""
         ...
+    
+    @abstractmethod
+    def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None, 
+                  seed: int = None, strategy: str = None) -> 'DataProvider':
+        """
+        Create a subsampled version of this provider.
         
+        Args:
+            n_samples: Exact number of samples to take
+            fraction: Fraction of total samples (0.0 to 1.0)
+            seed: Random seed for reproducible subsampling
+            strategy: "random", "first", "last", "every_nth"
+            
+        Returns:
+            New provider with subsampled data
+        """
+        pass
+    
     def split(self, train_ratio: float = None, seed: int = None) -> Tuple['DataProvider', 'DataProvider']:
         """
         Split provider into train/val providers.
@@ -131,3 +149,26 @@ class FileProvider(DataProvider):
         val_provider = self._from_file_list(val_files, self.extensions, self.path_type)
         
         return train_provider, val_provider
+    
+    def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None,
+                  seed: int = None, strategy: str = "random") -> 'FileProvider':
+        """
+        Create a subsampled version of this provider.
+        
+        Args:
+            n_samples: Exact number of samples to take
+            fraction: Fraction of total samples (0.0 to 1.0)
+            seed: Random seed for reproducible subsampling
+            strategy: "random", "first", "last", "stride", or "reservoir".
+            
+        Returns:
+            New provider with subsampled data
+        """
+        sampled_files = subsample(
+            self._file_paths, 
+            n_samples=n_samples, 
+            fraction=fraction, 
+            strategy=strategy, 
+            seed=seed
+        )
+        return self._from_file_list(sampled_files, self.extensions, self.path_type)
