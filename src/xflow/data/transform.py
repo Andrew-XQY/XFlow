@@ -351,7 +351,7 @@ def tf_prefetch(dataset, buffer_size: int = None):
     return dataset.prefetch(buffer_size)
 
 @DatasetOperationRegistry.register("tf_shuffle")
-def tf_shuffle(dataset, buffer_size: int, seed: int = None):
+def tf_shuffle(dataset, buffer_size: int, seed: int = 42):
     """Randomly shuffle dataset elements."""
     return dataset.shuffle(buffer_size, seed=seed)
 

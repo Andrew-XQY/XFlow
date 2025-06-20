@@ -2,7 +2,8 @@ from typing import Any, Iterable, List, Union, Optional, Tuple, Literal
 from abc import ABC, abstractmethod
 from pathlib import Path
 from ..utils.typing import PathLikeStr
-from ..utils.helper import subsample
+from ..utils.helper import subsample_sequence, split_sequence
+from ..utils.io import scan_files
 import random
     
     
@@ -89,18 +90,12 @@ class FileProvider(DataProvider):
     
     def _scan_files(self) -> Union[List[str], List[Path]]:
         """Scan all root paths for files with specified extensions."""
-        file_paths = []
-        for root_path in self.root_paths:
-            for file_path in root_path.rglob("*"):
-                if file_path.is_file():
-                    # If no extensions specified, include all files
-                    if self.extensions is None or file_path.suffix.lower() in self.extensions:
-                        # Convert based on path_type setting
-                        if self.path_type in ["string", "str"]:
-                            file_paths.append(str(file_path))
-                        else:
-                            file_paths.append(file_path)
-        return sorted(file_paths)
+        return scan_files(
+            self.root_paths,
+            extensions=self.extensions,
+            return_type=self.path_type,
+            recursive=True 
+        )
     
     def __call__(self) -> Union[List[str], List[Path]]:
         """Return the list of file paths in the configured type."""
@@ -111,7 +106,11 @@ class FileProvider(DataProvider):
         return len(self._file_paths)
     
     @classmethod
-    def _from_file_list(cls, file_paths: Union[List[str], List[Path]], extensions: Optional[List[str]] = None, path_type: Literal["string", "path"] = "path") -> 'FileProvider':
+    def _from_file_list(
+        cls, file_paths: Union[List[str], List[Path]],
+        extensions: Optional[List[str]] = None, 
+        path_type: Literal["string", "path"] = "path"
+        ) -> 'FileProvider':
         """Create FileProvider from explicit file list (internal helper)."""
         instance = cls.__new__(cls)
         instance.root_paths = []  # Not used when created from file list
@@ -131,23 +130,14 @@ class FileProvider(DataProvider):
         Returns:
             Tuple of (train_provider, val_provider)
         """
-        if not 0.0 <= train_ratio <= 1.0:
-            raise ValueError(f"train_ratio must be between 0.0 and 1.0, got {train_ratio}")
-        
-        # Create reproducible shuffle
-        files = self._file_paths.copy()
-        rng = random.Random(seed)
-        rng.shuffle(files)
-        
-        # Split files
-        split_idx = int(len(files) * train_ratio)
-        train_files = files[:split_idx]
-        val_files = files[split_idx:]
-        
+        train_files, val_files = split_sequence(
+            self._file_paths, 
+            split_ratio=train_ratio, 
+            seed=seed
+        )
         # Create new providers with same extensions and path_type
         train_provider = self._from_file_list(train_files, self.extensions, self.path_type)
         val_provider = self._from_file_list(val_files, self.extensions, self.path_type)
-        
         return train_provider, val_provider
     
     def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None,
@@ -164,7 +154,7 @@ class FileProvider(DataProvider):
         Returns:
             New provider with subsampled data
         """
-        sampled_files = subsample(
+        sampled_files = subsample_sequence(
             self._file_paths, 
             n_samples=n_samples, 
             fraction=fraction, 

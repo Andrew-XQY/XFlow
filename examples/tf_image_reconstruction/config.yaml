@@ -26,9 +26,14 @@ data:
   second_split: 0.5
   image_size: [256, 256]
   dataset_ops: # Dataset-level operations (TensorFlow specific)
+    - name: "tf_cache"
+    - name: "tf_shuffle"
+      params:
+        buffer_size: 1000
     - name: "tf_batch"
       params:
         batch_size: 1
+    - name: "tf_prefetch"
   transforms:
     numpy:
       - name: "load_image"

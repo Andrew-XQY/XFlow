@@ -5,9 +5,12 @@ import inspect
 import random
 import itertools
 from pathlib import Path
-from typing import Optional, Sequence, List
+from typing import Optional, Sequence, List, Dict, Any, MutableMapping, Tuple
 from .typing import T
 
+# =============================================================================
+# Path helpers
+# =============================================================================
 
 def print_caller_directory():
     """
@@ -89,7 +92,12 @@ def get_base_dir() -> Path:
     # 6. Ultimate fallback: current working directory
     return Path(os.getcwd()).resolve()
 
-def subsample(
+
+# =============================================================================
+# Iterable/Sequence helpers
+# =============================================================================
+
+def subsample_sequence(
     items: Sequence[T],
     n_samples: Optional[int] = None,
     fraction: Optional[float] = None,
@@ -97,7 +105,7 @@ def subsample(
     seed: Optional[int] = 42
 ) -> List[T]:
     """
-    Robust subsampling function for any Sequence.
+    Subsampling function for any Sequence. 
 
     Args:
         items: Any sequence (list, tuple, etc.) of type T.
@@ -154,4 +162,82 @@ def subsample(
                     reservoir[j] = elem
         return reservoir
     else:
-        raise ValueError(f"Unknown strategy: {strategy}")        
+        raise ValueError(f"Unknown strategy: {strategy}") 
+
+def split_sequence(
+    items: Sequence[T], 
+    split_ratio: float = 0.8, 
+    seed: int = 42,
+    shuffle: bool = True
+) -> Tuple[List[T], List[T]]:
+    """
+    Split a sequence into two parts.
+    
+    Args:
+        items: Any sequence (list, tuple, etc.) of type T.
+        split_ratio: Ratio for first part (0.0 to 1.0).
+        seed: Random seed for reproducibility.
+        shuffle: Whether to shuffle before splitting.
+        
+    Returns:
+        Tuple of (first_part, second_part) as lists of type T.
+    """
+    if not 0.0 <= split_ratio <= 1.0:
+        raise ValueError(f"split_ratio must be between 0.0 and 1.0, got {split_ratio}")
+    
+    items_list = list(items)
+    
+    if shuffle:
+        rng = random.Random(seed)
+        rng.shuffle(items_list)
+    
+    split_idx = int(len(items_list) * split_ratio)
+    first_part = items_list[:split_idx]
+    second_part = items_list[split_idx:]
+    
+    return first_part, second_part
+
+# =============================================================================
+# Dictionary helpers
+# =============================================================================
+
+def deep_update(base: MutableMapping[str, Any], updates: Dict[str, Any]) -> None:
+    """Recursively update a dictionary with another dictionary.
+    
+    Nested dictionaries are merged, other values are replaced.
+    Modifies base dictionary in-place.
+    
+    Args:
+        base: Dictionary to update (modified in-place)
+        updates: Dictionary with updates to apply
+        
+    Example:
+        >>> base = {"a": {"x": 1, "y": 2}, "b": 3}
+        >>> updates = {"a": {"x": 10, "z": 3}, "c": 4}
+        >>> deep_update(base, updates)
+        >>> base
+        {"a": {"x": 10, "y": 2, "z": 3}, "b": 3, "c": 4}
+    """
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            deep_update(base[key], value)
+        else:
+            base[key] = value
+
+
+def deep_merge(*dicts: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge multiple dictionaries recursively, returning a new dictionary.
+    
+    Args:
+        *dicts: Dictionaries to merge (left-to-right precedence)
+        
+    Returns:
+        New merged dictionary
+    """
+    if not dicts:
+        return {}
+    
+    result = {}
+    for d in dicts:
+        deep_update(result, d)
+    return result       

@@ -6,6 +6,7 @@ from typing import Dict, Any, Self, Type, Optional, List
 from .parser import load_file, save_file
 from .typing import PathLikeStr
 from .io import copy_file
+from .helper import deep_update
 
 
 # Pydantic schemas
@@ -69,6 +70,42 @@ class ConfigManager:
 
     def __repr__(self) -> str:
         return f"ConfigManager(keys={list(self._config.keys())})"
+
+    def __getitem__(self, key: str) -> Any:
+        """Get config value by key."""
+        return self._config[key]
+    
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set config value by key."""
+        self._config[key] = value
+    
+    def __delitem__(self, key: str) -> None:
+        """Delete config key."""
+        del self._config[key]
+    
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in config."""
+        return key in self._config
+    
+    def __iter__(self):
+        """Iterate over config keys."""
+        return iter(self._config)
+    
+    def __len__(self) -> int:
+        """Return number of config items."""
+        return len(self._config)
+    
+    def keys(self):
+        """Return config keys."""
+        return self._config.keys()
+    
+    def values(self):
+        """Return config values."""
+        return self._config.values()
+    
+    def items(self):
+        """Return config items."""
+        return self._config.items()
     
     def add_extra(self, *file_paths: PathLikeStr) -> Self:
         """Add extra files that are part of this experiment configuration."""
@@ -88,7 +125,7 @@ class ConfigManager:
     
     def update(self, updates: Dict[str, Any]) -> Self:
         """Recursively update in config, Nested dictionaries are merged, other values are replaced."""
-        self._deep_update(self._config, updates)
+        deep_update(self._config, updates)
         return self
         
     def validate(self, schema: Type[BaseModel]) -> Self:
@@ -104,10 +141,3 @@ class ConfigManager:
             target_dir = output_path.parent
             for extra_file in self._extra_files:
                 copy_file(extra_file, target_dir)
-    
-    def _deep_update(self, base: Dict[str, Any], upd: Dict[str, Any]) -> None:
-        for k, v in upd.items():
-            if isinstance(v, dict) and isinstance(base.get(k), dict):
-                self._deep_update(base[k], v)
-            else:
-                base[k] = v  
