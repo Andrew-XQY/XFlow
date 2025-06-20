@@ -52,6 +52,9 @@ PACKAGE_API = {
     "models": {
         "BaseModel": APIItem("base", "BaseModel"),
     },
+    "trainers": {
+        "build_callbacks_from_config": APIItem("callback", "build_callbacks_from_config"),
+    },
     "utils": {
         "plot_image": APIItem("visualization", "plot_image"),
         "get_base_dir": APIItem("helper", "get_base_dir"),

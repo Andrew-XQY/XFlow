@@ -2,8 +2,8 @@
 # This file is auto-generated. Do not edit manually.
 
 from .data.provider import FileProvider
-from .data.pipeline import BasePipeline, InMemoryPipeline, TensorFlowPipeline
-from .data.transform import BatchPipeline, ShufflePipeline
+from .data.pipeline import TensorFlowPipeline, BasePipeline, InMemoryPipeline
+from .data.transform import ShufflePipeline, BatchPipeline
 from .trainers.trainer import BaseTrainer
 from .utils.config import ConfigManager
 from .models.base import BaseModel
