@@ -2,9 +2,10 @@
 
 import copy
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Self, Type, Optional
+from typing import Dict, Any, Self, Type, Optional, List
 from .parser import load_file, save_file
 from .typing import PathLikeStr
+from .io import copy_file
 
 
 # Pydantic schemas
@@ -64,9 +65,17 @@ class ConfigManager:
             raise TypeError("initial_config must be a dictionary")
         self._original_config = copy.deepcopy(initial_config)
         self._config = copy.deepcopy(initial_config)
+        self._extra_files: List[PathLikeStr] = []
 
     def __repr__(self) -> str:
         return f"ConfigManager(keys={list(self._config.keys())})"
+    
+    def add_extra(self, *file_paths: PathLikeStr) -> Self:
+        """Add extra files that are part of this experiment configuration."""
+        for file_path in file_paths:
+            if file_path not in self._extra_files:
+                self._extra_files.append(file_path)
+        return self
     
     def get(self) -> Dict[str, Any]:
         """Return a fully independent snapshot of the working config."""
@@ -75,6 +84,7 @@ class ConfigManager:
     def reset(self) -> None:
         """Revert working config back to original."""
         self._config = copy.deepcopy(self._original_config)
+        self._extra_files = []
     
     def update(self, updates: Dict[str, Any]) -> Self:
         """Recursively update in config, Nested dictionaries are merged, other values are replaced."""
@@ -89,6 +99,11 @@ class ConfigManager:
     def save(self, output_path: PathLikeStr) -> None:
         """Write the working config to disk (ext-driven format)."""
         save_file(self._config, output_path)
+        # Copy extra files to same directory
+        if self._extra_files:
+            target_dir = output_path.parent
+            for extra_file in self._extra_files:
+                copy_file(extra_file, target_dir)
     
     def _deep_update(self, base: Dict[str, Any], upd: Dict[str, Any]) -> None:
         for k, v in upd.items():
