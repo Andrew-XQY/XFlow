@@ -2,7 +2,7 @@
 # This file is auto-generated. Do not edit manually.
 
 from .data.provider import FileProvider
-from .data.pipeline import TensorFlowPipeline, BasePipeline, InMemoryPipeline
+from .data.pipeline import BasePipeline, TensorFlowPipeline, InMemoryPipeline
 from .data.transform import ShufflePipeline, BatchPipeline
 from .trainers.trainer import BaseTrainer
 from .utils.config import ConfigManager

@@ -54,6 +54,7 @@ PACKAGE_API = {
     },
     "trainers": {
         "build_callbacks_from_config": APIItem("callback", "build_callbacks_from_config"),
+        "BaseTrainer": APIItem("trainer", "BaseTrainer"),
     },
     "utils": {
         "plot_image": APIItem("visualization", "plot_image"),
