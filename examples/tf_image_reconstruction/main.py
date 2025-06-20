@@ -1,13 +1,15 @@
-from xflow import FileProvider, TensorFlowPipeline, BaseTrainer, ConfigManager, BaseModel
-from xflow.data import build_transforms_from_config
-from xflow.utils import get_base_dir, plot_image, load_validated_config
 from pathlib import Path
 import os
 
-cur_dir = get_base_dir()
+from xflow import FileProvider, TensorFlowPipeline, BaseTrainer, ConfigManager, BaseModel
+from xflow.data import build_transforms_from_config
+from xflow.utils import get_base_dir, plot_image, load_validated_config
+
+
 # ====================================
 # Training configuration
 # ====================================
+cur_dir = get_base_dir()
 config_manager = ConfigManager(load_validated_config(os.path.join(cur_dir, "config.yaml")))
 config = config_manager.get()
 base = Path(config["paths"]["base"])
@@ -23,8 +25,8 @@ transforms = build_transforms_from_config(config['data']['transforms']['tf_nativ
 def make_dataset(provider):
     return (
         TensorFlowPipeline(provider, transforms)
-        .to_framework_dataset(config['framework']['name'], config["data"]["dataset_ops"])
-        .cache()
+        .to_framework_dataset(config['framework']['name'],
+                              config["data"]["dataset_ops"])
     )
 train_dataset = make_dataset(train_provider)
 val_dataset   = make_dataset(val_provider)

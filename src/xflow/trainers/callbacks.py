@@ -1,104 +1,143 @@
-"""Training callback system for monitoring and controlling training process."""
-from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union
-from pathlib import Path
-import logging
-import time
-import json
+# callbacks_registry.py
 
-import numpy as np
+import yaml
+from typing import Dict, Callable, Any, List
 
 
-class Callback(ABC):
-    """Base callback interface."""
-    
-    def on_train_begin(self, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the beginning of training."""
-        pass
-    
-    def on_train_end(self, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the end of training."""
-        pass
-    
-    def on_epoch_begin(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the beginning of each epoch."""
-        pass
-    
-    def on_epoch_end(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the end of each epoch."""
-        pass
-    
-    def on_batch_begin(self, batch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the beginning of each batch."""
-        pass
-    
-    def on_batch_end(self, batch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        """Called at the end of each batch."""
-        pass
+EVENT_MAP = {
+    "train_start":  {"tf": "on_train_begin",         "pl": "on_train_start"},
+    "train_end":    {"tf": "on_train_end",           "pl": "on_train_end"},
+    "epoch_start":  {"tf": "on_epoch_begin",         "pl": "on_train_epoch_start"},
+    "epoch_end":    {"tf": "on_epoch_end",           "pl": "on_train_epoch_end"},
+    "batch_start":  {"tf": "on_train_batch_begin",   "pl": "on_train_batch_start"},
+    "batch_end":    {"tf": "on_train_batch_end",     "pl": "on_train_batch_end"},
+}
 
 
 class CallbackRegistry:
-    """Registry for callback functions."""
-    _callbacks: Dict[str, type] = {}
+    """Registry for callback handlers (or factories)."""
+    _handlers: Dict[str, Callable] = {}
     
     @classmethod
     def register(cls, name: str):
-        def decorator(callback_class):
-            cls._callbacks[name] = callback_class
-            return callback_class
+        """Decorator to register a callback handler or factory."""
+        def decorator(func: Callable):
+            cls._handlers[name] = func
+            return func
         return decorator
     
     @classmethod
-    def get(cls, name: str) -> type:
-        if name not in cls._callbacks:
-            raise ValueError(f"Callback '{name}' not found. Available: {list(cls._callbacks.keys())}")
-        return cls._callbacks[name]
+    def get_handler(cls, name: str) -> Callable:
+        """Get a registered handler (or factory) by name."""
+        if name not in cls._handlers:
+            raise ValueError(f"Handler '{name}' not found in registry")
+        return cls._handlers[name]
     
     @classmethod
-    def list_callbacks(cls) -> List[str]:
-        return list(cls._callbacks.keys())
-    
-class CallbackManager:
-    """Manages multiple callbacks during training."""
-    
-    def __init__(self, callbacks: List[Callback]):
-        self.callbacks = callbacks
-    
-    def _call_callbacks(self, method_name: str, *args, **kwargs) -> None:
-        """Call method on all callbacks."""
-        for callback in self.callbacks:
-            method = getattr(callback, method_name, None)
-            if method:
-                method(*args, **kwargs)
-    
-    def on_train_begin(self, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_train_begin', logs)
-    
-    def on_train_end(self, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_train_end', logs)
-    
-    def on_epoch_begin(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_epoch_begin', epoch, logs)
-    
-    def on_epoch_end(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_epoch_end', epoch, logs)
-    
-    def on_batch_begin(self, batch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_batch_begin', batch, logs)
-    
-    def on_batch_end(self, batch: int, logs: Optional[Dict[str, Any]] = None) -> None:
-        self._call_callbacks('on_batch_end', batch, logs)
+    def list_handlers(cls) -> List[str]:
+        """List all registered handler names."""
+        return list(cls._handlers.keys())
 
 
-def build_callbacks_from_config(config: List[Dict[str, Any]]) -> List[Callback]:
-    """Build callbacks from configuration."""
+def make_tf_callback(handlers: Dict[str, Callable]):
+    """Factory for a TensorFlow Callback."""
+    from tensorflow.keras.callbacks import Callback
+    
+    methods = {}
+    for event_name, fn in handlers.items():
+        hook = EVENT_MAP[event_name]["tf"]
+        methods[hook] = fn
+    return type("UnifiedTFCallback", (Callback,), methods)()
+
+
+def make_pl_callback(handlers: Dict[str, Callable]):
+    """Factory for a PyTorch Lightning Callback."""
+    import pytorch_lightning as pl
+    
+    methods = {}
+    for event_name, fn in handlers.items():
+        hook = EVENT_MAP[event_name]["pl"]
+        methods[hook] = fn
+    return type("UnifiedPLCallback", (pl.Callback,), methods)()
+
+
+def build_callbacks_from_config(config_path: str, framework: str):
+    """Build callbacks from YAML configuration.
+
+    Args:
+        config_path: Path to YAML config file
+        framework: Either 'tf' or 'pl'
+
+    Returns:
+        List of callback objects for the specified framework
+    """
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
     callbacks = []
-    for callback_config in config:
-        name = callback_config.get('name')
-        params = callback_config.get('params', {})
-        
-        callback_class = CallbackRegistry.get(name)
-        callback = callback_class(**params)
+    for cb_config in config.get('callbacks', []):
+        if cb_config.get('framework') != framework:
+            continue
+
+        # collect hook functions for this callback
+        handlers: Dict[str, Callable] = {}
+        for event_config in cb_config.get('events', []):
+            event_name   = event_config['event']
+            handler_name = event_config['handler']
+            handler      = CallbackRegistry.get_handler(handler_name)
+
+            # if params provided, invoke factory to get actual hook
+            params = event_config.get('params', {})
+            if params:
+                hook_fn = handler(**params)
+            else:
+                hook_fn = handler
+
+            handlers[event_name] = hook_fn
+
+        # build the actual callback object
+        if framework in ('tf', 'tensorflow'):
+            callback = make_tf_callback(handlers)
+        elif framework in ('pl', 'pytorch_lightning'):
+            callback = make_pl_callback(handlers)
+        else:
+            raise ValueError(f"Unsupported framework: {framework}")
+
         callbacks.append(callback)
-    
+
     return callbacks
+
+
+# --- Registered callback handlers & factories ---
+
+@CallbackRegistry.register("tf_epoch_start")
+def on_epoch_start_tf(self, epoch, logs=None):
+    print(f"[TF] Starting epoch {epoch}")
+
+@CallbackRegistry.register("tf_epoch_end")
+def on_epoch_end_tf(self, epoch, logs=None):
+    print(f"[TF] Finished epoch {epoch}, loss={logs.get('loss', 'N/A'):.4f}")
+
+@CallbackRegistry.register("pl_epoch_start")
+def on_epoch_start_pl(self, trainer, pl_module):
+    print(f"[PL] Starting epoch {trainer.current_epoch}")
+
+@CallbackRegistry.register("pl_epoch_end")
+def on_epoch_end_pl(self, trainer, pl_module):
+    print(f"[PL] Finished epoch {trainer.current_epoch}")
+
+@CallbackRegistry.register("tf_train_start")
+def on_train_start_tf(self, logs=None):
+    print("[TF] Training started")
+
+@CallbackRegistry.register("pl_train_start")
+def on_train_start_pl(self, trainer, pl_module):
+    print("[PL] Training started")
+
+@CallbackRegistry.register("save_preds")
+def make_save_preds_callback(output_dir: str, val_data: Any):
+    """Factory that returns a tf-style on_epoch_end hook."""
+    def closure(self, epoch, logs=None):
+        preds = self.model.predict(val_data)
+        # …save preds to output_dir…
+    return closure
