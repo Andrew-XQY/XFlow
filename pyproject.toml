@@ -30,4 +30,7 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["xflow.evaluation.physics*"]  # Exclude physics from distribution
+exclude = [
+    "xflow.extensions",
+    "xflow.extensions.*"
+]  # Exclude extensions from distribution
