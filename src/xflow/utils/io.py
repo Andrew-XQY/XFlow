@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Optional, Union, List
 from .typing import PathLikeStr
 
-def copy_file(source_path: PathLikeStr, target_path: PathLikeStr, filename: Optional[str] = None) -> Path:
+def copy_file(
+    source_path: PathLikeStr,
+    target_path: PathLikeStr, 
+    filename: Optional[str] = None
+) -> Path:
     """Copy a file to target directory.
     
     Args:
