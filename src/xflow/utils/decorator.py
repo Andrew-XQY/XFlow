@@ -16,3 +16,26 @@ def with_progress(func: Callable) -> Callable:
             return func(*new_args, **kwargs)
         return func(*args, **kwargs)
     return wrapper
+
+def print_separator(symbol: str = "-", length: int = 80):
+    """
+    Decorator to print separator lines before and after function execution.
+    
+    Args:
+        symbol: Character to use (default: "-")
+        length: Length of separator (default: 80)
+    
+    Usage:
+        @print_separator()          # default: - with length 80
+        @print_separator("=")       # = with length 80
+        @print_separator("*", 50)   # * with length 50
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            print(symbol * length)
+            result = func(*args, **kwargs)
+            print(symbol * length)
+            return result
+        return wrapper
+    return decorator
