@@ -283,33 +283,66 @@ class SqlProvider(DataProvider):
         # Create new provider with modified base query and no additional conditions
         return SqlProvider(self.db, new_base_query, [])
     
-    def split(self, *conditions: Union[str, List[str]]) -> List['SqlProvider']:
+    def split(
+            self, 
+            *conditions: str, 
+            train_ratio: Optional[float] = None, 
+            seed: Optional[int] = None
+            ) -> Union[Tuple['SqlProvider', 'SqlProvider'], List['SqlProvider']]:
         """
-        Split data by creating multiple providers with different WHERE conditions.
+        Split data by creating multiple providers with different WHERE conditions,
+        or by random train/val split.
         
         Args:
-            *conditions: Variable number of WHERE condition strings, or a single list of conditions
+            *conditions: Variable number of WHERE condition strings for explicit splits
+            train_ratio: If provided, do random train/val split (0.0 to 1.0)
+            seed: Random seed for train/val split
             
         Returns:
-            List of SqlProvider instances, one for each condition
+            Tuple of (train_provider, val_provider) if train_ratio provided,
+            otherwise List of SqlProvider instances for each condition
             
         Example:
-            # Individual arguments
+            # Explicit condition splits (returns List)
             train, val, test = sql_provider.split(
                 "status = 'train'",
                 "status = 'val'", 
                 "status = 'test'"
             )
             
-            # List argument
-            train, test = sql_provider.split(["purpose = 'training'", "purpose = 'testing'"])
+            # Random train/val split (returns Tuple) - consistent with FileProvider
+            train, val = sql_provider.split(train_ratio=0.8, seed=42)
+            
+            # Handle list input
+            train, test = sql_provider.split(*["purpose = 'training'", "purpose = 'testing'"])
         """
+        # Random train/val split mode (like FileProvider)
+        if train_ratio is not None:
+            if conditions:
+                raise ValueError("Cannot specify both train_ratio and explicit conditions")
+            
+            # For reproducible splits, use row number modulo approach
+            if seed is not None:
+                # Use seed-based deterministic splitting
+                train_condition = f"(ABS(HASH(rowid || '{seed}')) % 100) < {int(train_ratio * 100)}"
+                val_condition = f"(ABS(HASH(rowid || '{seed}')) % 100) >= {int(train_ratio * 100)}"
+            else:
+                # Simple modulo split without seed
+                train_condition = f"(rowid % 100) < {int(train_ratio * 100)}"
+                val_condition = f"(rowid % 100) >= {int(train_ratio * 100)}"
+            
+            train_provider = SqlProvider(self.db, self.base_query, self.where_conditions + [train_condition])
+            val_provider = SqlProvider(self.db, self.base_query, self.where_conditions + [val_condition])
+            
+            return train_provider, val_provider
+        
+        # Explicit condition splits mode
         # Handle case where a list is passed as first argument
         if len(conditions) == 1 and isinstance(conditions[0], list):
             conditions = conditions[0]
         
         if not conditions:
-            raise ValueError("At least one WHERE condition must be provided")
+            raise ValueError("Either train_ratio or explicit conditions must be provided")
         
         providers = []
         for condition in conditions:
