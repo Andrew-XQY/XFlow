@@ -283,35 +283,39 @@ class SqlProvider(DataProvider):
         # Create new provider with modified base query and no additional conditions
         return SqlProvider(self.db, new_base_query, [])
     
-    def split(self, *conditions: str) -> List['SqlProvider']:
+    def split(self, *conditions: Union[str, List[str]]) -> List['SqlProvider']:
         """
         Split data by creating multiple providers with different WHERE conditions.
         
         Args:
-            *conditions: Variable number of WHERE condition strings
+            *conditions: Variable number of WHERE condition strings, or a single list of conditions
             
         Returns:
             List of SqlProvider instances, one for each condition
             
         Example:
-            # Split by status
+            # Individual arguments
             train, val, test = sql_provider.split(
                 "status = 'train'",
                 "status = 'val'", 
                 "status = 'test'"
             )
             
-            # Split by date ranges
-            q1, q2 = sql_provider.split(
-                "created_at BETWEEN '2024-01-01' AND '2024-03-31'",
-                "created_at BETWEEN '2024-04-01' AND '2024-06-30'"
-            )
+            # List argument
+            train, test = sql_provider.split(["purpose = 'training'", "purpose = 'testing'"])
         """
+        # Handle case where a list is passed as first argument
+        if len(conditions) == 1 and isinstance(conditions[0], list):
+            conditions = conditions[0]
+        
         if not conditions:
             raise ValueError("At least one WHERE condition must be provided")
         
         providers = []
         for condition in conditions:
+            if not isinstance(condition, str):
+                raise ValueError(f"Each condition must be a string, got {type(condition)}")
+            
             # Create new provider with base conditions + split condition
             new_conditions = self.where_conditions + [condition]
             provider = SqlProvider(self.db, self.base_query, new_conditions)
@@ -323,7 +327,3 @@ class SqlProvider(DataProvider):
         """Close database connection."""
         if hasattr(self.db, 'close'):
             self.db.close()
-    
-    def __del__(self):
-        """Cleanup database connection."""
-        self.close()
