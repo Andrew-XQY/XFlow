@@ -22,6 +22,7 @@ class APIItem:
 # Core API - most commonly used items at package root
 CORE_API = {
     # Data pipeline components
+    "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
     "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
     "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
