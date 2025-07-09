@@ -433,3 +433,67 @@ def join_text(text_list: List[str], separator: str = "") -> str:
     """Join list of strings into single string."""
     return separator.join(text_list)
 
+
+# TensorFlow native text transforms
+@TransformRegistry.register("tf_add_prefix")
+def tf_add_prefix(text: TensorLike, prefix: str, separator: str = "") -> TensorLike:
+    """Add prefix to text tensor using TensorFlow."""
+    import tensorflow as tf
+    prefix_tensor = tf.constant(prefix + separator)
+    return tf.strings.join([prefix_tensor, text])
+
+@TransformRegistry.register("tf_add_suffix")
+def tf_add_suffix(text: TensorLike, suffix: str, separator: str = "") -> TensorLike:
+    """Add suffix to text tensor using TensorFlow."""
+    import tensorflow as tf
+    suffix_tensor = tf.constant(separator + suffix)
+    return tf.strings.join([text, suffix_tensor])
+
+@TransformRegistry.register("tf_to_uppercase")
+def tf_to_uppercase(text: TensorLike) -> TensorLike:
+    """Convert text tensor to uppercase using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.upper(text)
+
+@TransformRegistry.register("tf_to_lowercase")
+def tf_to_lowercase(text: TensorLike) -> TensorLike:
+    """Convert text tensor to lowercase using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.lower(text)
+
+@TransformRegistry.register("tf_strip_whitespace")
+def tf_strip_whitespace(text: TensorLike) -> TensorLike:
+    """Strip whitespace from text tensor using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.strip(text)
+
+@TransformRegistry.register("tf_replace_text")
+def tf_replace_text(text: TensorLike, old: str, new: str) -> TensorLike:
+    """Replace substring in text tensor using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.regex_replace(text, old, new)
+
+@TransformRegistry.register("tf_split_text")
+def tf_split_text(text: TensorLike, separator: str = " ") -> TensorLike:
+    """Split text tensor into tokens using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.split(text, separator)
+
+@TransformRegistry.register("tf_join_text")
+def tf_join_text(text_tokens: TensorLike, separator: str = "") -> TensorLike:
+    """Join text tokens into single string using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.reduce_join(text_tokens, separator=separator)
+
+@TransformRegistry.register("tf_string_length")
+def tf_string_length(text: TensorLike) -> TensorLike:
+    """Get length of text tensor using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.length(text)
+
+@TransformRegistry.register("tf_substring")
+def tf_substring(text: TensorLike, start: int, length: int) -> TensorLike:
+    """Extract substring from text tensor using TensorFlow."""
+    import tensorflow as tf
+    return tf.strings.substr(text, start, length)
+
