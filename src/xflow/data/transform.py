@@ -391,4 +391,45 @@ def apply_dataset_operations_from_config(
         dataset = operation(dataset, **params)
     return dataset
 
-                
+
+# Text processing transforms
+@TransformRegistry.register("add_prefix")
+def add_prefix(text: str, prefix: str, separator: str = "") -> str:
+    """Add prefix to text with optional separator."""
+    return prefix + separator + text
+
+@TransformRegistry.register("add_suffix") 
+def add_suffix(text: str, suffix: str, separator: str = "") -> str:
+    """Add suffix to text with optional separator."""
+    return text + separator + suffix
+
+@TransformRegistry.register("to_uppercase")
+def to_uppercase(text: str) -> str:
+    """Convert text to uppercase."""
+    return text.upper()
+
+@TransformRegistry.register("to_lowercase")
+def to_lowercase(text: str) -> str:
+    """Convert text to lowercase."""
+    return text.lower()
+
+@TransformRegistry.register("strip_whitespace")
+def strip_whitespace(text: str, chars: str = None) -> str:
+    """Strip whitespace or specified characters from both ends."""
+    return text.strip(chars)
+
+@TransformRegistry.register("replace_text")
+def replace_text(text: str, old: str, new: str, count: int = -1) -> str:
+    """Replace occurrences of old substring with new substring."""
+    return text.replace(old, new, count)
+
+@TransformRegistry.register("split_text")
+def split_text(text: str, separator: str = None, maxsplit: int = -1) -> List[str]:
+    """Split text into list of strings."""
+    return text.split(separator, maxsplit)
+
+@TransformRegistry.register("join_text")
+def join_text(text_list: List[str], separator: str = "") -> str:
+    """Join list of strings into single string."""
+    return separator.join(text_list)
+
