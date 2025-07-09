@@ -41,6 +41,22 @@ class DataProvider(ABC):
         """
         pass
     
+    def merge(self, other: 'DataProvider') -> 'DataProvider':
+        """
+        Merge with another provider of the same type.
+        
+        Args:
+            other: Another provider to merge with
+            
+        Returns:
+            New provider containing combined data from both providers
+            
+        Raises:
+            NotImplementedError: If provider doesn't support merging
+            TypeError: If providers are not compatible types
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} doesn't support merging. Use framework-specific concatenation.")
+    
     def split(self, *args, **kwargs) -> Union[Tuple['DataProvider', 'DataProvider'], List['DataProvider']]:
         """
         Split provider into multiple providers.
@@ -171,6 +187,36 @@ class FileProvider(DataProvider):
         )
         return self._from_file_list(sampled_files, self.extensions, self.path_type)
     
+    def merge(self, other: 'FileProvider') -> 'FileProvider':
+        """
+        Merge with another FileProvider.
+        
+        Args:
+            other: Another FileProvider to merge with
+            
+        Returns:
+            New FileProvider containing files from both providers
+            
+        Raises:
+            TypeError: If other is not a FileProvider
+        """
+        if not isinstance(other, FileProvider):
+            raise TypeError(f"Cannot merge FileProvider with {type(other).__name__}")
+        
+        # Combine file lists and remove duplicates while preserving order
+        combined_files = list(dict.fromkeys(self._file_paths + other._file_paths))
+        
+        # Use the more restrictive settings (intersection of extensions)
+        if self.extensions is None:
+            merged_extensions = other.extensions
+        elif other.extensions is None:
+            merged_extensions = self.extensions  
+        else:
+            merged_extensions = list(set(self.extensions) & set(other.extensions))
+        
+        # Use the path_type of the first provider
+        return self._from_file_list(combined_files, merged_extensions, self.path_type)
+    
 class SqlProvider(DataProvider):
     """Data provider that unifies data from SQL database sources into a DataFrame."""
     
@@ -288,6 +334,30 @@ class SqlProvider(DataProvider):
         
         else:
             raise ValueError("Either 'ratio' or 'filters' must be provided")
+    
+    def merge(self, other: 'SqlProvider') -> 'SqlProvider':
+        """
+        Merge with another SqlProvider.
+        
+        Args:
+            other: Another SqlProvider to merge with
+            
+        Returns:
+            New SqlProvider containing combined DataFrame from both providers
+            
+        Raises:
+            TypeError: If other is not a SqlProvider
+        """
+        if not isinstance(other, SqlProvider):
+            raise TypeError(f"Cannot merge SqlProvider with {type(other).__name__}")
+        
+        from ..utils.dataframe import concat_dataframes
+        
+        combined_df = concat_dataframes([self._unified_df, other._unified_df])
+        
+        new_provider = SqlProvider()
+        new_provider._unified_df = combined_df
+        return new_provider
     
     @classmethod
     def get_supported_db_types(cls) -> List[str]:
