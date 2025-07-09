@@ -5,7 +5,13 @@ from .decorator import print_separator
 from typing import Dict, Any, List, Optional, Union
 from contextlib import contextmanager
 
-
+# Registry of supported database types
+SUPPORTED_DB_TYPES = {
+    'sqlite': 'SQLiteDB',
+    # Future database types can be added here
+    # 'postgresql': 'PostgreSQLDB',
+    # 'mysql': 'MySQLDB',
+}
 class Database(ABC):
     """Abstract base class for database operations using Query Builder Pattern."""
     
@@ -217,3 +223,155 @@ class SQLiteDB(Database):
             self.cursor.close()
         if self.connection:
             self.connection.close()
+
+
+def get_supported_db_types() -> List[str]:
+    """Get list of supported database types."""
+    return list(SUPPORTED_DB_TYPES.keys())
+
+def find_connection(source: Dict[str, Any]) -> str:
+    """Find connection string from source dict.
+    
+    Priority: explicit keys -> auto-detection from values
+    
+    Raises:
+        ValueError: If no connection found
+    """
+    # Try explicit keys first
+    explicit_keys = ['connection', 'path', 'url', 'database_path', 'db_path']
+    for key in explicit_keys:
+        if key in source and source[key]:
+            return str(source[key])
+    
+    # Fallback: detect from any string value that looks like connection
+    for value in source.values():
+        if isinstance(value, str) and _looks_like_connection(value):
+            return value
+    
+    raise ValueError(f"No connection found in source: {source}")
+
+def find_sql(source: Dict[str, Any]) -> str:
+    """Find SQL query from source dict.
+    
+    Priority: explicit keys -> auto-detection from values
+    
+    Raises:
+        ValueError: If no SQL query found
+    """
+    # Try explicit keys first
+    explicit_keys = ['sql', 'query', 'statement', 'command']
+    for key in explicit_keys:
+        if key in source and source[key]:
+            return str(source[key])
+    
+    # Fallback: detect from any string value that looks like SQL
+    for value in source.values():
+        if isinstance(value, str) and _looks_like_sql(value):
+            return value
+    
+    raise ValueError(f"No SQL query found in source: {source}")
+
+def find_db_type(source: Dict[str, Any], connection: str = None) -> str:
+    """Find database type from source dict.
+    
+    Priority: explicit keys -> auto-detection from connection -> default
+    
+    Args:
+        source: Source dictionary
+        connection: Optional connection string for auto-detection
+        
+    Returns:
+        Database type string (never fails, has fallback)
+        
+    Raises:
+        ValueError: If detected type is not supported
+    """
+    # Try explicit keys first
+    explicit_keys = ['db_type', 'database_type', 'type', 'engine']
+    for key in explicit_keys:
+        if key in source and source[key]:
+            db_type = str(source[key]).lower()
+            if db_type not in SUPPORTED_DB_TYPES:
+                raise ValueError(f"Unsupported database type: {db_type}. Supported: {list(SUPPORTED_DB_TYPES.keys())}")
+            return db_type
+    
+    # Fallback: detect from connection string
+    if connection:
+        db_type = detect_db_type(connection)
+        if db_type not in SUPPORTED_DB_TYPES:
+            raise ValueError(f"Detected unsupported database type: {db_type}. Supported: {list(SUPPORTED_DB_TYPES.keys())}")
+        return db_type
+    
+    # Default fallback (always valid)
+    return 'sqlite'
+
+def _looks_like_connection(value: str) -> bool:
+    """Check if string looks like a database connection."""
+    value_lower = value.lower()
+    
+    # URL schemes (high confidence)
+    url_schemes = ['sqlite://', 'postgresql://', 'postgres://', 'mysql://']
+    if any(value_lower.startswith(scheme) for scheme in url_schemes):
+        return True
+    
+    # File extensions (high confidence)
+    file_extensions = ['.db', '.sqlite', '.sqlite3', '.mdb']
+    if any(value_lower.endswith(ext) for ext in file_extensions):
+        return True
+    
+    # Path-like patterns (medium confidence)
+    if ('/' in value or '\\' in value) and not _looks_like_sql(value):
+        return True
+    
+    return False
+
+def _looks_like_sql(value: str) -> bool:
+    """Check if string looks like a SQL query."""
+    sql_starters = ['select', 'insert', 'update', 'delete', 'create', 'drop', 'alter']
+    value_lower = value.lower().strip()
+    
+    # Check if starts with SQL keywords
+    return any(value_lower.startswith(keyword) for keyword in sql_starters)
+
+def detect_db_type(connection: str) -> str:
+    """Auto-detect database type from connection string.
+    
+    Args:
+        connection: Connection string (file path, URL, etc.)
+        
+    Returns:
+        Database type string
+    """
+    connection_lower = str(connection).lower()
+    
+    # URL scheme detection (most reliable)
+    if connection_lower.startswith('sqlite://'):
+        return 'sqlite'
+    elif connection_lower.startswith(('postgresql://', 'postgres://')):
+        return 'postgresql'
+    elif connection_lower.startswith('mysql://'):
+        return 'mysql'
+    
+    # File extension detection (reliable for file-based DBs)
+    elif connection_lower.endswith(('.db', '.sqlite', '.sqlite3')):
+        return 'sqlite'
+    
+    # Default fallback
+    else:
+        return 'sqlite'
+
+def create_database_instance(db_type: str, connection: str) -> 'Database':
+    """Create database instance based on type.
+    
+    Args:
+        db_type: Database type string
+        connection: Connection string
+        
+    Returns:
+        Database instance
+    """
+    if db_type == 'sqlite':
+        return SQLiteDB(connection)
+    else:
+        # Future database types
+        raise NotImplementedError(f"Database type {db_type} not yet implemented")

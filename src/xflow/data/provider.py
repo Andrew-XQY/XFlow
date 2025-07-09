@@ -1,4 +1,4 @@
-from typing import Any, Iterable, List, Union, Optional, Tuple, Literal, TYPE_CHECKING
+from typing import Any, Iterable, List, Union, Optional, Tuple, Literal, Dict
 from abc import ABC, abstractmethod
 from pathlib import Path
 import pandas as pd
@@ -6,10 +6,6 @@ from ..utils.typing import PathLikeStr
 from ..utils.helper import subsample_sequence, split_sequence
 from ..utils.io import scan_files
 
-if TYPE_CHECKING:
-    from ..utils.sql import Database
-    
-    
 class DataProvider(ABC):
     """Minimal wrapper to add attributes to data sources."""
     
@@ -24,8 +20,13 @@ class DataProvider(ABC):
         ...
     
     @abstractmethod
-    def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None, 
-                  seed: int = None, strategy: str = None) -> 'DataProvider':
+    def subsample(
+        self, 
+        n_samples: Optional[int] = None, 
+        fraction: Optional[float] = None, 
+        seed: int = None, 
+        strategy: str = None
+        ) -> 'DataProvider':
         """
         Create a subsampled version of this provider.
         
@@ -44,7 +45,7 @@ class DataProvider(ABC):
         """
         Split provider into multiple providers.
         
-        Default implementation supports train/val split with ratio.
+        Default implementation supports ratio-based split.
         Subclasses can override for different splitting strategies.
         
         Args:
@@ -52,7 +53,7 @@ class DataProvider(ABC):
             **kwargs: Keyword arguments (implementation-specific)
             
         Returns:
-            Tuple of (train_provider, val_provider) or List of providers
+            Tuple of (provider_1, provider_2) or List of providers
             
         Raises:
             NotImplementedError: If provider doesn't support splitting
@@ -105,7 +106,7 @@ class FileProvider(DataProvider):
     
     def __call__(self) -> Union[List[str], List[Path]]:
         """Return the list of file paths in the configured type."""
-        return self._file_paths
+        return self._file_paths.copy()
     
     def __len__(self):
         """Return number of files found."""
@@ -113,7 +114,8 @@ class FileProvider(DataProvider):
     
     @classmethod
     def _from_file_list(
-        cls, file_paths: Union[List[str], List[Path]],
+        cls, 
+        file_paths: Union[List[str], List[Path]],
         extensions: Optional[List[str]] = None, 
         path_type: Literal["string", "path"] = "path"
         ) -> 'FileProvider':
@@ -125,26 +127,26 @@ class FileProvider(DataProvider):
         instance._file_paths = sorted(file_paths)
         return instance
     
-    def split(self, train_ratio: float = 0.8, seed: int = 42) -> Tuple['FileProvider', 'FileProvider']:
+    def split(self, ratio: float = 0.8, seed: int = 42) -> Tuple['FileProvider', 'FileProvider']:
         """
-        Split files into train/val providers.
+        Split files into two providers.
         
         Args:
-            train_ratio: Portion for training set (0.0 to 1.0)
+            ratio: Portion for first provider (0.0 to 1.0)
             seed: Random seed for reproducible splits
             
         Returns:
-            Tuple of (train_provider, val_provider)
+            Tuple of (provider_1, provider_2)
         """
-        train_files, val_files = split_sequence(
+        first_files, second_files = split_sequence(
             self._file_paths, 
-            split_ratio=train_ratio, 
+            split_ratio=ratio, 
             seed=seed
         )
         # Create new providers with same extensions and path_type
-        train_provider = self._from_file_list(train_files, self.extensions, self.path_type)
-        val_provider = self._from_file_list(val_files, self.extensions, self.path_type)
-        return train_provider, val_provider
+        provider_1 = self._from_file_list(first_files, self.extensions, self.path_type)
+        provider_2 = self._from_file_list(second_files, self.extensions, self.path_type)
+        return provider_1, provider_2
     
     def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None,
                   seed: int = None, strategy: str = "random") -> 'FileProvider':
@@ -170,193 +172,125 @@ class FileProvider(DataProvider):
         return self._from_file_list(sampled_files, self.extensions, self.path_type)
     
 class SqlProvider(DataProvider):
-    """Data provider that uses SQL queries to fetch data from database."""
+    """Data provider that unifies data from SQL database sources into a DataFrame."""
     
-    def __init__(self, 
-                 db: 'Database',
-                 base_query: str,
-                 where_conditions: Optional[List[str]] = None):
+    def __init__(self, sources: Union[List[Dict[str, Any]], Dict[str, Any], None] = None):
         """
         Args:
-            db: Database instance (SQLiteDB, PostgreSQLDB, etc.)
-            base_query: Base SQL query (without WHERE clause)
-            where_conditions: List of WHERE conditions to append
+            sources: Source configuration(s). Can be:
+                - List of dicts: [{"connection": "path.db", "sql": "SELECT ..."}]
+                - Single dict: {"connection": "path.db", "sql": "SELECT ..."}
+                - None: Creates empty provider
         """
-        self.db = db
-        self.base_query = base_query.strip()
-        self.where_conditions = where_conditions or []
-        self._data = None
-        self._count = None
+        self._unified_df = pd.DataFrame()
+        
+        if sources is not None:
+            # Wrap single dict into list
+            if isinstance(sources, dict):
+                sources = [sources]
+            
+            # Process each source
+            for source in sources:
+                self._add_source(source)
     
-    @classmethod
-    def from_sqlite(cls, db_path: str, base_query: str, where_conditions: Optional[List[str]] = None):
-        """Convenience constructor for SQLite databases."""
-        from ..utils.sql import SQLiteDB
-        db = SQLiteDB(db_path)
-        return cls(db, base_query, where_conditions)
-    
-    def _build_query(self, limit: Optional[int] = None, offset: Optional[int] = None) -> str:
-        """Build final SQL query with WHERE conditions and optional LIMIT/OFFSET."""
-        query = self.base_query
+    def _add_source(self, source: Dict[str, Any]) -> None:
+        """Add data from a source config to unified DataFrame."""
+        # Use atomic functions directly - each handles its own validation
+        from ..utils.sql import find_connection, find_sql, find_db_type, create_database_instance
+        from ..utils.dataframe import concat_dataframes
         
-        # Add WHERE conditions
-        if self.where_conditions:
-            # Check if base query already has WHERE clause
-            if 'WHERE' in query.upper():
-                # Append with AND
-                where_clause = ' AND ' + ' AND '.join(self.where_conditions)
-            else:
-                # Add new WHERE clause
-                where_clause = ' WHERE ' + ' AND '.join(self.where_conditions)
-            query += where_clause
+        connection = find_connection(source)
+        sql = find_sql(source)
+        db_type = find_db_type(source, connection)
         
-        # Add LIMIT/OFFSET for pagination
-        if limit is not None:
-            query += f' LIMIT {limit}'
-            if offset is not None:
-                query += f' OFFSET {offset}'
-        
-        return query
-    
-    def _count_query(self) -> str:
-        """Build count query to get total number of records."""
-        # Extract FROM clause from base query
-        from_part = self.base_query.upper().split('FROM')[1].split('ORDER BY')[0].split('GROUP BY')[0].strip()
-        count_query = f"SELECT COUNT(*) FROM {from_part}"
-        
-        # Add WHERE conditions
-        if self.where_conditions:
-            count_query += ' WHERE ' + ' AND '.join(self.where_conditions)
-        
-        return count_query
+        # Create database and get data
+        db = create_database_instance(db_type, connection)
+        try:
+            df = db.query(sql)
+            if not df.empty:
+                self._unified_df = concat_dataframes([self._unified_df, df])
+        finally:
+            db.close()
     
     def __call__(self) -> pd.DataFrame:
-        """Return pandas DataFrame with query results."""
-        if self._data is None:
-            query = self._build_query()
-            self._data = self.db.query(query)
-        return self._data
+        """Return unified DataFrame."""
+        return self._unified_df.copy()
     
     def __len__(self) -> int:
-        """Return number of records."""
-        if self._count is None:
-            count_query = self._count_query()
-            result = self.db.query(count_query)
-            self._count = result.iloc[0, 0]
-        return self._count
+        """Return total number of rows."""
+        return len(self._unified_df)
     
-    def subsample(self, n_samples: Optional[int] = None, fraction: Optional[float] = None,
-                  seed: int = None, strategy: str = "random") -> 'SqlProvider':
-        """
-        Create subsampled provider using SQL LIMIT with random sampling.
+    def subsample(
+        self, 
+        n_samples: Optional[int] = None, 
+        fraction: Optional[float] = None,
+        seed: int = None, 
+        strategy: str = "random"
+        ) -> 'SqlProvider':
+        """Create subsampled provider."""
+        from ..utils.dataframe import subsample_dataframe
         
-        Args:
-            n_samples: Exact number of samples to take
-            fraction: Fraction of total samples (0.0 to 1.0)
-            seed: Random seed for reproducible subsampling
-            strategy: "random", "first", "last"
-        """
-        # Calculate target sample size
-        if n_samples is None and fraction is None:
-            raise ValueError("Either n_samples or fraction must be provided")
+        sampled_df = subsample_dataframe(
+            self._unified_df,
+            n_samples=n_samples,
+            fraction=fraction,
+            seed=seed,
+            strategy=strategy
+        )
         
-        total_size = len(self)
-        if n_samples is None:
-            n_samples = int(total_size * fraction)
-        n_samples = min(n_samples, total_size)
-        
-        # Create subsampled query using your SQL class
-        if strategy == "random":
-            # Use ORDER BY RANDOM() LIMIT for random sampling
-            subquery = f"({self._build_query()}) ORDER BY RANDOM() LIMIT {n_samples}"
-            new_base_query = f"SELECT * FROM ({subquery})"
-        elif strategy == "first":
-            # Use LIMIT for first N records
-            new_base_query = f"({self._build_query()}) LIMIT {n_samples}"
-        elif strategy == "last":
-            # Use ORDER BY DESC + LIMIT for last N records
-            subquery = f"({self._build_query()}) ORDER BY rowid DESC LIMIT {n_samples}"
-            new_base_query = f"SELECT * FROM ({subquery}) ORDER BY rowid ASC"
-        else:
-            raise ValueError(f"Strategy '{strategy}' not supported")
-        
-        # Create new provider with modified base query and no additional conditions
-        return SqlProvider(self.db, new_base_query, [])
+        new_provider = SqlProvider()
+        new_provider._unified_df = sampled_df.copy()
+        return new_provider
     
     def split(
-            self, 
-            *conditions: str, 
-            train_ratio: Optional[float] = None, 
-            seed: Optional[int] = None
-            ) -> Union[Tuple['SqlProvider', 'SqlProvider'], List['SqlProvider']]:
-        """
-        Split data by creating multiple providers with different WHERE conditions,
-        or by random train/val split.
+        self, 
+        ratio: float = None, 
+        seed: int = 42, 
+        filters: List[str] = None
+        ) -> Union[Tuple['SqlProvider', 'SqlProvider'], List['SqlProvider']]:
+        """Split unified DataFrame into multiple providers.
         
         Args:
-            *conditions: Variable number of WHERE condition strings for explicit splits
-            train_ratio: If provided, do random train/val split (0.0 to 1.0)
-            seed: Random seed for train/val split
+            ratio: For ratio-based split (0.0 to 1.0). If provided, returns (provider_1, provider_2).
+            seed: Random seed for ratio-based splits
+            filters: List of pandas query strings for filter-based split. Returns list of providers.
+                    Example: ["age > 30", "category == 'A'", "score >= 0.8"]
             
         Returns:
-            Tuple of (train_provider, val_provider) if train_ratio provided,
-            otherwise List of SqlProvider instances for each condition
-            
-        Example:
-            # Explicit condition splits (returns List)
-            train, val, test = sql_provider.split(
-                "status = 'train'",
-                "status = 'val'", 
-                "status = 'test'"
-            )
-            
-            # Random train/val split (returns Tuple) - consistent with FileProvider
-            train, val = sql_provider.split(train_ratio=0.8, seed=42)
-            
-            # Handle list input
-            train, test = sql_provider.split(*["purpose = 'training'", "purpose = 'testing'"])
+            Tuple of (provider_1, provider_2) for ratio split
+            List of providers for filter split
         """
-        # Random train/val split mode (like FileProvider)
-        if train_ratio is not None:
-            if conditions:
-                raise ValueError("Cannot specify both train_ratio and explicit conditions")
+        if filters is not None:
+            # Filter-based split using generic utility
+            from ..utils.dataframe import split_dataframe_by_filters
             
-            # For reproducible splits, use row number modulo approach
-            if seed is not None:
-                # Use seed-based deterministic splitting
-                train_condition = f"(ABS(HASH(rowid || '{seed}')) % 100) < {int(train_ratio * 100)}"
-                val_condition = f"(ABS(HASH(rowid || '{seed}')) % 100) >= {int(train_ratio * 100)}"
-            else:
-                # Simple modulo split without seed
-                train_condition = f"(rowid % 100) < {int(train_ratio * 100)}"
-                val_condition = f"(rowid % 100) >= {int(train_ratio * 100)}"
+            filtered_dfs = split_dataframe_by_filters(self._unified_df, filters)
+            providers = []
+            for df in filtered_dfs:
+                provider = SqlProvider()
+                provider._unified_df = df.copy()
+                providers.append(provider)
+            return providers
+        
+        elif ratio is not None:
+            # Ratio-based split using generic utility
+            from ..utils.dataframe import split_dataframe_by_ratio
             
-            train_provider = SqlProvider(self.db, self.base_query, self.where_conditions + [train_condition])
-            val_provider = SqlProvider(self.db, self.base_query, self.where_conditions + [val_condition])
+            first_df, second_df = split_dataframe_by_ratio(self._unified_df, ratio, seed)
             
-            return train_provider, val_provider
-        
-        # Explicit condition splits mode
-        # Handle case where a list is passed as first argument
-        if len(conditions) == 1 and isinstance(conditions[0], list):
-            conditions = conditions[0]
-        
-        if not conditions:
-            raise ValueError("Either train_ratio or explicit conditions must be provided")
-        
-        providers = []
-        for condition in conditions:
-            if not isinstance(condition, str):
-                raise ValueError(f"Each condition must be a string, got {type(condition)}")
+            first_provider = SqlProvider()
+            first_provider._unified_df = first_df.copy()
             
-            # Create new provider with base conditions + split condition
-            new_conditions = self.where_conditions + [condition]
-            provider = SqlProvider(self.db, self.base_query, new_conditions)
-            providers.append(provider)
+            second_provider = SqlProvider()
+            second_provider._unified_df = second_df.copy()
+            
+            return first_provider, second_provider
         
-        return providers
+        else:
+            raise ValueError("Either 'ratio' or 'filters' must be provided")
     
-    def close(self):
-        """Close database connection."""
-        if hasattr(self.db, 'close'):
-            self.db.close()
+    @classmethod
+    def get_supported_db_types(cls) -> List[str]:
+        """Get list of supported database types."""
+        from ..utils.sql import get_supported_db_types
+        return get_supported_db_types()
