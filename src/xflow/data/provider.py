@@ -223,7 +223,7 @@ class SqlProvider(DataProvider):
     def __init__(
         self, 
         sources: Union[List[Dict[str, Any]], Dict[str, Any], None] = None, 
-        output_column: Optional[str] = None
+        output_config: Optional[Dict[str, Any]] = None
         ):
         """
         Args:
@@ -231,9 +231,12 @@ class SqlProvider(DataProvider):
                 - List of dicts: [{"connection": "path.db", "sql": "SELECT ..."}]
                 - Single dict: {"connection": "path.db", "sql": "SELECT ..."}
                 - None: Creates empty provider
+            output_config: Configuration for output format. Examples:
+                - {"operation": "dataframe"} (default)
+                - {"operation": "column", "column": "image_path"}
         """
         self._unified_df = pd.DataFrame()
-        self._output_column = output_column
+        self._output_config = output_config or {"operation": "dataframe"}
         if sources is not None:
             # Wrap single dict into list
             if isinstance(sources, dict):
@@ -262,15 +265,27 @@ class SqlProvider(DataProvider):
         finally:
             db.close()
     
-    def __call__(self) -> Union[pd.DataFrame, List[Any]]:
-        """Return DataFrame or column list based on configuration."""
-        if self._output_column:
-            return self._unified_df[self._output_column].tolist()
-        return self._unified_df.copy()
+    def __call__(self) -> Any:
+        """Return DataFrame or transformed data based on output_config."""
+        data = self._unified_df.copy()
+        
+        operation = self._output_config.get("operation", "dataframe")
+        
+        if operation == "dataframe":
+            return data
+        elif operation == "column":
+            column_name = self._output_config["column"]
+            return data[column_name].tolist()
+        else:
+            raise ValueError(f"Unknown operation: {operation}")
     
     def __len__(self) -> int:
         """Return total number of rows."""
         return len(self._unified_df)
+    
+    def set_output_config(self, config: Dict[str, Any]) -> None:
+        """Set the output configuration."""
+        self._output_config = config
     
     def subsample(
         self, 
@@ -292,6 +307,7 @@ class SqlProvider(DataProvider):
         
         new_provider = SqlProvider()
         new_provider._unified_df = sampled_df.copy()
+        new_provider._output_config = self._output_config.copy()
         return new_provider
     
     def split(
@@ -321,6 +337,7 @@ class SqlProvider(DataProvider):
             for df in filtered_dfs:
                 provider = SqlProvider()
                 provider._unified_df = df.copy()
+                provider._output_config = self._output_config.copy()
                 providers.append(provider)
             return providers
         
@@ -332,9 +349,11 @@ class SqlProvider(DataProvider):
             
             first_provider = SqlProvider()
             first_provider._unified_df = first_df.copy()
+            first_provider._output_config = self._output_config.copy()
             
             second_provider = SqlProvider()
             second_provider._unified_df = second_df.copy()
+            second_provider._output_config = self._output_config.copy()
             
             return first_provider, second_provider
         
@@ -363,6 +382,7 @@ class SqlProvider(DataProvider):
         
         new_provider = SqlProvider()
         new_provider._unified_df = combined_df
+        new_provider._output_config = self._output_config.copy()
         return new_provider
     
     @classmethod
