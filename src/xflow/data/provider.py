@@ -220,7 +220,11 @@ class FileProvider(DataProvider):
 class SqlProvider(DataProvider):
     """Data provider that unifies data from SQL database sources into a DataFrame."""
     
-    def __init__(self, sources: Union[List[Dict[str, Any]], Dict[str, Any], None] = None):
+    def __init__(
+        self, 
+        sources: Union[List[Dict[str, Any]], Dict[str, Any], None] = None, 
+        output_column: Optional[str] = None
+        ):
         """
         Args:
             sources: Source configuration(s). Can be:
@@ -229,7 +233,7 @@ class SqlProvider(DataProvider):
                 - None: Creates empty provider
         """
         self._unified_df = pd.DataFrame()
-        
+        self._output_column = output_column
         if sources is not None:
             # Wrap single dict into list
             if isinstance(sources, dict):
@@ -258,8 +262,10 @@ class SqlProvider(DataProvider):
         finally:
             db.close()
     
-    def __call__(self) -> pd.DataFrame:
-        """Return unified DataFrame."""
+    def __call__(self) -> Union[pd.DataFrame, List[Any]]:
+        """Return DataFrame or column list based on configuration."""
+        if self._output_column:
+            return self._unified_df[self._output_column].tolist()
         return self._unified_df.copy()
     
     def __len__(self) -> int:

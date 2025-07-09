@@ -335,7 +335,6 @@ class DatasetOperationRegistry:
     def list_operations(cls):
         return list(cls._operations.keys())
     
-    
 # Dataset operations (applied to entire dataset)
 @DatasetOperationRegistry.register("tf_batch")
 def tf_batch(dataset, batch_size: int, drop_remainder: bool = False):
