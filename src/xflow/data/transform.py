@@ -121,61 +121,6 @@ class BatchPipeline(BasePipeline):
     def to_framework_dataset(self) -> Any:
         return self.base.to_framework_dataset().batch(self.batch_size)
 
-class PrefetchPipeline(BasePipeline):
-    """Pipeline that prefetches items in background for better performance."""
-    
-    def __init__(self, base: BasePipeline, buffer_size: int = 2) -> None:
-        _copy_pipeline_attributes(self, base)
-        self.base = base
-        self.buffer_size = buffer_size
-
-    def __iter__(self) -> Iterator[Any]:
-        import queue
-        import threading
-        
-        buffer = queue.Queue(maxsize=self.buffer_size)
-        
-        def producer():
-            try:
-                for item in self.base:
-                    buffer.put(item)
-                buffer.put(None)  # Sentinel to signal end
-            except Exception as e:
-                buffer.put(e)  # Pass exception to consumer
-        
-        thread = threading.Thread(target=producer)
-        thread.start()
-        
-        try:
-            while True:
-                item = buffer.get()
-                if item is None:  # End sentinel
-                    break
-                if isinstance(item, Exception):  # Exception from producer
-                    raise item
-                yield item
-        finally:
-            thread.join()
-
-    def __len__(self) -> int:
-        return len(self.base)
-
-    def sample(self, n: int = 5) -> List[Any]:
-        """Return up to n preprocessed items for inspection."""
-        return list(itertools.islice(self.__iter__(), n))
-
-    def reset_error_count(self) -> None:
-        """Reset the error count to zero."""
-        self.error_count = 0
-        self.base.reset_error_count()
-
-    def to_framework_dataset(self) -> Any:
-        """Delegate to base and add prefetch operation."""
-        base_dataset = self.base.to_framework_dataset()
-        # For TensorFlow, add prefetch
-        if hasattr(base_dataset, 'prefetch'):
-            return base_dataset.prefetch(self.buffer_size)
-        return base_dataset
 
 class TransformRegistry:
     """Registry for all available transforms."""

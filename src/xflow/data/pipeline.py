@@ -99,10 +99,9 @@ class BasePipeline(ABC):
         from .transform import BatchPipeline
         return BatchPipeline(self, batch_size)
 
-    def prefetch(self, buffer_size: int = 2) -> 'BasePipeline':
+    def prefetch(self) -> 'BasePipeline':
         """Return a new pipeline that prefetches items in background."""
-        from .transform import PrefetchPipeline
-        return PrefetchPipeline(self, buffer_size)
+        # TODO: Implement prefetching logic
     
     def reset_error_count(self) -> None:
         """Reset the error count to zero."""
