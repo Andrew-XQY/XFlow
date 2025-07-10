@@ -269,15 +269,14 @@ class SqlProvider(DataProvider):
         """Return DataFrame or transformed data based on output_config."""
         data = self._unified_df.copy()
         
-        operation = self._output_config.get("operation", "dataframe")
-        
-        if operation == "dataframe":
-            return data
-        elif operation == "column":
-            column_name = self._output_config["column"]
+        # interpret output_config directly: key is operation type
+        config = self._output_config or {}
+        # if 'list' operation, return specified column as Python list
+        if 'list' in config.keys():
+            column_name = config['list']
             return data[column_name].tolist()
-        else:
-            raise ValueError(f"Unknown operation: {operation}")
+        # default: return full DataFrame
+        return data
     
     def __len__(self) -> int:
         """Return total number of rows."""
