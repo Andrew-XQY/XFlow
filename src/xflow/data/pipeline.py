@@ -98,6 +98,11 @@ class BasePipeline(ABC):
         """Return a new pipeline that batches items into lists."""
         from .transform import BatchPipeline
         return BatchPipeline(self, batch_size)
+
+    def prefetch(self, buffer_size: int = 2) -> 'BasePipeline':
+        """Return a new pipeline that prefetches items in background."""
+        from .transform import PrefetchPipeline
+        return PrefetchPipeline(self, buffer_size)
     
     def reset_error_count(self) -> None:
         """Reset the error count to zero."""
@@ -107,6 +112,16 @@ class BasePipeline(ABC):
     def to_framework_dataset(self) -> Any:
         """Convert pipeline to framework-native dataset."""
         ...
+
+class DataPipeline(BasePipeline):
+    """Simple pipeline that processes data lazily without storing in memory."""
+    
+    def to_framework_dataset(self) -> Any:
+        """Not supported for lazy processing."""
+        raise NotImplementedError(
+            "DataPipeline doesn't support framework conversion. "
+            "Use InMemoryPipeline or TensorFlowPipeline instead."
+        )
         
 class InMemoryPipeline(BasePipeline):
     """In-memory pipeline that processes all data upfront."""

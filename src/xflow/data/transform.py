@@ -14,6 +14,18 @@ from ..utils.decorator import with_progress
 from ..utils.typing import PathLikeStr, TensorLike, ImageLike
 
 
+def _copy_pipeline_attributes(target: 'BasePipeline', source: BasePipeline) -> None:
+    """Helper function to copy essential attributes from source to target pipeline.
+    
+    This ensures all pipeline wrappers maintain the same interface as BasePipeline.
+    """
+    target.data_provider = source.data_provider
+    target.transforms = source.transforms
+    target.logger = source.logger
+    target.skip_errors = source.skip_errors
+    target.error_count = source.error_count
+
+
 @with_progress
 def apply_transforms_to_dataset(
     data: Iterable[Any],
@@ -45,19 +57,9 @@ class ShufflePipeline(BasePipeline):
     """Memory-efficient shuffle using reservoir sampling."""
     
     def __init__(self, base: BasePipeline, buffer_size: int) -> None:
-        self._copy_base_attributes(base)
+        _copy_pipeline_attributes(self, base)
         self.base = base
         self.buffer_size = buffer_size
-
-    def _copy_base_attributes(self, base: BasePipeline) -> None:
-        """Copy essential attributes from base pipeline."""
-        self.data_provider = base.data_provider
-        self.preprocess_fns = base.preprocess_fns
-        self.logger = base.logger
-        self.on_error = base.on_error
-        self.error_handler = base.error_handler
-        self.cache = False
-        self._cached_data = None
 
     def __iter__(self) -> Iterator[Any]:
         it = self.base.__iter__()
@@ -75,6 +77,15 @@ class ShufflePipeline(BasePipeline):
     def __len__(self) -> int:
         return len(self.base)
 
+    def sample(self, n: int = 5) -> List[Any]:
+        """Return up to n preprocessed items for inspection."""
+        return list(itertools.islice(self.__iter__(), n))
+
+    def reset_error_count(self) -> None:
+        """Reset the error count to zero."""
+        self.error_count = 0
+        self.base.reset_error_count()
+
     def to_framework_dataset(self) -> Any:
         return self.base.to_framework_dataset().shuffle(self.buffer_size)
 
@@ -83,18 +94,9 @@ class BatchPipeline(BasePipeline):
     """Groups items into fixed-size batches."""
     
     def __init__(self, base: BasePipeline, batch_size: int) -> None:
-        self._copy_base_attributes(base)
+        _copy_pipeline_attributes(self, base)
         self.base = base
         self.batch_size = batch_size
-
-    def _copy_base_attributes(self, base: BasePipeline) -> None:
-        self.data_provider = base.data_provider
-        self.preprocess_fns = base.preprocess_fns
-        self.logger = base.logger
-        self.on_error = base.on_error
-        self.error_handler = base.error_handler
-        self.cache = False
-        self._cached_data = None
 
     def __iter__(self) -> Iterator[List[Any]]:
         it = self.base.__iter__()
@@ -107,9 +109,73 @@ class BatchPipeline(BasePipeline):
     def __len__(self) -> int:
         return (len(self.base) + self.batch_size - 1) // self.batch_size
 
+    def sample(self, n: int = 5) -> List[Any]:
+        """Return up to n preprocessed items for inspection."""
+        return list(itertools.islice(self.__iter__(), n))
+
+    def reset_error_count(self) -> None:
+        """Reset the error count to zero."""
+        self.error_count = 0
+        self.base.reset_error_count()
+
     def to_framework_dataset(self) -> Any:
         return self.base.to_framework_dataset().batch(self.batch_size)
 
+class PrefetchPipeline(BasePipeline):
+    """Pipeline that prefetches items in background for better performance."""
+    
+    def __init__(self, base: BasePipeline, buffer_size: int = 2) -> None:
+        _copy_pipeline_attributes(self, base)
+        self.base = base
+        self.buffer_size = buffer_size
+
+    def __iter__(self) -> Iterator[Any]:
+        import queue
+        import threading
+        
+        buffer = queue.Queue(maxsize=self.buffer_size)
+        
+        def producer():
+            try:
+                for item in self.base:
+                    buffer.put(item)
+                buffer.put(None)  # Sentinel to signal end
+            except Exception as e:
+                buffer.put(e)  # Pass exception to consumer
+        
+        thread = threading.Thread(target=producer)
+        thread.start()
+        
+        try:
+            while True:
+                item = buffer.get()
+                if item is None:  # End sentinel
+                    break
+                if isinstance(item, Exception):  # Exception from producer
+                    raise item
+                yield item
+        finally:
+            thread.join()
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+    def sample(self, n: int = 5) -> List[Any]:
+        """Return up to n preprocessed items for inspection."""
+        return list(itertools.islice(self.__iter__(), n))
+
+    def reset_error_count(self) -> None:
+        """Reset the error count to zero."""
+        self.error_count = 0
+        self.base.reset_error_count()
+
+    def to_framework_dataset(self) -> Any:
+        """Delegate to base and add prefetch operation."""
+        base_dataset = self.base.to_framework_dataset()
+        # For TensorFlow, add prefetch
+        if hasattr(base_dataset, 'prefetch'):
+            return base_dataset.prefetch(self.buffer_size)
+        return base_dataset
 
 class TransformRegistry:
     """Registry for all available transforms."""
