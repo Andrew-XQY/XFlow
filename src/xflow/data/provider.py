@@ -229,11 +229,11 @@ class SqlProvider(DataProvider):
         Args:
             sources: Source configuration(s). Can be:
                 - List of dicts: [{"connection": "path.db", "sql": "SELECT ..."}]
-                - Single dict: {"connection": "path.db", "sql": "SELECT ..."}
+                - Single dict: {"connection": "path.db", "sql": "SELECT ..."
                 - None: Creates empty provider
-            output_config: Configuration for output format. Examples:
-                - {"operation": "dataframe"} (default)
-                - {"operation": "column", "column": "image_path"}
+            output_config: Optional dict controlling output behavior:
+                - {"list": "<column_name>"} returns that column as a Python list
+                - {} or None returns the full unified DataFrame
         """
         self._unified_df = pd.DataFrame()
         self._output_config = output_config or {"operation": "dataframe"}
