@@ -1,76 +1,19 @@
 """Beam diagnostics utilities for transverse beam parameter extraction."""
+import logging
 import tensorflow as tf
 from typing import Dict, Tuple, Optional
 from ...utils.typing import TensorLike
 
-
-# TensorFlow native implementation for beam parameter extraction
-@tf.function
-def extract_beam_parameters_tf(image: TensorLike) -> tf.Tensor:
-    """Extract normalized transverse beam parameters (TF native version).
-    
-    Returns:
-        tf.Tensor of shape [4] containing [h_centroid, h_width, v_centroid, v_width]
-        All values normalized to 0-1 range.
-    """
-    # Background subtraction
-    min_val = tf.reduce_min(image)
-    image_bg_sub = image - min_val
-    
-    # Calculate projections
-    h_projection = tf.reduce_sum(image_bg_sub, axis=0)
-    v_projection = tf.reduce_sum(image_bg_sub, axis=1)
-    
-    # Calculate beam moments from projections
-    h_centroid, h_width = calculate_beam_moments_1d_tf(h_projection)
-    v_centroid, v_width = calculate_beam_moments_1d_tf(v_projection)
-    
-    # Normalize to 0-1 range using image dimensions
-    height = tf.cast(tf.shape(image)[0], tf.float32)
-    width = tf.cast(tf.shape(image)[1], tf.float32)
-    
-    h_centroid_norm = h_centroid / (width - 1.0)
-    v_centroid_norm = v_centroid / (height - 1.0)
-    h_width_norm = h_width / width
-    v_width_norm = v_width / height
-    
-    return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
-
-@tf.function
-def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
-    """Calculate first and second moments of 1D beam distribution using TensorFlow.
-    
-    TensorFlow-native implementation for computing beam centroid and standard deviation
-    from intensity distribution using statistical moment analysis.
-    
-    Args:
-        projection: 1D tensor representing beam projection
-        
-    Returns:
-        Tuple of (centroid, std_dev) - beam position and width as TF tensors
-    """
-    total_intensity = tf.reduce_sum(projection)
-    weights = projection / total_intensity
-    
-    length = tf.cast(tf.shape(projection)[0], tf.float32)
-    coords = tf.range(length, dtype=tf.float32)
-    
-    mean = tf.reduce_sum(coords * weights)
-    variance = tf.reduce_sum(weights * tf.square(coords - mean))
-    std = tf.sqrt(variance)
-    
-    return mean, std
-
+logger = logging.getLogger(__name__)
 
 
 # General NumPy implementation for beam parameter extraction
 
-def extract_beam_parameters(image: TensorLike, debug: bool = False) -> Optional[Dict[str, float]]:
+def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
     
     Args:
         image: 2D tensor representing transverse beam distribution
-        debug: If True, print debugging information when extraction fails
         
     Returns:
         Dictionary containing normalized beam parameters (0-1 range), or None if extraction fails:
@@ -117,9 +60,12 @@ def extract_beam_parameters(image: TensorLike, debug: bool = False) -> Optional[
             return None
         
         return normalized_params
-
         
-    except Exception:
+    except Exception as e:
+        import traceback
+        logger.warning(f"Beam parameter extraction failed: {e}")
+        logger.warning(f"Image type: {type(image)}, shape: {getattr(image, 'shape', 'unknown')}")
+        logger.warning(f"Full traceback:\n{traceback.format_exc()}")
         return None
 
 
@@ -253,3 +199,62 @@ def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
         return False
     
     return True
+
+
+# TensorFlow native implementation for beam parameter extraction
+@tf.function
+def extract_beam_parameters_tf(image: TensorLike) -> tf.Tensor:
+    """Extract normalized transverse beam parameters (TF native version).
+    
+    Returns:
+        tf.Tensor of shape [4] containing [h_centroid, h_width, v_centroid, v_width]
+        All values normalized to 0-1 range.
+    """
+    # Background subtraction
+    min_val = tf.reduce_min(image)
+    image_bg_sub = image - min_val
+    
+    # Calculate projections
+    h_projection = tf.reduce_sum(image_bg_sub, axis=0)
+    v_projection = tf.reduce_sum(image_bg_sub, axis=1)
+    
+    # Calculate beam moments from projections
+    h_centroid, h_width = calculate_beam_moments_1d_tf(h_projection)
+    v_centroid, v_width = calculate_beam_moments_1d_tf(v_projection)
+    
+    # Normalize to 0-1 range using image dimensions
+    height = tf.cast(tf.shape(image)[0], tf.float32)
+    width = tf.cast(tf.shape(image)[1], tf.float32)
+    
+    h_centroid_norm = h_centroid / (width - 1.0)
+    v_centroid_norm = v_centroid / (height - 1.0)
+    h_width_norm = h_width / width
+    v_width_norm = v_width / height
+    
+    return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
+
+@tf.function
+def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
+    """Calculate first and second moments of 1D beam distribution using TensorFlow.
+    
+    TensorFlow-native implementation for computing beam centroid and standard deviation
+    from intensity distribution using statistical moment analysis.
+    
+    Args:
+        projection: 1D tensor representing beam projection
+        
+    Returns:
+        Tuple of (centroid, std_dev) - beam position and width as TF tensors
+    """
+    total_intensity = tf.reduce_sum(projection)
+    weights = projection / total_intensity
+    
+    length = tf.cast(tf.shape(projection)[0], tf.float32)
+    coords = tf.range(length, dtype=tf.float32)
+    
+    mean = tf.reduce_sum(coords * weights)
+    variance = tf.reduce_sum(weights * tf.square(coords - mean))
+    std = tf.sqrt(variance)
+    
+    return mean, std
+

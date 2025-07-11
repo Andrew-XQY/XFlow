@@ -6,15 +6,23 @@ from .beam import extract_beam_parameters, extract_beam_parameters_tf
 
 
 @TransformRegistry.register("split_width_with_analysis")
-def split_width_with_analysis(image: TensorLike, swap: bool = False) -> Optional[Tuple[TensorLike, Dict[str, float]]]:
+def split_width_with_analysis(
+    image: TensorLike, 
+    swap: bool = False, 
+    return_all: bool = False,
+    method: str = "moments"
+    ) -> Optional[Tuple[TensorLike, Dict[str, float], TensorLike]]:
     """Split image at width midpoint and analyze left half for parameters.
     
     Args:
         image: Input image tensor
         swap: If True, swap left and right halves before processing
+        return_all: If True, return (right_half, parameters, left_half), otherwise (right_half, parameters)
+        method: Method to use for beam parameter extraction
         
     Returns:
-        Tuple of (right_half_image, parameters_dict) or None if extraction fails or parameters are unreasonable
+        Tuple of (right_half_image, parameters_dict) or (right_half_image, parameters_dict, left_half_image) 
+        if return_all is True, or None if extraction fails or parameters are unreasonable
     """
     import numpy as np
     
@@ -34,25 +42,36 @@ def split_width_with_analysis(image: TensorLike, swap: bool = False) -> Optional
         left_half, right_half = right_half, left_half
     
     # Analyze left half to extract parameters
-    parameters = extract_beam_parameters(left_half)
+    parameters = extract_beam_parameters(left_half, method=method)
     
     # Check if parameter extraction failed
     if parameters is None:
         return None
     
-    return right_half, parameters
+    if return_all:
+        return right_half, parameters, left_half # input, label, callback plot
+    else:
+        return right_half, parameters # input, label
 
 
 @TransformRegistry.register("tf_split_width_with_analysis")
-def tf_split_width_with_analysis(image: TensorLike, swap: bool = False) -> Optional[Tuple[TensorLike, Dict[str, float]]]:
+def tf_split_width_with_analysis(
+    image: TensorLike, 
+    swap: bool = False, 
+    return_all: bool = False,
+    method: str = "moments"
+    ) -> Optional[Tuple[TensorLike, Dict[str, float], TensorLike]]:
     """Split image at width midpoint and analyze left half for parameters.
     
     Args:
         image: Input image tensor
         swap: If True, swap left and right halves before processing
+        return_all: If True, return (right_half, parameters, left_half), otherwise (right_half, parameters)
+        method: Method to use for beam parameter extraction
         
     Returns:
-        Tuple of (right_half_image, parameters_dict) or None if extraction fails or parameters are unreasonable
+        Tuple of (right_half_image, parameters_dict) or (right_half_image, parameters_dict, left_half_image) 
+        if return_all is True, or None if extraction fails or parameters are unreasonable
     """
     import tensorflow as tf
     
@@ -67,7 +86,7 @@ def tf_split_width_with_analysis(image: TensorLike, swap: bool = False) -> Optio
     
     # Analyze left half to extract parameters
     try:
-        tf_params = extract_beam_parameters_tf(left_half)
+        tf_params = extract_beam_parameters_tf(left_half, method=method)
         # Convert TensorFlow tensor result to dictionary
         parameters = {
             "h_centroid": float(tf_params[0]),
@@ -83,4 +102,7 @@ def tf_split_width_with_analysis(image: TensorLike, swap: bool = False) -> Optio
     if parameters is None:
         return None
     
-    return right_half, parameters
+    if return_all:
+        return right_half, parameters, left_half  # input, label, callback plot
+    else:
+        return right_half, parameters  # input, label
