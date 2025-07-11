@@ -283,18 +283,9 @@ def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
     
     return True
 
+
 def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
-    """Calculate beam parameters using Gaussian curve fitting.
-    
-    Fits a Gaussian curve to the 1D beam projection and extracts the centroid (mean)
-    and width (standard deviation) from the fitted parameters.
-    
-    Args:
-        projection: 1D tensor/array representing beam projection
-        
-    Returns:
-        Tuple of (centroid, std_dev) - beam position and width in pixels
-    """
+    """Calculate beam parameters using Gaussian curve fitting - accelerator physics standard."""
     import numpy as np
     from scipy.optimize import curve_fit
     
@@ -313,46 +304,56 @@ def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
     coords = np.arange(length, dtype=np.float32)
     
     # Define Gaussian function
-    def gaussian(x, amplitude, mean, std, offset):
-        return amplitude * np.exp(-0.5 * ((x - mean) / std) ** 2) + offset
+    def gaussian(x, amplitude, mean, sigma, offset):
+        return amplitude * np.exp(-0.5 * ((x - mean) / sigma) ** 2) + offset
     
-    # Initial parameter estimates using moments
-    total_intensity = np.sum(proj_np)
-    weights = proj_np / total_intensity
-    mean_estimate = np.sum(coords * weights)
-    variance_estimate = np.sum(weights * np.square(coords - mean_estimate))
-    std_estimate = np.sqrt(variance_estimate)
+    # Gold standard initial parameter estimation
+    peak_idx = np.argmax(proj_np)
+    amplitude_est = np.max(proj_np)
+    mean_est = float(peak_idx)
+    offset_est = np.min(proj_np)
     
-    # Initial guess for fitting parameters
-    amplitude_estimate = np.max(proj_np) - np.min(proj_np)
-    offset_estimate = np.min(proj_np)
+    # Estimate sigma from FWHM (standard practice in accelerator physics)
+    half_max = (amplitude_est + offset_est) / 2.0
+    indices = np.where(proj_np >= half_max)[0]
+    if len(indices) > 1:
+        fwhm = indices[-1] - indices[0]
+        sigma_est = fwhm / 2.355  # Convert FWHM to sigma
+    else:
+        fwhm = length / 5.0  # Conservative fallback estimate
+        sigma_est = fwhm / 2.355
     
-    initial_guess = [amplitude_estimate, mean_estimate, std_estimate, offset_estimate]
+    # Ensure realistic sigma bounds
+    sigma_est = max(0.5, min(sigma_est, length / 3.0))
+    
+    initial_guess = [amplitude_est - offset_est, mean_est, sigma_est, offset_est]
+    
+    # Adaptive bounds based on data characteristics
+    min_sigma = max(0.2, length * 0.001)  # 0.2 pixels or 0.1% of detector
+    max_sigma = min(length * 0.6, fwhm * 2)  # 60% detector or 2x FWHM estimate
     
     try:
-        # Perform Gaussian curve fitting
+        # Perform Gaussian curve fitting with physics-realistic bounds
         popt, _ = curve_fit(
             gaussian, 
             coords, 
             proj_np, 
             p0=initial_guess,
-            maxfev=1000,
+            maxfev=1500,
             bounds=(
-                [0, 0, 0.1, 0],  # Lower bounds
-                [np.inf, length-1, length, np.inf]  # Upper bounds
+                [0, 0, min_sigma, 0],  # Lower bounds
+                [np.inf, length-1, max_sigma, np.inf]  # Upper bounds
             )
         )
         
-        # Extract fitted parameters
-        amplitude, mean, std, offset = popt
+        amplitude, mean, sigma, offset = popt
         
-        # Validate fitted parameters
-        if not (0 <= mean <= length-1) or std <= 0 or std > length:
-            # Fall back to moments if fitting failed
-            return float(mean_estimate), float(std_estimate)
+        # Physics validation: reasonable parameters?
+        if not (0.5 <= mean <= length-1.5) or sigma <= min_sigma or sigma > max_sigma:
+            raise ValueError("Unrealistic fit parameters")
         
-        return float(mean), float(std)
+        return float(mean), float(sigma)
         
     except Exception:
-        # Fall back to moments if fitting fails
-        return float(mean_estimate), float(std_estimate)
+        # Fallback to moments - reuse existing implementation
+        return calculate_beam_moments_1d(projection)
