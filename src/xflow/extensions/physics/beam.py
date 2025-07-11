@@ -195,7 +195,13 @@ def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.
     
     return mean, std
 
-def normalize_to_range(value: float, min_val: float, max_val: float, target_min: float = 0.0, target_max: float = 1.0) -> float:
+def normalize_to_range(
+    value: float,
+    min_val: float, 
+    max_val: float, 
+    target_min: float = 0.0, 
+    target_max: float = 1.0
+    ) -> float:
     """Normalize a value from one range to another.
     
     Args:
@@ -217,19 +223,20 @@ def normalize_to_range(value: float, min_val: float, max_val: float, target_min:
 
 
 def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
-    """Normalize beam parameters to 0-1 range based on image dimensions.
-    
-    Args:
-        params: Raw beam parameters dictionary
-        image_shape: (height, width) of the original image
-        
-    Returns:
-        Dictionary with normalized parameters (0-1 range), or None if params is empty/invalid
-    """
+    """Normalize beam parameters to 0-1 range based on image dimensions."""
     if not params:
         return None
     
-    height, width = image_shape
+    # Handle different image shapes (2D, 3D with channels, etc.)
+    if len(image_shape) == 2:
+        height, width = image_shape
+    elif len(image_shape) == 3:
+        height, width, _ = image_shape  # Ignore channel dimension
+    elif len(image_shape) == 4:
+        _, height, width, _ = image_shape  # Handle batch + channel dimensions
+    else:
+        logger.warning(f"Unexpected image shape: {image_shape}")
+        return None
     
     normalized = {}
     
