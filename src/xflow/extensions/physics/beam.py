@@ -6,14 +6,13 @@ from ...utils.typing import TensorLike
 
 logger = logging.getLogger(__name__)
 
-
 # General NumPy implementation for beam parameter extraction
-
-def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
+def extract_beam_parameters(image: TensorLike, method: str = "moments") -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
     
     Args:
         image: 2D tensor representing transverse beam distribution
+        method: Analysis method to use ("moments", "gaussian", etc.)
         
     Returns:
         Dictionary containing normalized beam parameters (0-1 range), or None if extraction fails:
@@ -39,9 +38,10 @@ def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
         h_projection = np.sum(image_bg_sub, axis=0)  # Sum along vertical axis
         v_projection = np.sum(image_bg_sub, axis=1)  # Sum along horizontal axis
         
-        # Calculate beam moments from projections
-        h_centroid, h_width = calculate_beam_moments_1d(h_projection)
-        v_centroid, v_width = calculate_beam_moments_1d(v_projection)
+        analysis_func = _get_beam_analysis_function(method)
+        # Get the analysis method and calculate beam moments from projections
+        h_centroid, h_width = analysis_func(h_projection)
+        v_centroid, v_width = analysis_func(v_projection)
         
         # Raw parameters
         raw_params = {
@@ -67,6 +67,67 @@ def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
         logger.warning(f"Image type: {type(image)}, shape: {getattr(image, 'shape', 'unknown')}")
         logger.warning(f"Full traceback:\n{traceback.format_exc()}")
         return None
+
+
+# TensorFlow native implementation for beam parameter extraction
+@tf.function
+def extract_beam_parameters_tf(image: TensorLike, method: str = "moments") -> tf.Tensor:
+    """Extract normalized transverse beam parameters (TF native version).
+    
+    Args:
+        image: 2D tensor representing transverse beam distribution
+        method: Analysis method to use ("moments", "gaussian", etc.)
+    
+    Returns:
+        tf.Tensor of shape [4] containing [h_centroid, h_width, v_centroid, v_width]
+        All values normalized to 0-1 range.
+    """
+    # Background subtraction
+    min_val = tf.reduce_min(image)
+    image_bg_sub = image - min_val
+    
+    # Calculate projections
+    h_projection = tf.reduce_sum(image_bg_sub, axis=0)
+    v_projection = tf.reduce_sum(image_bg_sub, axis=1)
+    
+    # Get the analysis method and calculate beam moments from projections
+    analysis_func = _get_beam_analysis_function_tf(method)
+    h_centroid, h_width = analysis_func(h_projection)
+    v_centroid, v_width = analysis_func(v_projection)
+    
+    # Normalize to 0-1 range using image dimensions
+    height = tf.cast(tf.shape(image)[0], tf.float32)
+    width = tf.cast(tf.shape(image)[1], tf.float32)
+    
+    h_centroid_norm = h_centroid / (width - 1.0)
+    v_centroid_norm = v_centroid / (height - 1.0)
+    h_width_norm = h_width / width
+    v_width_norm = v_width / height
+    
+    return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
+
+
+# Helper function to get the analysis function based on method
+
+def _get_beam_analysis_function(method: str):
+    """Get the appropriate beam analysis function for NumPy."""
+    if method == "moments":
+        return calculate_beam_moments_1d
+    elif method == "gaussian":
+        return calculate_beam_gaussian_1d
+    else:
+        logger.warning(f"Unknown method '{method}', falling back to 'moments'")
+        return calculate_beam_moments_1d
+
+
+def _get_beam_analysis_function_tf(method: str):
+    """Get the appropriate beam analysis function for TensorFlow."""
+    if method == "moments":
+        return calculate_beam_moments_1d_tf
+    # elif method == "gaussian":
+    #     return calculate_beam_gaussian_1d_tf  # Not implemented yet
+    else:
+        return calculate_beam_moments_1d_tf
 
 
 def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
@@ -109,7 +170,30 @@ def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
     
     return float(mean), float(std)
 
-
+@tf.function
+def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
+    """Calculate first and second moments of 1D beam distribution using TensorFlow.
+    
+    TensorFlow-native implementation for computing beam centroid and standard deviation
+    from intensity distribution using statistical moment analysis.
+    
+    Args:
+        projection: 1D tensor representing beam projection
+        
+    Returns:
+        Tuple of (centroid, std_dev) - beam position and width as TF tensors
+    """
+    total_intensity = tf.reduce_sum(projection)
+    weights = projection / total_intensity
+    
+    length = tf.cast(tf.shape(projection)[0], tf.float32)
+    coords = tf.range(length, dtype=tf.float32)
+    
+    mean = tf.reduce_sum(coords * weights)
+    variance = tf.reduce_sum(weights * tf.square(coords - mean))
+    std = tf.sqrt(variance)
+    
+    return mean, std
 
 def normalize_to_range(value: float, min_val: float, max_val: float, target_min: float = 0.0, target_max: float = 1.0) -> float:
     """Normalize a value from one range to another.
@@ -165,7 +249,6 @@ def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, 
     
     return normalized
 
-
 def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
     """Validate if beam parameters represent a reasonable sample.
     
@@ -200,61 +283,76 @@ def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
     
     return True
 
-
-# TensorFlow native implementation for beam parameter extraction
-@tf.function
-def extract_beam_parameters_tf(image: TensorLike) -> tf.Tensor:
-    """Extract normalized transverse beam parameters (TF native version).
+def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
+    """Calculate beam parameters using Gaussian curve fitting.
     
-    Returns:
-        tf.Tensor of shape [4] containing [h_centroid, h_width, v_centroid, v_width]
-        All values normalized to 0-1 range.
-    """
-    # Background subtraction
-    min_val = tf.reduce_min(image)
-    image_bg_sub = image - min_val
-    
-    # Calculate projections
-    h_projection = tf.reduce_sum(image_bg_sub, axis=0)
-    v_projection = tf.reduce_sum(image_bg_sub, axis=1)
-    
-    # Calculate beam moments from projections
-    h_centroid, h_width = calculate_beam_moments_1d_tf(h_projection)
-    v_centroid, v_width = calculate_beam_moments_1d_tf(v_projection)
-    
-    # Normalize to 0-1 range using image dimensions
-    height = tf.cast(tf.shape(image)[0], tf.float32)
-    width = tf.cast(tf.shape(image)[1], tf.float32)
-    
-    h_centroid_norm = h_centroid / (width - 1.0)
-    v_centroid_norm = v_centroid / (height - 1.0)
-    h_width_norm = h_width / width
-    v_width_norm = v_width / height
-    
-    return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
-
-@tf.function
-def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
-    """Calculate first and second moments of 1D beam distribution using TensorFlow.
-    
-    TensorFlow-native implementation for computing beam centroid and standard deviation
-    from intensity distribution using statistical moment analysis.
+    Fits a Gaussian curve to the 1D beam projection and extracts the centroid (mean)
+    and width (standard deviation) from the fitted parameters.
     
     Args:
-        projection: 1D tensor representing beam projection
+        projection: 1D tensor/array representing beam projection
         
     Returns:
-        Tuple of (centroid, std_dev) - beam position and width as TF tensors
+        Tuple of (centroid, std_dev) - beam position and width in pixels
     """
-    total_intensity = tf.reduce_sum(projection)
-    weights = projection / total_intensity
+    import numpy as np
+    from scipy.optimize import curve_fit
     
-    length = tf.cast(tf.shape(projection)[0], tf.float32)
-    coords = tf.range(length, dtype=tf.float32)
+    # Convert to numpy if needed
+    if hasattr(projection, 'numpy'):
+        proj_np = projection.numpy()
+    else:
+        proj_np = np.asarray(projection)
     
-    mean = tf.reduce_sum(coords * weights)
-    variance = tf.reduce_sum(weights * tf.square(coords - mean))
-    std = tf.sqrt(variance)
+    # Check for zero intensity
+    if np.sum(proj_np) == 0:
+        return 0.0, 0.0
     
-    return mean, std
-
+    # Create coordinate array
+    length = len(proj_np)
+    coords = np.arange(length, dtype=np.float32)
+    
+    # Define Gaussian function
+    def gaussian(x, amplitude, mean, std, offset):
+        return amplitude * np.exp(-0.5 * ((x - mean) / std) ** 2) + offset
+    
+    # Initial parameter estimates using moments
+    total_intensity = np.sum(proj_np)
+    weights = proj_np / total_intensity
+    mean_estimate = np.sum(coords * weights)
+    variance_estimate = np.sum(weights * np.square(coords - mean_estimate))
+    std_estimate = np.sqrt(variance_estimate)
+    
+    # Initial guess for fitting parameters
+    amplitude_estimate = np.max(proj_np) - np.min(proj_np)
+    offset_estimate = np.min(proj_np)
+    
+    initial_guess = [amplitude_estimate, mean_estimate, std_estimate, offset_estimate]
+    
+    try:
+        # Perform Gaussian curve fitting
+        popt, _ = curve_fit(
+            gaussian, 
+            coords, 
+            proj_np, 
+            p0=initial_guess,
+            maxfev=1000,
+            bounds=(
+                [0, 0, 0.1, 0],  # Lower bounds
+                [np.inf, length-1, length, np.inf]  # Upper bounds
+            )
+        )
+        
+        # Extract fitted parameters
+        amplitude, mean, std, offset = popt
+        
+        # Validate fitted parameters
+        if not (0 <= mean <= length-1) or std <= 0 or std > length:
+            # Fall back to moments if fitting failed
+            return float(mean_estimate), float(std_estimate)
+        
+        return float(mean), float(std)
+        
+    except Exception:
+        # Fall back to moments if fitting fails
+        return float(mean_estimate), float(std_estimate)
