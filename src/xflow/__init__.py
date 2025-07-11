@@ -8,6 +8,9 @@ from .trainers.trainer import BaseTrainer
 from .utils.config import ConfigManager
 from .models.base import BaseModel
 
+# Import extensions to ensure transforms are registered
+from .extensions import physics
+
 Pipeline = BasePipeline
 
 __all__ = ['BaseModel', 'BasePipeline', 'BaseTrainer', 'BatchPipeline', 'ConfigManager', 'DataPipeline', 'FileProvider', 'InMemoryPipeline', 'Pipeline', 'ShufflePipeline', 'SqlProvider', 'TensorFlowPipeline']

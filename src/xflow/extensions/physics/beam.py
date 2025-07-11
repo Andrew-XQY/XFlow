@@ -65,11 +65,12 @@ def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.
 
 # General NumPy implementation for beam parameter extraction
 
-def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
+def extract_beam_parameters(image: TensorLike, debug: bool = False) -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
     
     Args:
         image: 2D tensor representing transverse beam distribution
+        debug: If True, print debugging information when extraction fails
         
     Returns:
         Dictionary containing normalized beam parameters (0-1 range), or None if extraction fails:
@@ -116,6 +117,7 @@ def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
             return None
         
         return normalized_params
+
         
     except Exception:
         return None
