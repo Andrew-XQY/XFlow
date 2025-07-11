@@ -18,7 +18,8 @@ dependencies = [
     "matplotlib",
     "opencv-python",
     "tqdm",
-    "pydantic"
+    "pydantic",
+    "typing-extensions>=4.0.0",
 ]
 
 [project.optional-dependencies]

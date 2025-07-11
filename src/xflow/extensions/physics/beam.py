@@ -130,7 +130,7 @@ def _get_beam_analysis_function_tf(method: str):
         return calculate_beam_moments_1d_tf
 
 
-def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
+def calculate_beam_gaussian_1d(projection: TensorLike) -> Tuple[float, float]:
     """Calculate beam parameters using Gaussian curve fitting - accelerator physics standard."""
     import numpy as np
     from scipy.optimize import curve_fit
@@ -204,7 +204,7 @@ def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
         # Fallback to moments - reuse existing implementation
         return calculate_beam_moments_1d(projection)
 
-def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
+def calculate_beam_moments_1d(projection: TensorLike) -> Tuple[float, float]:
     """Calculate first and second moments of 1D beam distribution.
     
     Computes the first moment (centroid) and second central moment (standard deviation)
@@ -245,7 +245,7 @@ def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
     return float(mean), float(std)
 
 @tf.function
-def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
+def calculate_beam_moments_1d_tf(projection: TensorLike) -> Tuple[tf.Tensor, tf.Tensor]:
     """Calculate first and second moments of 1D beam distribution using TensorFlow.
     
     TensorFlow-native implementation for computing beam centroid and standard deviation

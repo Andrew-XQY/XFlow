@@ -2,7 +2,12 @@
 
 import copy
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Self, Type, Optional, List
+from typing import Dict, Any, Type, Optional, List
+# shim Self for Python <3.11
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self  # ensure typing-extensions>=4.0.0 is in your deps
 from .parser import load_file, save_file
 from .typing import PathLikeStr
 from .io import copy_file

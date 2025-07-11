@@ -4,8 +4,17 @@ Provides common type aliases and optional dependency type hints without
 importing heavy libraries at runtime.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Protocol, Union, Callable, Mapping, Any, Dict, TypeAlias, Sequence, TypeVar
+from typing import TYPE_CHECKING, Protocol, Union, Callable, Mapping, Any, Dict, Sequence, TypeVar, Tuple
 from os import PathLike
+
+# shim TypeAlias for Python <3.10
+try:
+    # 3.10+
+    from typing import TypeAlias
+except ImportError:
+    # backport
+    from typing_extensions import TypeAlias  # make sure typing-extensions>=4.0.0 is in your deps
+
 
 # Only import heavy libraries for type checking
 if TYPE_CHECKING:
@@ -21,14 +30,25 @@ class ArrayLike(Protocol):
     def __array__(self, dtype: type[Any] | None = None) -> NDArray[Any]: ...
 
 # Common type aliases
-PathLikeStr: TypeAlias = Union[str, PathLike[str]]
+try:
+    # Py 3.11+
+    PathLikeStr: TypeAlias = Union[str, PathLike[str]]
+except TypeError:
+    # older Pythons
+    PathLikeStr: TypeAlias = Union[str, PathLike]
 MetaHook: TypeAlias = Callable[[Mapping[str, Any]], Dict[str, Any]]
 ModelType: TypeAlias = Any
 T = TypeVar('T')  # Generic type
 
 # Numeric types
 Numeric: TypeAlias = Union[int, float, complex]
-Shape: TypeAlias = Union[Sequence[int], tuple[int, ...]]
+# Shape: sequence of ints
+try:
+    # Python 3.9+
+    Shape: TypeAlias = Union[Sequence[int], tuple[int, ...]]
+except TypeError:
+    # Python <3.9
+    Shape: TypeAlias = Union[Sequence[int], Tuple[int, ...]]
 
 # Image-like types: PIL, NumPy arrays, ArrayLike objects, and tensors
 ImageLike: TypeAlias = Union[
