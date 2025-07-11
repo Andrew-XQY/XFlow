@@ -1,6 +1,6 @@
 """Beam diagnostics utilities for transverse beam parameter extraction."""
 import tensorflow as tf
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from ...utils.typing import TensorLike
 
 
@@ -21,9 +21,9 @@ def extract_beam_parameters_tf(image: TensorLike) -> tf.Tensor:
     h_projection = tf.reduce_sum(image_bg_sub, axis=0)
     v_projection = tf.reduce_sum(image_bg_sub, axis=1)
     
-    # Fit Gaussian to projections
-    h_centroid, h_width = fit_gaussian_1d_tf(h_projection)
-    v_centroid, v_width = fit_gaussian_1d_tf(v_projection)
+    # Calculate beam moments from projections
+    h_centroid, h_width = calculate_beam_moments_1d_tf(h_projection)
+    v_centroid, v_width = calculate_beam_moments_1d_tf(v_projection)
     
     # Normalize to 0-1 range using image dimensions
     height = tf.cast(tf.shape(image)[0], tf.float32)
@@ -37,8 +37,18 @@ def extract_beam_parameters_tf(image: TensorLike) -> tf.Tensor:
     return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
 
 @tf.function
-def fit_gaussian_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
-    """TF-native Gaussian fitting."""
+def calculate_beam_moments_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
+    """Calculate first and second moments of 1D beam distribution using TensorFlow.
+    
+    TensorFlow-native implementation for computing beam centroid and standard deviation
+    from intensity distribution using statistical moment analysis.
+    
+    Args:
+        projection: 1D tensor representing beam projection
+        
+    Returns:
+        Tuple of (centroid, std_dev) - beam position and width as TF tensors
+    """
     total_intensity = tf.reduce_sum(projection)
     weights = projection / total_intensity
     
@@ -55,31 +65,39 @@ def fit_gaussian_1d_tf(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
 
 # General NumPy implementation for beam parameter extraction
 
-def extract_beam_parameters(image: TensorLike) -> Dict[str, float]:
+def extract_beam_parameters(image: TensorLike) -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
     
     Args:
         image: 2D tensor representing transverse beam distribution
         
     Returns:
-        Dictionary containing normalized beam parameters (0-1 range), or empty dict if extraction fails:
+        Dictionary containing normalized beam parameters (0-1 range), or None if extraction fails:
         - "h_centroid": horizontal beam centroid (normalized)
         - "h_width": horizontal beam width (normalized)
         - "v_centroid": vertical beam centroid (normalized)
         - "v_width": vertical beam width (normalized)
     """
     try:
+        import numpy as np
+        
+        # Convert to numpy if needed
+        if hasattr(image, 'numpy'):
+            image_np = image.numpy()
+        else:
+            image_np = np.asarray(image)
+        
         # Background subtraction - subtract minimum pixel value
-        min_val = tf.reduce_min(image)
-        image_bg_sub = image - min_val
+        min_val = np.min(image_np)
+        image_bg_sub = image_np - min_val
         
         # Calculate horizontal and vertical projections
-        h_projection = tf.reduce_sum(image_bg_sub, axis=0)  # Sum along vertical axis
-        v_projection = tf.reduce_sum(image_bg_sub, axis=1)  # Sum along horizontal axis
+        h_projection = np.sum(image_bg_sub, axis=0)  # Sum along vertical axis
+        v_projection = np.sum(image_bg_sub, axis=1)  # Sum along horizontal axis
         
-        # Fit Gaussian to projections
-        h_centroid, h_width = fit_gaussian_1d(h_projection)
-        v_centroid, v_width = fit_gaussian_1d(v_projection)
+        # Calculate beam moments from projections
+        h_centroid, h_width = calculate_beam_moments_1d(h_projection)
+        v_centroid, v_width = calculate_beam_moments_1d(v_projection)
         
         # Raw parameters
         raw_params = {
@@ -90,40 +108,58 @@ def extract_beam_parameters(image: TensorLike) -> Dict[str, float]:
         }
         
         # Normalize to 0-1 range
-        image_shape = (tf.shape(image)[0].numpy(), tf.shape(image)[1].numpy())
+        image_shape = image_np.shape
         normalized_params = normalize_beam_parameters(raw_params, image_shape)
+        
+        # Validate if we got reasonable beam parameters
+        if normalized_params is None or not is_reasonable_beam_sample(normalized_params):
+            return None
         
         return normalized_params
         
     except Exception:
-        return {}
+        return None
 
 
-def fit_gaussian_1d(projection: TensorLike) -> tuple[tf.Tensor, tf.Tensor]:
-    """Fit Gaussian to 1D projection and return mean and std.
+def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
+    """Calculate first and second moments of 1D beam distribution.
+    
+    Computes the first moment (centroid) and second central moment (standard deviation)
+    of a beam intensity profile using statistical moment analysis.
     
     Args:
-        projection: 1D tensor representing beam projection
+        projection: 1D tensor/array representing beam projection
         
     Returns:
-        Tuple of (mean, std) from Gaussian fit
+        Tuple of (centroid, std_dev) - beam position and width in pixels
     """
+    import numpy as np
+    
+    # Convert to numpy if needed
+    if hasattr(projection, 'numpy'):
+        proj_np = projection.numpy()
+    else:
+        proj_np = np.asarray(projection)
+    
     # Normalize projection to get probability distribution
-    total_intensity = tf.reduce_sum(projection)
-    weights = projection / total_intensity
+    total_intensity = np.sum(proj_np)
+    if total_intensity == 0:
+        return 0.0, 0.0
+    
+    weights = proj_np / total_intensity
     
     # Create coordinate array
-    length = tf.cast(tf.shape(projection)[0], tf.float32)
-    coords = tf.range(length, dtype=tf.float32)
+    length = len(proj_np)
+    coords = np.arange(length, dtype=np.float32)
     
     # Calculate weighted mean (centroid)
-    mean = tf.reduce_sum(coords * weights)
+    mean = np.sum(coords * weights)
     
     # Calculate weighted standard deviation (width)
-    variance = tf.reduce_sum(weights * tf.square(coords - mean))
-    std = tf.sqrt(variance)
+    variance = np.sum(weights * np.square(coords - mean))
+    std = np.sqrt(variance)
     
-    return mean, std
+    return float(mean), float(std)
 
 
 
@@ -148,7 +184,7 @@ def normalize_to_range(value: float, min_val: float, max_val: float, target_min:
     return target_min + normalized * (target_max - target_min)
 
 
-def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, int]) -> Dict[str, float]:
+def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
     """Normalize beam parameters to 0-1 range based on image dimensions.
     
     Args:
@@ -156,10 +192,10 @@ def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, 
         image_shape: (height, width) of the original image
         
     Returns:
-        Dictionary with normalized parameters (0-1 range)
+        Dictionary with normalized parameters (0-1 range), or None if params is empty/invalid
     """
     if not params:
-        return {}
+        return None
     
     height, width = image_shape
     
@@ -180,3 +216,38 @@ def normalize_beam_parameters(params: Dict[str, float], image_shape: Tuple[int, 
         normalized["v_width"] = normalize_to_range(params["v_width"], 0, height)
     
     return normalized
+
+
+def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
+    """Validate if beam parameters represent a reasonable sample.
+    
+    Args:
+        parameters: Dictionary of normalized beam parameters (0-1 range)
+        
+    Returns:
+        True if parameters are reasonable, False otherwise
+    """
+    if not parameters:
+        return False
+    
+    required_keys = {"h_centroid", "h_width", "v_centroid", "v_width"}
+    if not required_keys.issubset(parameters.keys()):
+        return False
+    
+    # Check if all values are in valid range [0, 1]
+    for key, value in parameters.items():
+        if not (0.0 <= value <= 1.0):
+            return False
+    
+    # Check if beam widths are reasonable (not too small, indicating noise)
+    min_width_threshold = 0.01  # 1% of image dimension
+    if parameters["h_width"] < min_width_threshold or parameters["v_width"] < min_width_threshold:
+        return False
+    
+    # Check if centroids are not too close to edges (indicating clipping)
+    edge_margin = 0.05  # 5% margin from edges
+    if (parameters["h_centroid"] < edge_margin or parameters["h_centroid"] > (1.0 - edge_margin) or
+        parameters["v_centroid"] < edge_margin or parameters["v_centroid"] > (1.0 - edge_margin)):
+        return False
+    
+    return True
