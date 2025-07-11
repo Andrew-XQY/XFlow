@@ -38,6 +38,7 @@ CORE_API = {
     "BaseModel": APIItem("models.base", "BaseModel"),
     
     # Utilities
+    "CallbackRegistry": APIItem("trainers.callback", "CallbackRegistry"),
 
 }
 

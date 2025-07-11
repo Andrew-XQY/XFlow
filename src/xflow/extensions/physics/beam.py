@@ -7,7 +7,7 @@ from ...utils.typing import TensorLike
 logger = logging.getLogger(__name__)
 
 # General NumPy implementation for beam parameter extraction
-def extract_beam_parameters(image: TensorLike, method: str = "moments") -> Optional[Dict[str, float]]:
+def extract_beam_parameters(image: TensorLike, method: str = "gaussian") -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
     
     Args:
@@ -71,7 +71,7 @@ def extract_beam_parameters(image: TensorLike, method: str = "moments") -> Optio
 
 # TensorFlow native implementation for beam parameter extraction
 @tf.function
-def extract_beam_parameters_tf(image: TensorLike, method: str = "moments") -> tf.Tensor:
+def extract_beam_parameters_tf(image: TensorLike, method: str = "gaussian") -> tf.Tensor:
     """Extract normalized transverse beam parameters (TF native version).
     
     Args:
@@ -129,6 +129,80 @@ def _get_beam_analysis_function_tf(method: str):
     else:
         return calculate_beam_moments_1d_tf
 
+
+def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
+    """Calculate beam parameters using Gaussian curve fitting - accelerator physics standard."""
+    import numpy as np
+    from scipy.optimize import curve_fit
+    
+    # Convert to numpy if needed
+    if hasattr(projection, 'numpy'):
+        proj_np = projection.numpy()
+    else:
+        proj_np = np.asarray(projection)
+    
+    # Check for zero intensity
+    if np.sum(proj_np) == 0:
+        return 0.0, 0.0
+    
+    # Create coordinate array
+    length = len(proj_np)
+    coords = np.arange(length, dtype=np.float32)
+    
+    # Define Gaussian function
+    def gaussian(x, amplitude, mean, sigma, offset):
+        return amplitude * np.exp(-0.5 * ((x - mean) / sigma) ** 2) + offset
+    
+    # Gold standard initial parameter estimation
+    peak_idx = np.argmax(proj_np)
+    amplitude_est = np.max(proj_np)
+    mean_est = float(peak_idx)
+    offset_est = np.min(proj_np)
+    
+    # Estimate sigma from FWHM (standard practice in accelerator physics)
+    half_max = (amplitude_est + offset_est) / 2.0
+    indices = np.where(proj_np >= half_max)[0]
+    if len(indices) > 1:
+        fwhm = indices[-1] - indices[0]
+        sigma_est = fwhm / 2.355  # Convert FWHM to sigma
+    else:
+        fwhm = length / 5.0  # Conservative fallback estimate
+        sigma_est = fwhm / 2.355
+    
+    # Ensure realistic sigma bounds
+    sigma_est = max(0.5, min(sigma_est, length / 3.0))
+    
+    initial_guess = [amplitude_est - offset_est, mean_est, sigma_est, offset_est]
+    
+    # Adaptive bounds based on data characteristics
+    min_sigma = max(0.2, length * 0.001)  # 0.2 pixels or 0.1% of detector
+    max_sigma = min(length * 0.6, fwhm * 2)  # 60% detector or 2x FWHM estimate
+    
+    try:
+        # Perform Gaussian curve fitting with physics-realistic bounds
+        popt, _ = curve_fit(
+            gaussian, 
+            coords, 
+            proj_np, 
+            p0=initial_guess,
+            maxfev=1500,
+            bounds=(
+                [0, 0, min_sigma, 0],  # Lower bounds
+                [np.inf, length-1, max_sigma, np.inf]  # Upper bounds
+            )
+        )
+        
+        amplitude, mean, sigma, offset = popt
+        
+        # Physics validation: reasonable parameters?
+        if not (0.5 <= mean <= length-1.5) or sigma <= min_sigma or sigma > max_sigma:
+            raise ValueError("Unrealistic fit parameters")
+        
+        return float(mean), float(sigma)
+        
+    except Exception:
+        # Fallback to moments - reuse existing implementation
+        return calculate_beam_moments_1d(projection)
 
 def calculate_beam_moments_1d(projection: TensorLike) -> tuple[float, float]:
     """Calculate first and second moments of 1D beam distribution.
@@ -289,78 +363,3 @@ def is_reasonable_beam_sample(parameters: Dict[str, float]) -> bool:
         return False
     
     return True
-
-
-def calculate_beam_gaussian_1d(projection: TensorLike) -> tuple[float, float]:
-    """Calculate beam parameters using Gaussian curve fitting - accelerator physics standard."""
-    import numpy as np
-    from scipy.optimize import curve_fit
-    
-    # Convert to numpy if needed
-    if hasattr(projection, 'numpy'):
-        proj_np = projection.numpy()
-    else:
-        proj_np = np.asarray(projection)
-    
-    # Check for zero intensity
-    if np.sum(proj_np) == 0:
-        return 0.0, 0.0
-    
-    # Create coordinate array
-    length = len(proj_np)
-    coords = np.arange(length, dtype=np.float32)
-    
-    # Define Gaussian function
-    def gaussian(x, amplitude, mean, sigma, offset):
-        return amplitude * np.exp(-0.5 * ((x - mean) / sigma) ** 2) + offset
-    
-    # Gold standard initial parameter estimation
-    peak_idx = np.argmax(proj_np)
-    amplitude_est = np.max(proj_np)
-    mean_est = float(peak_idx)
-    offset_est = np.min(proj_np)
-    
-    # Estimate sigma from FWHM (standard practice in accelerator physics)
-    half_max = (amplitude_est + offset_est) / 2.0
-    indices = np.where(proj_np >= half_max)[0]
-    if len(indices) > 1:
-        fwhm = indices[-1] - indices[0]
-        sigma_est = fwhm / 2.355  # Convert FWHM to sigma
-    else:
-        fwhm = length / 5.0  # Conservative fallback estimate
-        sigma_est = fwhm / 2.355
-    
-    # Ensure realistic sigma bounds
-    sigma_est = max(0.5, min(sigma_est, length / 3.0))
-    
-    initial_guess = [amplitude_est - offset_est, mean_est, sigma_est, offset_est]
-    
-    # Adaptive bounds based on data characteristics
-    min_sigma = max(0.2, length * 0.001)  # 0.2 pixels or 0.1% of detector
-    max_sigma = min(length * 0.6, fwhm * 2)  # 60% detector or 2x FWHM estimate
-    
-    try:
-        # Perform Gaussian curve fitting with physics-realistic bounds
-        popt, _ = curve_fit(
-            gaussian, 
-            coords, 
-            proj_np, 
-            p0=initial_guess,
-            maxfev=1500,
-            bounds=(
-                [0, 0, min_sigma, 0],  # Lower bounds
-                [np.inf, length-1, max_sigma, np.inf]  # Upper bounds
-            )
-        )
-        
-        amplitude, mean, sigma, offset = popt
-        
-        # Physics validation: reasonable parameters?
-        if not (0.5 <= mean <= length-1.5) or sigma <= min_sigma or sigma > max_sigma:
-            raise ValueError("Unrealistic fit parameters")
-        
-        return float(mean), float(sigma)
-        
-    except Exception:
-        # Fallback to moments - reuse existing implementation
-        return calculate_beam_moments_1d(projection)

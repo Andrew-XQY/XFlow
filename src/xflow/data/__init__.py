@@ -2,7 +2,7 @@
 # This file is auto-generated. Do not edit manually.
 
 from .pipeline import InMemoryPipeline, BasePipeline
-from .transform import build_transforms_from_config, BatchPipeline, ShufflePipeline
+from .transform import BatchPipeline, ShufflePipeline, build_transforms_from_config
 
 Pipeline = BasePipeline
 
