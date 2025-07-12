@@ -74,7 +74,11 @@ class BasePipeline(ABC):
                 item = raw_item
                 for fn in self.transforms:
                     item = fn(item)
-                yield item
+                if item is not None:
+                    yield item
+                else:
+                    self.error_count += 1
+                    self.logger.warning("Preprocessed item is None, skipping.")
             except Exception as e:
                 self.error_count += 1
                 self.logger.warning(f"Failed to preprocess item: {e}")
