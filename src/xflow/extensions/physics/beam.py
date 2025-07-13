@@ -7,67 +7,67 @@ from ...utils.typing import TensorLike
 logger = logging.getLogger(__name__)
 
 # General NumPy implementation for beam parameter extraction
-def extract_beam_parameters(image: TensorLike, method: str = "gaussian") -> Optional[Dict[str, float]]:
+def extract_beam_parameters(
+    image: TensorLike, 
+    method: str = "gaussian", 
+    as_array: bool = True
+    ) -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
-    
+
     Args:
         image: 2D tensor representing transverse beam distribution
         method: Analysis method to use ("moments", "gaussian", etc.)
-        
+        as_array: If True, return parameters as a list [h_centroid, h_width, v_centroid, v_width] instead of dict.
+
     Returns:
-        Dictionary containing normalized beam parameters (0-1 range), or None if extraction fails:
-        - "h_centroid": horizontal beam centroid (normalized)
-        - "h_width": horizontal beam width (normalized)
-        - "v_centroid": vertical beam centroid (normalized)
-        - "v_width": vertical beam width (normalized)
+        Dictionary or list of normalized beam parameters (0-1 range), or None if extraction fails.
     """
     try:
         import numpy as np
-        
+
         # Convert to numpy if needed
         if hasattr(image, 'numpy'):
             image_np = image.numpy()
         else:
             image_np = np.asarray(image)
-        
+
         # Background subtraction - subtract minimum pixel value
         min_val = np.min(image_np)
         image_bg_sub = image_np - min_val
-        
+
         # Calculate horizontal and vertical projections
         h_projection = np.sum(image_bg_sub, axis=0)  # Sum along vertical axis
         v_projection = np.sum(image_bg_sub, axis=1)  # Sum along horizontal axis
-        
+
         analysis_func = _get_beam_analysis_function(method)
-        # Get the analysis method and calculate beam moments from projections
         h_centroid, h_width = analysis_func(h_projection)
         v_centroid, v_width = analysis_func(v_projection)
-        
-        # Raw parameters
+
         raw_params = {
             "h_centroid": float(h_centroid),
             "h_width": float(h_width),
-            "v_centroid": float(v_centroid), 
+            "v_centroid": float(v_centroid),
             "v_width": float(v_width)
         }
-        
-        # Normalize to 0-1 range
+
         image_shape = image_np.shape
         normalized_params = normalize_beam_parameters(raw_params, image_shape)
-        
-        # Validate if we got reasonable beam parameters
+
         if normalized_params is None or not is_reasonable_beam_sample(normalized_params):
             return None
-        
-        return normalized_params
-        
+
+        if as_array:
+            keys = ["h_centroid", "v_centroid", "h_width", "v_width"]
+            return [normalized_params[k] for k in keys]
+        else:
+            return normalized_params
+
     except Exception as e:
         import traceback
         logger.warning(f"Beam parameter extraction failed: {e}")
         logger.warning(f"Image type: {type(image)}, shape: {getattr(image, 'shape', 'unknown')}")
         logger.warning(f"Full traceback:\n{traceback.format_exc()}")
         return None
-
 
 # TensorFlow native implementation for beam parameter extraction
 @tf.function

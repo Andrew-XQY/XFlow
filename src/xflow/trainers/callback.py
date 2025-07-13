@@ -64,18 +64,28 @@ def make_pl_callback(handlers: Dict[str, List[Callable]]):
         methods[hook_name] = _make_hook(fns)
     return type("UnifiedPLCallback", (pl.Callback,), methods)()
 
+
 def build_callbacks_from_config(
     config: List[Dict[str, Any]],
     framework: str,
-    name_key: str = "handler",
+    name_key: str = "name",
     params_key: str = "params"
 ) -> List[Any]:
     """
     Build a list of callbacks (native or unified) from a config list.
 
+    Args:
+        config: List of callback config dicts. Each dict should have at least a 'name' key and optionally a 'params' dict.
+        framework: Which framework to use ('tf' or 'pl').
+        name_key: Key in each config dict for the callback/factory name (default: 'name').
+        params_key: Key in each config dict for the callback/factory parameters (default: 'params').
+
+    Returns:
+        List of instantiated callback objects.
+
     Each config entry may either:
-    1) Define 'events' + 'handler' (or parameterized factory) → use unified wrapper
-    2) Define only 'handler' + 'params' → handler must return a Callback instance
+    1) Define only 'name' + 'params' → handler must return a Callback instance (native/factory style)
+    2) Define 'events' (list of {event, name, params}) → use unified wrapper for event-based callbacks
     """
     callbacks = []
     for cb in config:
@@ -94,10 +104,12 @@ def build_callbacks_from_config(
         # 2) Unified hook functions
         handlers: Dict[str, List[Callable]] = {}
         for evt in cb['events']:
-            evt_handler = CallbackRegistry.get_handler(evt['handler'])
-            evt_params = evt.get('params', {})
+            evt_name = evt['event']
+            evt_handler_name = evt[name_key]
+            evt_handler = CallbackRegistry.get_handler(evt_handler_name)
+            evt_params = evt.get(params_key, {})
             fn = evt_handler(**evt_params) if evt_params else evt_handler
-            handlers.setdefault(evt['event'], []).append(fn)
+            handlers.setdefault(evt_name, []).append(fn)
 
         if framework in ('tf', 'tensorflow'):
             callbacks.append(make_tf_callback(handlers))

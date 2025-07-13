@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Callable, Iterator, Any, Optional, List, Union, Dict, TYPE_CHECKING
 from .provider import DataProvider
+from ..utils.decorator import with_progress
 import logging
 import itertools
 if TYPE_CHECKING:
@@ -115,6 +116,25 @@ class BasePipeline(ABC):
     def to_framework_dataset(self) -> Any:
         """Convert pipeline to framework-native dataset."""
         ...
+    
+    def to_numpy(self):
+        """
+        Convert the pipeline to NumPy arrays.
+        If each item is a tuple, returns a tuple of arrays (one per component).
+        If each item is a single array, returns a single array.
+        """
+        import numpy as np
+        from tqdm import tqdm
+
+        items = [item for item in tqdm(self, desc="Converting to numpy")]
+        if not items:
+            return None
+        first = items[0]
+        if isinstance(first, (tuple, list)):
+            arrays = tuple(np.stack(components) for components in zip(*items))
+            return arrays
+        else:
+            return np.stack(items)
 
 class DataPipeline(BasePipeline):
     """Simple pipeline that processes data lazily without storing in memory."""

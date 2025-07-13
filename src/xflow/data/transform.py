@@ -118,6 +118,14 @@ class BatchPipeline(BasePipeline):
         self.error_count = 0
         self.base.reset_error_count()
 
+    def unbatch(self) -> BasePipeline:
+        """Return the underlying pipeline yielding individual items (no batch dimension)."""
+        return self.base
+
+    def batch(self, batch_size: int) -> "BatchPipeline":
+        """Return a new BatchPipeline with the specified batch size."""
+        return BatchPipeline(self, batch_size)
+                
     def to_framework_dataset(self) -> Any:
         return self.base.to_framework_dataset().batch(self.batch_size)
 

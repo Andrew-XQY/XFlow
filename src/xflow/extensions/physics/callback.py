@@ -7,26 +7,33 @@ from ...trainers.callback import CallbackRegistry
 
 
 @CallbackRegistry.register("centroid_ellipse_callback")
-def make_centroid_ellipse_callback(test_ds, sample_size=10):
-    """Create a callback that visualizes beam centroid and width ellipses using a fixed sample from test_ds."""
+def make_centroid_ellipse_callback(dataset=None):
+    """Callback that visualizes beam centroid and width ellipses using a fixed sample from dataset."""
     class CentroidEllipseCallback(tf.keras.callbacks.Callback):
         def __init__(self):
             super().__init__()
-            self.test_ds = test_ds
-            self.sample_size = sample_size
-            # Prepare initial sample batch
+            self.dataset = dataset
+            self.sample_batch = None
+            if self.dataset is not None:
+                self._refresh_sample()
+
+        def set_dataset(self, dataset):
+            self.dataset = dataset
             self._refresh_sample()
 
         def _refresh_sample(self):
-            # Unbatch then re-batch to get exactly `sample_size` examples
-            ds = self.test_ds.unbatch().batch(self.sample_size)
-            self.sample_batch = next(iter(ds))
+            if self.dataset is None:
+                raise ValueError("Dataset must be set before using the callback.")
+            self.sample_batch = next(iter(self.dataset))
 
         def on_epoch_begin(self, epoch, logs=None):
-            # Optionally refresh sample each epoch
-            self._refresh_sample()
+            if self.dataset is not None:
+                self._refresh_sample()
 
         def on_epoch_end(self, epoch, logs=None):
+            if self.sample_batch is None:
+                print("No dataset set for visualization.")
+                return
             try:
                 # Unpack the batch; allow for (A, y_true, B_img) or (A, y_true)
                 parts = list(self.sample_batch)
@@ -35,7 +42,7 @@ def make_centroid_ellipse_callback(test_ds, sample_size=10):
 
                 # Predict on the inputs
                 y_pred = self.model.predict(A, verbose=0)
-                
+
                 # Use first example for visualization
                 img = B_img[0].numpy() if hasattr(B_img[0], 'numpy') else B_img[0]
                 true_params = y_true[0].numpy() if hasattr(y_true[0], 'numpy') else y_true[0]
