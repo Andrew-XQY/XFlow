@@ -64,22 +64,25 @@ def make_pl_callback(handlers: Dict[str, List[Callable]]):
         methods[hook_name] = _make_hook(fns)
     return type("UnifiedPLCallback", (pl.Callback,), methods)()
 
-
-def build_callbacks_from_config(config_path: str, framework: str):
+def build_callbacks_from_config(
+    config: List[Dict[str, Any]],
+    framework: str,
+    name_key: str = "handler",
+    params_key: str = "params"
+) -> List[Any]:
     """
-    Build a list of callbacks (native or unified) from a YAML config.
+    Build a list of callbacks (native or unified) from a config list.
 
-    Config entries may either:
+    Each config entry may either:
     1) Define 'events' + 'handler' (or parameterized factory) → use unified wrapper
     2) Define only 'handler' + 'params' → handler must return a Callback instance
     """
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-
     callbacks = []
-    for cb in config.get('callbacks', []):
-        name = cb.get('handler')
-        params = cb.get('params', {}) or {}
+    for cb in config:
+        if name_key not in cb:
+            raise ValueError(f"Callback config missing '{name_key}' key: {cb}")
+        name = cb[name_key]
+        params = cb.get(params_key, {}) or {}
         handler = CallbackRegistry.get_handler(name)
 
         # 1) Native callback factory: no events = direct instance
@@ -91,8 +94,9 @@ def build_callbacks_from_config(config_path: str, framework: str):
         # 2) Unified hook functions
         handlers: Dict[str, List[Callable]] = {}
         for evt in cb['events']:
-            fn = CallbackRegistry.get_handler(evt['handler'])
-            fn = fn(**evt.get('params', {})) if evt.get('params') else fn
+            evt_handler = CallbackRegistry.get_handler(evt['handler'])
+            evt_params = evt.get('params', {})
+            fn = evt_handler(**evt_params) if evt_params else evt_handler
             handlers.setdefault(evt['event'], []).append(fn)
 
         if framework in ('tf', 'tensorflow'):
@@ -103,7 +107,6 @@ def build_callbacks_from_config(config_path: str, framework: str):
             raise ValueError(f"Unsupported framework: {framework}")
 
     return callbacks
-
 
 # --- Handlers & Factories ---
 @CallbackRegistry.register("tf_early_stopping")
