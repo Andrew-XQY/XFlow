@@ -24,7 +24,12 @@ def make_centroid_ellipse_callback(dataset=None):
         def _refresh_sample(self):
             if self.dataset is None:
                 raise ValueError("Dataset must be set before using the callback.")
-            self.sample_batch = next(iter(self.dataset))
+            # If user passed exactly (A, y_true, B_img), treat that as one batch:
+            if isinstance(self.dataset, tuple) and len(self.dataset) in (2, 3):
+                self.sample_batch = self.dataset
+            else:
+                # Otherwise assume it's an iterable of batches
+                self.sample_batch = next(iter(self.dataset))
 
         def on_epoch_begin(self, epoch, logs=None):
             if self.dataset is not None:
@@ -35,31 +40,30 @@ def make_centroid_ellipse_callback(dataset=None):
                 print("No dataset set for visualization.")
                 return
             try:
-                # Unpack the batch; allow for (A, y_true, B_img) or (A, y_true)
-                parts = list(self.sample_batch)
-                A, y_true = parts[0], parts[1]
-                B_img = parts[2] if len(parts) == 3 else A
+                # Unpack batch tuple of length 2 or 3
+                if len(self.sample_batch) == 3:
+                    A, y_true, B_img = self.sample_batch
+                else:
+                    A, y_true = self.sample_batch
+                    B_img = A
 
-                # Predict on the inputs
+                # Predict and grab first example
                 y_pred = self.model.predict(A, verbose=0)
-
-                # Use first example for visualization
                 img = B_img[0].numpy() if hasattr(B_img[0], 'numpy') else B_img[0]
                 true_params = y_true[0].numpy() if hasattr(y_true[0], 'numpy') else y_true[0]
                 pred_params = y_pred[0]
 
-                # Map to parameter names
                 keys = ['h_centroid', 'v_centroid', 'h_width', 'v_width']
                 true_dict = dict(zip(keys, true_params))
                 pred_dict = dict(zip(keys, pred_params))
 
-                # Plot
                 fig, ax = plt.subplots(figsize=(6, 6))
                 plot_centroid_ellipse(ax, img, true_dict, color='red', marker='x')
                 plot_centroid_ellipse(ax, img, pred_dict, color='blue', marker='+')
                 ax.set_title(f'Epoch {epoch + 1}')
                 plt.tight_layout()
                 plt.show()
+
             except Exception as e:
                 print(f"Callback error: {e}")
 

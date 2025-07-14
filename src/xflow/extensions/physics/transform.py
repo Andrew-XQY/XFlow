@@ -40,9 +40,14 @@ def split_width_with_analysis(
     
     if swap:
         left_half, right_half = right_half, left_half
+     
+    # Prepare left half for analysis: remove singleton channel dim if present
+    left_for_analysis = left_half
+    if left_for_analysis.ndim == 3 and left_for_analysis.shape[-1] == 1:
+        left_for_analysis = np.squeeze(left_for_analysis, axis=-1)
     
     # Analyze left half to extract parameters
-    parameters = extract_beam_parameters(left_half, method=method)
+    parameters = extract_beam_parameters(left_for_analysis, method=method)
     
     # Check if parameter extraction failed
     if parameters is None:

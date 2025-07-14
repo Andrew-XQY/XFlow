@@ -120,28 +120,33 @@ def build_callbacks_from_config(
 
     return callbacks
 
-# --- Handlers & Factories ---
+# --- Handlers & Factories, Tensorflow native ---
 @CallbackRegistry.register("tf_early_stopping")
-def make_early_stopping(monitor: str = 'val_loss', patience: int = 3):
+def make_early_stopping(monitor: str = 'val_loss',
+                        patience: int = 3,
+                        **kwargs):
     from tensorflow.keras.callbacks import EarlyStopping
-    return EarlyStopping(monitor=monitor, patience=patience)
+    return EarlyStopping(monitor=monitor,
+                         patience=patience,
+                         **kwargs)
 
 @CallbackRegistry.register("tf_model_checkpoint")
-def make_model_checkpoint(filepath: str, monitor: str = 'val_loss', save_best_only: bool = True, **kwargs):
+def make_model_checkpoint(filepath: str, 
+                          monitor: str = 'val_loss',
+                          save_best_only: bool = True,
+                          **kwargs):
     from tensorflow.keras.callbacks import ModelCheckpoint
     return ModelCheckpoint(filepath=filepath, monitor=monitor, save_best_only=save_best_only, **kwargs)
 
-@CallbackRegistry.register("tf_epoch_end")
-def on_epoch_end_tf(self, epoch, logs=None):
-    print(f"[TF] Epoch {epoch}, loss={logs.get('loss')}")
-
-@CallbackRegistry.register("tf_batch_end")
-def on_batch_end_tf(self, batch, logs=None):
-    print(f"[TF] Batch {batch}, loss={logs.get('loss')}")
-
-@CallbackRegistry.register("save_preds")
-def make_save_preds(output_dir: str, val_data: Any):
-    def closure(self, epoch, logs=None):
-        preds = self.model.predict(val_data)
-        # save preds to output_dir...
-    return closure
+@CallbackRegistry.register("tf_model_checkpoint")
+def make_tf_model_checkpoint(filepath: str,
+                             monitor: str = "val_loss",
+                             save_best_only: bool = True,
+                             **kwargs):
+    from tensorflow.keras.callbacks import ModelCheckpoint
+    return ModelCheckpoint(
+        filepath=filepath,
+        monitor=monitor,
+        save_best_only=save_best_only,
+        **kwargs
+    )
