@@ -69,7 +69,11 @@ def make_centroid_ellipse_callback(dataset=None, save_dir=None):
                 result_fig = plot_centroid_ellipse(ax, img, true_dict, pred_params=pred_dict, save_path=save_path)
                 ax.set_title(f'Epoch {epoch + 1}')
                 plt.tight_layout()
-                if save_path is None:
+                try:
+                    from IPython.display import clear_output, display
+                    clear_output(wait=True)
+                    display(fig)
+                except ImportError:
                     plt.show()
                 # If save_path is set, plot_centroid_ellipse already saves and closes the figure
 
@@ -161,7 +165,7 @@ def plot_centroid_ellipse(
     # Save or return
     fig = ax.figure
     if save_path is not None:
-        fig.savefig(save_path, bbox_inches='tight')
+        fig.savefig(save_path, bbox_inches='tight', dpi=300)
         plt.close(fig)
     else:
         return fig
