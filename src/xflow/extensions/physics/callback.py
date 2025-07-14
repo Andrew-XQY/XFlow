@@ -7,13 +7,14 @@ from ...trainers.callback import CallbackRegistry
 
 
 @CallbackRegistry.register("centroid_ellipse_callback")
-def make_centroid_ellipse_callback(dataset=None):
+def make_centroid_ellipse_callback(dataset=None, save_dir=None):
     """Callback that visualizes beam centroid and width ellipses using a fixed sample from dataset."""
     class CentroidEllipseCallback(tf.keras.callbacks.Callback):
-        def __init__(self):
+        def __init__(self, save_dir=save_dir):
             super().__init__()
             self.dataset = dataset
             self.sample_batch = None
+            self.save_dir = save_dir
             if self.dataset is not None:
                 self._refresh_sample()
 
@@ -58,11 +59,19 @@ def make_centroid_ellipse_callback(dataset=None):
                 pred_dict = dict(zip(keys, pred_params))
 
                 fig, ax = plt.subplots(figsize=(6, 6))
-                plot_centroid_ellipse(ax, img, true_dict, color='red', marker='x')
-                plot_centroid_ellipse(ax, img, pred_dict, color='blue', marker='+')
+                # Construct save_path if save_dir is set
+                save_path = None
+                if self.save_dir is not None:
+                    import os
+                    abs_save_dir = os.path.abspath(self.save_dir)
+                    os.makedirs(abs_save_dir, exist_ok=True)
+                    save_path = os.path.join(abs_save_dir, f"epoch_{epoch+1}.png")
+                result_fig = plot_centroid_ellipse(ax, img, true_dict, pred_params=pred_dict, save_path=save_path)
                 ax.set_title(f'Epoch {epoch + 1}')
                 plt.tight_layout()
-                plt.show()
+                if save_path is None:
+                    plt.show()
+                # If save_path is set, plot_centroid_ellipse already saves and closes the figure
 
             except Exception as e:
                 print(f"Callback error: {e}")
@@ -82,7 +91,7 @@ def plot_centroid_ellipse(
     h, w = img.shape
 
     # Show image and colorbar
-    im = ax.imshow(img, cmap='gray')
+    im = ax.imshow(img, cmap='viridis') # gray, viridis
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Intensity')
 
     # Plot true ellipse
@@ -92,7 +101,7 @@ def plot_centroid_ellipse(
     eh_true = 2 * true_params['v_width'] * h
     ellipse_true = Ellipse((x_true, y_true), ew_true, eh_true, edgecolor='red', facecolor='none', linewidth=2, label=true_label)
     ax.add_patch(ellipse_true)
-    ax.plot(x_true, y_true, 'x', color='red', markersize=8, markeredgewidth=2)
+    ax.plot(x_true, y_true, 'x', color='red', markersize=6, markeredgewidth=2)
 
     # Plot predicted ellipse if provided
     handles = [ellipse_true]
@@ -109,20 +118,43 @@ def plot_centroid_ellipse(
         labels.append(pred_label)
 
     # Add legend
-    ax.legend(handles, labels, loc='upper right')
+    ax.legend(handles, labels, loc='best')
 
-    # Normalized ticks
-    ax.set_xticks([0, w//2, w-1])
-    ax.set_xticklabels(['0.0', '0.5', '1.0'])
-    ax.set_yticks([0, h//2, h-1])
-    ax.set_yticklabels(['0.0', '0.5', '1.0'])
+    # Normalized ticks: 0.0, 0.1, ..., 1.0
+    xticks = [int(round(i * (w - 1))) for i in np.linspace(0, 1, 11)]
+    yticks = [int(round(i * (h - 1))) for i in np.linspace(0, 1, 11)]
+    ticklabels = [f"{i/10:.1f}" for i in range(11)]
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(ticklabels)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(ticklabels)
 
-    # Print params on image
-    param_text = f"True: {true_params}\n"
+
+    # Print params below the image (centered under the axis), aligned by key
+    keys = ['h_centroid', 'v_centroid', 'h_width', 'v_width']
+    def fmt(val):
+        return f"{val: .4f}" if isinstance(val, float) else str(val)
     if pred_params is not None:
-        param_text += f"Pred: {pred_params}"
-    ax.text(0.01, 0.99, param_text, transform=ax.transAxes, fontsize=9,
-            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        header = f"{'':12}  {'True':>12}  {'Pred':>12}"
+        lines = [header]
+        for k in keys:
+            tval = fmt(true_params.get(k, ''))
+            pval = fmt(pred_params.get(k, ''))
+            lines.append(f"{k:12}  {tval:>12}  {pval:>12}")
+        param_text = "\n".join(lines)
+    else:
+        header = f"{'':12}  {'True':>12}"
+        lines = [header]
+        for k in keys:
+            tval = fmt(true_params.get(k, ''))
+            lines.append(f"{k:12}  {tval:>12}")
+        param_text = "\n".join(lines)
+
+    fig = ax.figure
+    # Place text below the axis, centered
+    fig.subplots_adjust(bottom=0.22)  # Make space for text
+    fig.text(0.5, 0.08, param_text, ha='center', va='top', fontsize=9,
+             family='monospace', bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
     ax.axis('on')
 
