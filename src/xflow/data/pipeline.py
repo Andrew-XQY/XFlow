@@ -126,7 +126,12 @@ class BasePipeline(ABC):
         import numpy as np
         from tqdm import tqdm
 
-        items = [item for item in tqdm(self, desc="Converting to numpy")]
+        items = [item for item in tqdm(
+            self,
+            desc="Converting to numpy",
+            leave=False,    # don't leave old bars around
+            miniters=1      # force an update every iteration
+        )]
         if not items:
             return None
         first = items[0]
