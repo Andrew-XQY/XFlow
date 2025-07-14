@@ -124,22 +124,25 @@ class BasePipeline(ABC):
         If each item is a single array, returns a single array.
         """
         import numpy as np
-        from tqdm import tqdm
+        from tqdm.auto import tqdm  # <- changed here
+        from IPython.display import clear_output
+        items = []
+        pbar = tqdm(self,
+                    desc="Converting to numpy",
+                    leave=False,
+                    miniters=1,
+                    position=0)
+        for x in pbar:
+            items.append(x)
+        pbar.close()
+        clear_output(wait=True)   # <— wipes the cell output (i.e. removes the bar)
 
-        items = [item for item in tqdm(
-            self,
-            desc="Converting to numpy",
-            leave=False,    # don't leave old bars around
-            miniters=1      # force an update every iteration
-        )]
         if not items:
             return None
         first = items[0]
         if isinstance(first, (tuple, list)):
-            arrays = tuple(np.stack(components) for components in zip(*items))
-            return arrays
-        else:
-            return np.stack(items)
+            return tuple(np.stack(c) for c in zip(*items))
+        return np.stack(items)
 
 class DataPipeline(BasePipeline):
     """Simple pipeline that processes data lazily without storing in memory."""
