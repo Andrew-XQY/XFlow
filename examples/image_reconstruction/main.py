@@ -1,53 +1,66 @@
-from pathlib import Path
-import os
-
-from xflow import FileProvider, TensorFlowPipeline, BaseTrainer, ConfigManager, BaseModel
+from xflow import FileProvider, DataPipeline, ConfigManager
 from xflow.data import build_transforms_from_config
 from xflow.utils import get_base_dir, plot_image, load_validated_config
+from xflow.trainers.callback import build_callbacks_from_config
+from regressor import Encoder
+from tensorflow.keras.optimizers import Adam
+from pathlib import Path
+import os
+import tensorflow as tf
 
-
-# ====================================
-# Training configuration
-# ====================================
 cur_dir = get_base_dir()
-config_manager = ConfigManager(load_validated_config(os.path.join(cur_dir, "config.yaml")))
+# ====================================
+# Configuration
+# ====================================
+config_manager = ConfigManager(load_validated_config(os.path.join(cur_dir, "regressor.yaml")))
 config = config_manager.get()
 base = Path(config["paths"]["base"])
 
 # ====================================
 # Data pipeline
 # ====================================
-provider = FileProvider(base / config["data"]["root"], path_type="string").subsample(500)
-first_provider, temp_provider = provider.split(ratio=config["data"]["first_split"], seed=config["seed"])
-second_provider, third_provider = temp_provider.split(ratio=config["data"]["second_split"], seed=config["seed"])
+provider = FileProvider(base / config["data"]["root"])
+train_provider, temp_provider = provider.split(ratio=config["data"]["first_split"], seed=config["seed"])
+val_provider, test_provider = temp_provider.split(ratio=config["data"]["second_split"], seed=config["seed"])
 
-transforms = build_transforms_from_config(config['data']['transforms']['tf_native']) 
+transforms = build_transforms_from_config(config['data']['transforms']['numpy']) 
 def make_dataset(provider):
     return (
-        TensorFlowPipeline(provider, transforms)
-        .to_framework_dataset(config['framework']['name'],
-                              config["data"]["dataset_ops"])
+        DataPipeline(provider, transforms).to_numpy()
     )
-train_dataset = make_dataset(first_provider)
-val_dataset   = make_dataset(second_provider)
-test_dataset  = make_dataset(third_provider)
+train_dataset = make_dataset(train_provider)
+val_dataset   = make_dataset(val_provider)
+test_dataset  = make_dataset(test_provider)
 
-for re, inp in test_dataset.take(1):
-    print(f"input sample shape: {inp.shape}, label sample shape: {re.shape}")
+for inp, params, re in zip(*test_dataset):
+    print(f"input sample shape: {inp.shape}, label sample shape: {len(re)} \n{params}")
     plot_image(inp)
     plot_image(re)
+    break
 
 # ====================================
-# Model and Trainer
+# Model
 # ====================================
-model = BaseModel(config["model"])
-
-trainer = BaseTrainer(
-    model=model,
-    data_pipeline=train_dataset,
-    config=config,
-    output_dir=base / config["paths"]["output"]
+cbs = build_callbacks_from_config(
+    config=config["callbacks"],
+    framework=config['framework'],
 )
+cbs[-1].set_dataset(test_dataset) # add dataset closure to the last callback
 
-trainer.fit()
-trainer.save_model(base / config["paths"]["output"] / "model.h5")
+model = Encoder()
+adam_optimizer = Adam(learning_rate=config['training']['learning_rate'])
+model.compile(optimizer=adam_optimizer, loss=config['training']['loss'])
+model.summary()
+
+# ====================================
+# Training
+# ====================================
+history = model.fit(
+    train_dataset[0], 
+    train_dataset[1],           # x, y only
+    epochs=config["training"]["epochs"],
+    batch_size=config["training"]["batch_size"],
+    validation_data=(val_dataset[0], val_dataset[1]),
+    callbacks=[cbs]
+)
+config_manager.save(Path(config["paths"]["output"]) / config["name"])
