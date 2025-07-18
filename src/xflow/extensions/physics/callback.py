@@ -169,3 +169,113 @@ def plot_centroid_ellipse(
         plt.close(fig)
     else:
         return fig
+
+
+# --- New Callback for Image Reconstruction ---
+from datetime import datetime
+
+@CallbackRegistry.register("image_reconstruction_callback")
+def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridis"):
+    """Callback that visualizes input, predicted, and ground truth images side by side, with and without min-max rescaling."""
+    class ImageReconstructionCallback(tf.keras.callbacks.Callback):
+        def __init__(self, save_dir=save_dir, cmap=cmap):
+            super().__init__()
+            self.dataset = dataset
+            self.sample_batch = None
+            self.save_dir = save_dir
+            self.cmap = cmap
+            if self.dataset is not None:
+                self._refresh_sample()
+
+        def set_dataset(self, dataset):
+            self.dataset = dataset
+            self._refresh_sample()
+
+        def _refresh_sample(self):
+            if self.dataset is None:
+                raise ValueError("Dataset must be set before using the callback.")
+            # If user passed exactly (X, Y), treat that as one batch:
+            if isinstance(self.dataset, tuple) and len(self.dataset) == 2:
+                self.sample_batch = self.dataset
+            else:
+                # Otherwise assume it's an iterable of batches
+                self.sample_batch = next(iter(self.dataset))
+
+        def on_epoch_begin(self, epoch, logs=None):
+            if self.dataset is not None:
+                self._refresh_sample()
+            if self.sample_batch is None:
+                print("No dataset set for visualization.")
+                return
+            try:
+                X, Y = self.sample_batch
+                # Randomly choose one sample
+                idx = np.random.randint(0, len(X))
+                x = X[idx:idx+1]  # keep batch dim
+                y_true = Y[idx]
+                y_pred = self.model.predict(x, verbose=0)
+
+                # Remove batch/channel dims if present
+                def get_img(arr):
+                    arr = arr[0] if arr.ndim > 3 else arr
+                    if arr.ndim == 3 and arr.shape[-1] == 1:
+                        arr = arr[..., 0]
+                    return arr
+                img_in = get_img(x)
+                img_pred = get_img(y_pred)
+                img_true = get_img(y_true)
+
+                # Min-max rescale function
+                def minmax_rescale(img):
+                    img = np.array(img)
+                    minv, maxv = img.min(), img.max()
+                    if maxv > minv:
+                        return (img - minv) / (maxv - minv)
+                    else:
+                        return img
+
+                img_in_rescale = minmax_rescale(img_in)
+                img_pred_rescale = minmax_rescale(img_pred)
+                img_true_rescale = minmax_rescale(img_true)
+
+                # Plotting
+                fig, axs = plt.subplots(2, 3, figsize=(10, 6))
+                images = [img_in, img_pred, img_true, img_in_rescale, img_pred_rescale, img_true_rescale]
+                titles = ["Input", "Reconstructed", "Ground Truth", "Input (rescale)", "Reconstructed (rescale)", "Ground Truth (rescale)"]
+                for i, ax in enumerate(axs.flat):
+                    ax.imshow(images[i], cmap=self.cmap)
+                    ax.set_title(titles[i])
+                    ax.axis('off')
+                plt.tight_layout()
+
+                # Save if save_dir is set
+                save_path = None
+                if self.save_dir is not None:
+                    import os
+                    abs_save_dir = os.path.abspath(self.save_dir)
+                    os.makedirs(abs_save_dir, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    save_path = os.path.join(abs_save_dir, f"epoch_{epoch+1}_{timestamp}.png")
+                    fig.savefig(save_path, bbox_inches='tight', dpi=300)
+                    plt.close(fig)
+                else:
+                    try:
+                        from IPython.display import clear_output, display
+                        clear_output(wait=True)
+                        display(fig)
+                    except ImportError:
+                        plt.show()
+
+                # Print max pixel values
+                def get_max(arr):
+                    if hasattr(arr, 'numpy'):
+                        arr = arr.numpy()
+                    return np.max(arr)
+                print(f"input image max pixel: {get_max(img_in)}", 
+                      f"ground truth image max pixel: {get_max(img_true)}", 
+                      f"reconstructed image max pixel: {get_max(img_pred)}")
+
+            except Exception as e:
+                print(f"ImageReconstructionCallback error: {e}")
+
+    return ImageReconstructionCallback()
