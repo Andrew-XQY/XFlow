@@ -150,3 +150,28 @@ def make_tf_model_checkpoint(filepath: str,
         save_best_only=save_best_only,
         **kwargs
     )
+    
+@CallbackRegistry.register("tf_eta")
+def make_eta_callback():
+    import tensorflow as tf
+    import time
+    import numpy as np
+    class ETACallback(tf.keras.callbacks.Callback):
+        def on_train_begin(self, logs=None):
+            self.times = []
+
+        def on_epoch_begin(self, epoch, logs=None):
+            self.start = time.time()
+
+        def on_epoch_end(self, epoch, logs=None):
+            elapsed = time.time() - self.start
+            self.times.append(elapsed)
+            avg = np.mean(self.times[-5:])  # smooth over last 5
+            remaining = (self.params['epochs'] - epoch - 1) * avg
+            if remaining > 3600:
+                hrs = remaining // 3600
+                mins = (remaining % 3600) // 60
+                print(f"Estimated time left: {hrs:.0f}h {mins:.0f}m")
+            else:
+                print(f"Estimated time left: {remaining:.1f}s")
+    return ETACallback()

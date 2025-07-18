@@ -251,15 +251,20 @@ def tf_read_file(file_path: str) -> TensorLike:
     return tf.io.read_file(file_path)
 
 @TransformRegistry.register("tf_decode_image")
-def tf_decode_image(image_bytes) -> TensorLike:
-    """Decode image bytes to tensor using TensorFlow."""
+def tf_decode_image(image_bytes: TensorLike, channels: int = 1, expand_animations: bool = False) -> TensorLike:
+    """Decode image bytes to tensor with specified channels."""
     import tensorflow as tf
-    return tf.image.decode_image(image_bytes)
+    return tf.image.decode_image(
+        image_bytes,
+        channels=channels,
+        expand_animations=expand_animations
+    )
 
-@TransformRegistry.register("tf_normalize")
-def tf_normalize(image: TensorLike, mean: float = 0.0, std: float = 1.0) -> TensorLike:
+@TransformRegistry.register("tf_convert_image_dtype")
+def tf_convert_image_dtype(image: TensorLike, dtype=None) -> TensorLike:
+    """Convert image to specified dtype. and normalize to [0, 1] range."""
     import tensorflow as tf
-    return tf.cast(image, tf.float32) / 255.0 * std + mean
+    return tf.image.convert_image_dtype(image, tf.float32 if not dtype else dtype)
 
 @TransformRegistry.register("tf_resize")
 def tf_resize(image: TensorLike, size: List[int]) -> TensorLike:
