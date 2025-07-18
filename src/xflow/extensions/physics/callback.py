@@ -225,25 +225,14 @@ def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridi
                 img_pred = get_img(y_pred)
                 img_true = get_img(y_true)
 
-                # Min-max rescale function
-                def minmax_rescale(img):
-                    img = np.array(img)
-                    minv, maxv = img.min(), img.max()
-                    if maxv > minv:
-                        return (img - minv) / (maxv - minv)
-                    else:
-                        return img
-
-                img_in_rescale = minmax_rescale(img_in)
-                img_pred_rescale = minmax_rescale(img_pred)
-                img_true_rescale = minmax_rescale(img_true)
-
-                # Plotting
                 fig, axs = plt.subplots(2, 3, figsize=(10, 6))
-                images = [img_in, img_pred, img_true, img_in_rescale, img_pred_rescale, img_true_rescale]
+                images = [img_in, img_pred, img_true, img_in, img_pred, img_true]
                 titles = ["Input", "Reconstructed", "Ground Truth", "Input (rescale)", "Reconstructed (rescale)", "Ground Truth (rescale)"]
                 for i, ax in enumerate(axs.flat):
-                    ax.imshow(images[i], cmap=self.cmap)
+                    if i < 3:
+                        ax.imshow(images[i], cmap=self.cmap, vmin=0, vmax=1)
+                    else:
+                        ax.imshow(images[i], cmap=self.cmap)
                     ax.set_title(titles[i])
                     ax.axis('off')
                 plt.tight_layout()
