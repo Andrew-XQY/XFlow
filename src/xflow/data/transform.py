@@ -191,21 +191,22 @@ def to_grayscale(image: np.ndarray) -> np.ndarray:
         flattened = image.reshape(spatial_dims + (-1,))
         return np.mean(flattened, axis=2).astype(image.dtype)
 
-
 @TransformRegistry.register("remap_range")
-def remap_range(image: np.ndarray, target_min: float = 0.0, target_max: float = 1.0) -> np.ndarray:
-    """Remap pixel values to target range."""
-    current_min = np.min(image)
-    current_max = np.max(image)
-    
-    if current_max == current_min:
+def remap_range(
+    image: np.ndarray,
+    current_min: float = 0.0,
+    current_max: float = 255.0,
+    target_min: float = 0.0,
+    target_max: float = 1.0
+) -> np.ndarray:
+    """Remap pixel values from [current_min, current_max] to [target_min, target_max]."""
+    image = image.astype(np.float32)
+    denominator = current_max - current_min
+    if denominator == 0:
         return np.full_like(image, target_min, dtype=np.float32)
-    
-    normalized = (image - current_min) / (current_max - current_min)
+    normalized = (image - current_min) / denominator
     remapped = normalized * (target_max - target_min) + target_min
-    
     return remapped.astype(np.float32)
-
 
 @TransformRegistry.register("resize")
 def resize(image: np.ndarray, size: Tuple[int, int], interpolation: str = "lanczos") -> np.ndarray:
@@ -265,6 +266,27 @@ def tf_convert_image_dtype(image: TensorLike, dtype=None) -> TensorLike:
     """Convert image to specified dtype. and normalize to [0, 1] range."""
     import tensorflow as tf
     return tf.image.convert_image_dtype(image, tf.float32 if not dtype else dtype)
+
+@TransformRegistry.register("tf_remap_range")
+def tf_remap_range(
+    image: TensorLike,
+    current_min: float = 0.0,
+    current_max: float = 255.0,
+    target_min: float = 0.0,
+    target_max: float = 1.0
+) -> TensorLike:
+    """Remap pixel values from [current_min, current_max] to [target_min, target_max] using TensorFlow."""
+    import tensorflow as tf
+    image = tf.cast(image, tf.float32)
+    # Avoid division by zero
+    denominator = tf.where(
+        tf.equal(current_max, current_min),
+        tf.ones_like(current_max),
+        current_max - current_min
+    )
+    normalized = (image - current_min) / denominator
+    remapped = normalized * (target_max - target_min) + target_min
+    return remapped
 
 @TransformRegistry.register("tf_resize")
 def tf_resize(image: TensorLike, size: List[int]) -> TensorLike:
