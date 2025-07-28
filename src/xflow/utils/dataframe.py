@@ -3,7 +3,21 @@
 import pandas as pd
 from typing import Optional, Union, List, Tuple
 
+class DataFrameTransformRegistry:
+    _registry = {}
 
+    @classmethod
+    def register(cls, name):
+        def decorator(func):
+            cls._registry[name] = func
+            return func
+        return decorator
+
+    @classmethod
+    def get(cls, name):
+        return cls._registry[name]
+    
+@DataFrameTransformRegistry.register("subsample_dataframe")
 def subsample_dataframe(
     df: pd.DataFrame,
     n_samples: Optional[int] = None,
@@ -48,7 +62,7 @@ def subsample_dataframe(
     else:
         raise ValueError(f"Strategy '{strategy}' not supported. Use 'random', 'first', or 'last'")
 
-
+@DataFrameTransformRegistry.register("split_dataframe_by_ratio")
 def split_dataframe_by_ratio(
     df: pd.DataFrame,
     ratio: float = 0.8,
@@ -81,7 +95,7 @@ def split_dataframe_by_ratio(
     
     return first_part.copy(), second_part.copy()
 
-
+@DataFrameTransformRegistry.register("split_dataframe_by_filters")
 def split_dataframe_by_filters(
     df: pd.DataFrame,
     filters: List[str]
@@ -112,7 +126,7 @@ def split_dataframe_by_filters(
     
     return results
 
-
+@DataFrameTransformRegistry.register("concat_dataframes")
 def concat_dataframes(
     dataframes: List[pd.DataFrame],
     ignore_index: bool = True,

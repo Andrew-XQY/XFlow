@@ -1,15 +1,16 @@
-def is_simple_type(val):
-    """
-    Return True if val is a simple Python type (int, float, str, bool, None), False for list, dict, set, or other objects.
-    """
-    return isinstance(val, (int, float, str, bool, type(None), np.integer, np.floating, np.bool_))
-
 import math
 import ast
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
+
+def is_simple_type(val):
+    """
+    Return True if val is a simple Python type (int, float, str, bool, None), False for list, dict, set, or other objects.
+    """
+    return isinstance(val, (int, float, str, bool, type(None), np.integer, np.floating, np.bool_))
+
 
 def convert_to_numeric_if_possible(series):
     """
