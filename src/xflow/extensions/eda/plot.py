@@ -11,8 +11,7 @@ def is_simple_type(val):
     """
     return isinstance(val, (int, float, str, bool, type(None), np.integer, np.floating, np.bool_))
 
-
-def convert_to_numeric_if_possible(series):
+def convert_to_numeric(series):
     """
     Try to convert a pandas Series to numeric, otherwise return as is.
     Extendable for more conversion rules.
@@ -72,7 +71,7 @@ def df_distribution_plot(df, subplot_cols=3, bins=20):
         progress = f"[{'=' * (idx+1)}{' ' * (n_cols-idx-1)}]"
         print(f"{progress} ({idx+1}/{n_cols}) Processing column: {col}", end='\r')
         ax = axes[idx]
-        series = convert_to_numeric_if_possible(df[col])
+        series = convert_to_numeric(df[col])
         values, counts = calculate_histogram(series, bins=bins)
         if np.issubdtype(np.array(values).dtype, np.number):
             ax.bar(values, counts, width=(values[1]-values[0]) if len(values)>1 else 1)
