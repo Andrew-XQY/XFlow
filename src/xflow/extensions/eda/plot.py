@@ -62,15 +62,16 @@ def df_distribution_plot(df, subplot_cols=3, bins=20):
 
     print(f"Found {n_cols} columns. Plotting distributions:")
     for idx, col in enumerate(df.columns):
-        # Check if column contains any simple types
         col_values = df[col].dropna()
+        ax = axes[idx]
         if not any(is_simple_type(v) for v in col_values):
             print(f"\nSkipping column '{col}' (no simple types detected)")
+            ax.set_title(f"{col}\n(Skipped: not simple type)")
+            ax.set_xticks([])
+            ax.set_yticks([])
             continue
-        # Simple progress bar
         progress = f"[{'=' * (idx+1)}{' ' * (n_cols-idx-1)}]"
         print(f"{progress} ({idx+1}/{n_cols}) Processing column: {col}", end='\r')
-        ax = axes[idx]
         series = convert_to_numeric(df[col])
         values, counts = calculate_histogram(series, bins=bins)
         if np.issubdtype(np.array(values).dtype, np.number):
