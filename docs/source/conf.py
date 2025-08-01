@@ -13,14 +13,32 @@ release = '0.1.0'
 # Extensions
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinx.ext.viewcode',
+    'sphinx.ext.viewcode', 
     'sphinx.ext.napoleon',
     'sphinx.ext.autosummary',
+    'sphinx.ext.intersphinx',
     'sphinx_rtd_theme',
 ]
 
-# Theme
+# Theme - modern RTD with customization
 html_theme = 'sphinx_rtd_theme'
+html_theme_options = {
+    'logo_only': False,
+    'prev_next_buttons_location': 'bottom',
+    'style_external_links': False,
+    'collapse_navigation': False,
+    'sticky_navigation': True,
+    'navigation_depth': 4,
+    'includehidden': True,
+    'titles_only': False,
+    'style_nav_header_background': '#2980B9',
+}
+
+# Custom CSS for dark mode option
+html_static_path = ['_static']
+html_css_files = [
+    'custom.css',
+]
 
 # Autodoc settings
 autodoc_default_options = {
@@ -31,15 +49,12 @@ autodoc_default_options = {
     'exclude-members': '__weakref__'
 }
 
-# Napoleon settings for Google/NumPy style docstrings
+# Napoleon settings
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = False
-napoleon_include_private_with_doc = False
 
-# Autosummary
-autosummary_generate = True
-
-# HTML options
-html_static_path = []
+# Clean up the sidebar
 html_show_sourcelink = True
+html_show_sphinx = False
+html_show_copyright = True

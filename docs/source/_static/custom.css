@@ -1,0 +1,36 @@
+/* Modern clean styling */
+.wy-nav-content {
+    max-width: 1200px;
+}
+
+/* Better code blocks */
+.highlight {
+    background: #f8f8f8;
+    border-radius: 4px;
+    padding: 1em;
+}
+
+/* Clean API documentation */
+.py.class, .py.function {
+    border-left: 3px solid #2980B9;
+    padding-left: 1em;
+    margin: 1em 0;
+}
+
+/* Improved table styling */
+.wy-table-responsive table td, 
+.wy-table-responsive table th {
+    white-space: normal;
+}
+
+/* Dark mode media query */
+@media (prefers-color-scheme: dark) {
+    .wy-nav-content-wrap {
+        background: #1e1e1e;
+    }
+    
+    .wy-nav-content {
+        background: #1e1e1e;
+        color: #e0e0e0;
+    }
+}

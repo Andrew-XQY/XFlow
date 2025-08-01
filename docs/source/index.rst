@@ -1,49 +1,58 @@
 XFlow Documentation
 ===================
 
-Welcome to XFlow - a comprehensive machine learning framework.
+**XFlow** is a lightweight modular machine-learning framework with a clear high-level structure.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Getting Started:
+   
+   quickstart
+
+.. toctree::
+   :maxdepth: 3
    :caption: API Reference:
    
-   modules
-   xflow
+   api/index
 
-Installation
+.. toctree::
+   :maxdepth: 1
+   :caption: Examples:
+   
+   examples/basic_usage
+
+Core Modules
 ============
 
-.. code-block:: bash
+XFlow is organized into four main modules:
 
-   pip install xflow
+:doc:`api/data`
+   Data loading, processing, and pipeline management
 
-Quick Start
-===========
+:doc:`api/models` 
+   Machine learning model implementations
+
+:doc:`api/trainers`
+   Training utilities and callbacks
+
+:doc:`api/utils`
+   Helper functions and utilities
+
+Quick Example
+=============
 
 .. code-block:: python
 
-   from xflow.data import loader
-   from xflow.models import autoencoder
+   from xflow.data import BasePipeline
+   from xflow.models import BaseModel
    
-   # Load and process data
-   data = loader.load_data("your_data.csv")
+   # Create a data pipeline
+   pipeline = BasePipeline()
    
-   # Create and train model
-   model = autoencoder.AutoEncoder()
-   model.fit(data)
+   # Create and configure model
+   model = BaseModel()
 
-API Documentation
-=================
-
-The complete API documentation is organized by modules:
-
-- :doc:`xflow.data <xflow.data>` - Data loading and preprocessing
-- :doc:`xflow.models <xflow.models>` - Machine learning models  
-- :doc:`xflow.trainers <xflow.trainers>` - Training utilities
-- :doc:`xflow.evaluation <xflow.evaluation>` - Evaluation metrics
-- :doc:`xflow.utils <xflow.utils>` - Utility functions
-
-Indices and Tables
+Indices and tables
 ==================
 
 * :ref:`genindex`
