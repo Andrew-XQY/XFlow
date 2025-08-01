@@ -1,27 +1,30 @@
-import os
-import sys
-import __main__
 import inspect
-import random
 import itertools
+import os
+import random
+import sys
 from pathlib import Path
-from typing import Optional, Sequence, List, Dict, Any, MutableMapping, Tuple
+from typing import Any, Dict, List, MutableMapping, Optional, Sequence, Tuple
+
+import __main__
+
 from .typing import T
 
 # =============================================================================
 # Path helpers
 # =============================================================================
 
+
 def print_caller_directory():
     """
     Prints the directory path of the script that called this function.
-    
+
     Useful for debugging or logging script origin in multi-file projects.
     """
     caller_frame = inspect.stack()[1]
     caller_file = os.path.abspath(caller_frame.filename)
     print("Caller script directory:", os.path.dirname(caller_file))
-    
+
 
 def get_base_dir() -> Path:
     """
@@ -30,10 +33,11 @@ def get_base_dir() -> Path:
     # 1. Check if running in Jupyter notebook
     try:
         # Check for IPython/Jupyter environment
-        if 'ipykernel' in sys.modules or 'IPython' in sys.modules:
+        if "ipykernel" in sys.modules or "IPython" in sys.modules:
             # Try to get notebook directory from IPython
             try:
                 from IPython import get_ipython
+
                 ipython = get_ipython()
                 if ipython is not None:
                     # Get the current working directory in Jupyter
@@ -45,7 +49,7 @@ def get_base_dir() -> Path:
 
     # 2. Direct script execution: __main__.__file__ exists
     try:
-        main_file = getattr(__main__, '__file__', None)
+        main_file = getattr(__main__, "__file__", None)
         if main_file and os.path.exists(main_file):
             return Path(main_file).parent.resolve()
     except Exception:
@@ -53,7 +57,7 @@ def get_base_dir() -> Path:
 
     # 3. Check if running as frozen executable
     try:
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             return Path(sys.executable).parent.resolve()
     except Exception:
         pass
@@ -61,22 +65,24 @@ def get_base_dir() -> Path:
     # 4. Fallback: inspect stack for first external caller (skip IPython frames)
     try:
         current_file = Path(__file__).resolve()
-        
+
         for frame_info in inspect.stack()[1:]:  # skip current frame
             filename = frame_info.filename
             # Skip interactive frames, this module, IPython/Jupyter internals, and built-ins
-            if (filename.startswith('<') or 
-                filename.startswith('[') or  # some REPLs use brackets
-                'IPython' in filename or
-                'ipykernel' in filename or
-                'jupyter' in filename or
-                Path(filename).resolve() == current_file):
+            if (
+                filename.startswith("<")
+                or filename.startswith("[")
+                or "IPython" in filename  # some REPLs use brackets
+                or "ipykernel" in filename
+                or "jupyter" in filename
+                or Path(filename).resolve() == current_file
+            ):
                 continue
-            
+
             file_path = Path(filename)
             if file_path.exists():
                 return file_path.parent.resolve()
-                
+
     except Exception:
         pass
 
@@ -97,15 +103,16 @@ def get_base_dir() -> Path:
 # Iterable/Sequence helpers
 # =============================================================================
 
+
 def subsample_sequence(
     items: Sequence[T],
     n_samples: Optional[int] = None,
     fraction: Optional[float] = None,
     strategy: str = "random",
-    seed: Optional[int] = 42
+    seed: Optional[int] = 42,
 ) -> List[T]:
     """
-    Subsampling function for any Sequence. 
+    Subsampling function for any Sequence.
 
     Args:
         items: Any sequence (list, tuple, etc.) of type T.
@@ -162,55 +169,55 @@ def subsample_sequence(
                     reservoir[j] = elem
         return reservoir
     else:
-        raise ValueError(f"Unknown strategy: {strategy}") 
+        raise ValueError(f"Unknown strategy: {strategy}")
+
 
 def split_sequence(
-    items: Sequence[T], 
-    split_ratio: float = 0.8, 
-    seed: int = 42,
-    shuffle: bool = True
+    items: Sequence[T], split_ratio: float = 0.8, seed: int = 42, shuffle: bool = True
 ) -> Tuple[List[T], List[T]]:
     """
     Split a sequence into two parts.
-    
+
     Args:
         items: Any sequence (list, tuple, etc.) of type T.
         split_ratio: Ratio for first part (0.0 to 1.0).
         seed: Random seed for reproducibility.
         shuffle: Whether to shuffle before splitting.
-        
+
     Returns:
         Tuple of (first_part, second_part) as lists of type T.
     """
     if not 0.0 <= split_ratio <= 1.0:
         raise ValueError(f"split_ratio must be between 0.0 and 1.0, got {split_ratio}")
-    
+
     items_list = list(items)
-    
+
     if shuffle:
         rng = random.Random(seed)
         rng.shuffle(items_list)
-    
+
     split_idx = int(len(items_list) * split_ratio)
     first_part = items_list[:split_idx]
     second_part = items_list[split_idx:]
-    
+
     return first_part, second_part
+
 
 # =============================================================================
 # Dictionary helpers
 # =============================================================================
 
+
 def deep_update(base: MutableMapping[str, Any], updates: Dict[str, Any]) -> None:
     """Recursively update a dictionary with another dictionary.
-    
+
     Nested dictionaries are merged, other values are replaced.
     Modifies base dictionary in-place.
-    
+
     Args:
         base: Dictionary to update (modified in-place)
         updates: Dictionary with updates to apply
-        
+
     Example:
         >>> base = {"a": {"x": 1, "y": 2}, "b": 3}
         >>> updates = {"a": {"x": 10, "z": 3}, "c": 4}
@@ -227,17 +234,17 @@ def deep_update(base: MutableMapping[str, Any], updates: Dict[str, Any]) -> None
 
 def deep_merge(*dicts: Dict[str, Any]) -> Dict[str, Any]:
     """Merge multiple dictionaries recursively, returning a new dictionary.
-    
+
     Args:
         *dicts: Dictionaries to merge (left-to-right precedence)
-        
+
     Returns:
         New merged dictionary
     """
     if not dicts:
         return {}
-    
+
     result = {}
     for d in dicts:
         deep_update(result, d)
-    return result       
+    return result

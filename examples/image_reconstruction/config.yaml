@@ -34,7 +34,7 @@ callbacks:
       save_dir: "results/"
 
 
-data:  
+data:
   root: "DataHub/local_images/MMF/"
   first_split: 0.8
   second_split: 0.5

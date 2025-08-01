@@ -19,7 +19,7 @@ Here's how to create and use data pipelines:
 
    # Method 1: Using InMemoryPipeline for small datasets
    pipeline = InMemoryPipeline(data)
-   
+
    # Method 2: Building a pipeline with transforms
    pipeline = BasePipeline()
    pipeline = ShufflePipeline(pipeline)  # Add shuffling
@@ -42,11 +42,11 @@ XFlow provides robust configuration management:
 
    # Load configuration from YAML
    config = ConfigManager.load_config('config.yaml')
-   
+
    # Access nested configuration values
    learning_rate = config.training.learning_rate
    batch_size = config.data.batch_size
-   
+
    # Load and validate configuration
    validated_config = load_validated_config('config.yaml', schema='training_schema.json')
 
@@ -62,17 +62,17 @@ Complete example of setting up and training a model:
 
    # Create model
    model = BaseModel()
-   
+
    # Create data pipeline
    train_pipeline = BasePipeline()
    val_pipeline = BasePipeline()
-   
+
    # Build callbacks from configuration
    callbacks = build_callbacks_from_config({
        'early_stopping': {'patience': 10},
        'model_checkpoint': {'filepath': 'best_model.h5'}
    })
-   
+
    # Create trainer
    trainer = BaseTrainer(
        model=model,
@@ -80,7 +80,7 @@ Complete example of setting up and training a model:
        val_data=val_pipeline,
        callbacks=callbacks
    )
-   
+
    # Start training
    history = trainer.train(epochs=100)
 
@@ -111,13 +111,13 @@ Example YAML configuration file (``config.yaml``):
      type: "autoencoder"
      input_shape: [784]
      latent_dim: 128
-     
+
    # Training configuration
    training:
      learning_rate: 0.001
      batch_size: 32
      epochs: 100
-     
+
    # Data configuration
    data:
      train_path: "data/train.csv"
@@ -127,7 +127,7 @@ Example YAML configuration file (``config.yaml``):
          params:
            mean: 0.5
            std: 0.5
-           
+
    # Callbacks configuration
    callbacks:
      early_stopping:

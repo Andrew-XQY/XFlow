@@ -20,10 +20,10 @@ XFlow provides a simple and intuitive API for building machine learning pipeline
    .. code-block:: python
 
       from xflow import BasePipeline, InMemoryPipeline
-      
+
       # Create a basic pipeline
       pipeline = BasePipeline()
-      
+
       # Or use in-memory pipeline for small datasets
       data_pipeline = InMemoryPipeline(data)
 
@@ -32,7 +32,7 @@ XFlow provides a simple and intuitive API for building machine learning pipeline
    .. code-block:: python
 
       from xflow import BaseModel
-      
+
       # Create a model
       model = BaseModel()
 
@@ -41,10 +41,10 @@ XFlow provides a simple and intuitive API for building machine learning pipeline
    .. code-block:: python
 
       from xflow import BaseTrainer
-      
+
       # Create and configure trainer
       trainer = BaseTrainer(model=model, data=pipeline)
-      
+
       # Start training
       trainer.train()
 
@@ -53,10 +53,10 @@ XFlow provides a simple and intuitive API for building machine learning pipeline
    .. code-block:: python
 
       from xflow import ConfigManager
-      
+
       # Load configuration
       config = ConfigManager.load_config('config.yaml')
-      
+
       # Access configuration values
       learning_rate = config.training.learning_rate
 

@@ -13,7 +13,7 @@ This directory contains the Sphinx documentation for XFlow.
    ```bash
    python build.py
    ```
-   
+
    Or manually:
    ```bash
    cd docs

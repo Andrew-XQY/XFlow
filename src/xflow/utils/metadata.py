@@ -1,7 +1,8 @@
 """Metadata collection with extensible hooks"""
 
 import logging
-from typing import Mapping, Dict, Any, Optional
+from typing import Any, Dict, Mapping, Optional
+
 from .typing import MetaHook
 
 
@@ -30,7 +31,7 @@ class MetadataCollector:
         if fn not in self._meta_hooks:
             self._meta_hooks.append(fn)
         return fn
-    
+
     def remove_hook(self, fn: MetaHook) -> bool:
         """Remove a specific hook. Returns True if hook was found and removed."""
         try:
@@ -53,9 +54,7 @@ class MetadataCollector:
         self._meta_hooks.clear()
 
     def collect(
-        self,
-        components: Mapping[str, Any],
-        config: Optional[Dict[str, Any]] = None
+        self, components: Mapping[str, Any], config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Build a metadata dict from components + all registered hooks.
@@ -64,7 +63,7 @@ class MetadataCollector:
         - Runs each hook(fn), merging any returned dict.
         - Logs and records hook errors under 'hook_errors'.
         """
-        result = {'config': config or {}}
+        result = {"config": config or {}}
 
         for name, comp in components.items():
             result[name] = self._collect_component_metadata(comp)
@@ -76,7 +75,7 @@ class MetadataCollector:
                     result.update(extra)
             except Exception:
                 self._logger.exception(f"hook {hook.__name__} failed")
-                result.setdefault('hook_errors', []).append(hook.__name__)
+                result.setdefault("hook_errors", []).append(hook.__name__)
 
         return result
 
@@ -87,27 +86,28 @@ class MetadataCollector:
         Returns its dict or a status dict if missing/invalid/error.
         """
         component_type = type(component).__name__
-        
+
         try:
-            if hasattr(component, 'get_metadata'):
+            if hasattr(component, "get_metadata"):
                 md = component.get_metadata()
                 if isinstance(md, dict):
                     return md
                 else:
                     # Handle case where get_metadata() returns non-dict
-                    self._logger.warning(f"{component_type}.get_metadata() returned {type(md)}, expected dict")
-                    return {'type': component_type, 'status': 'invalid_metadata_type'}
-            
-            return {'type': component_type, 'status': 'no_metadata_method'}
-            
+                    self._logger.warning(
+                        f"{component_type}.get_metadata() returned {type(md)}, expected dict"
+                    )
+                    return {"type": component_type, "status": "invalid_metadata_type"}
+
+            return {"type": component_type, "status": "no_metadata_method"}
+
         except Exception as e:
             self._logger.exception(f"metadata collection error for {component_type}")
             return {
-                'type': component_type, 
-                'status': 'metadata_error',
-                'error': str(e)  # Include error message for debugging
+                "type": component_type,
+                "status": "metadata_error",
+                "error": str(e),  # Include error message for debugging
             }
-
 
 
 # Common metadata hooks
@@ -115,17 +115,18 @@ def system_info_hook(components: Mapping[str, Any]) -> Dict[str, Any]:
     """Add system information to metadata."""
     import platform
     import sys
+
     return {
-        'system': {
-            'platform': platform.platform(),
-            'python_version': sys.version,
-            'architecture': platform.architecture()[0]
+        "system": {
+            "platform": platform.platform(),
+            "python_version": sys.version,
+            "architecture": platform.architecture()[0],
         }
     }
+
 
 def timestamp_hook(components: Mapping[str, Any]) -> Dict[str, Any]:
     """Add timestamp to metadata."""
     from datetime import datetime
-    return {
-        'timestamp': datetime.now().isoformat()
-    }
+
+    return {"timestamp": datetime.now().isoformat()}

@@ -31,13 +31,13 @@
 
 ## 🔍 About the Project
 
-**XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through vibe coding. 
+**XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through vibe coding.
 
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
 **XFlow** keeps things simple and minimal.
 
-> _Includes reusable modules for datasets, models, training loops, visualization, and logging._  
+> _Includes reusable modules for datasets, models, training loops, visualization, and logging._
 > _Current version: 0.1.0_
 
 ---
@@ -77,4 +77,4 @@ pip install -e .
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. 
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

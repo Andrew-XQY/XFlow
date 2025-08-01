@@ -1,17 +1,22 @@
 """Core abstractions for building reusable, named preprocessing pipelines:"""
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
-from typing import Callable, Iterator, Any, Optional, List, Union, Dict, TYPE_CHECKING
-from .provider import DataProvider
-from ..utils.decorator import with_progress
-import logging
+
 import itertools
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Union
+
+from ..utils.decorator import with_progress
+from .provider import DataProvider
+
 if TYPE_CHECKING:
     import tensorflow as tf
+
 
 @dataclass
 class Transform:
     """Wrapper for a preprocessing function with metadata. (like len)"""
+
     fn: Callable[[Any], Any]
     name: str
 
@@ -20,8 +25,8 @@ class Transform:
 
     def __repr__(self) -> str:
         return self.name
-    
-    
+
+
 class BasePipeline(ABC):
     """Base class for data pipelines in scientific machine learning.
 
@@ -41,19 +46,19 @@ class BasePipeline(ABC):
         ...     Transform(lambda data: (data[:-1], data[-1]), "split_features_target"),
         ...     Transform(lambda x: (normalize(x[0]), x[1]), "normalize_features")
         ... ]
-        >>> 
+        >>>
         >>> files = ListProvider(["data1.csv", "data2.csv"])
         >>> pipeline = MyPipeline(files, transforms)
-        >>> 
+        >>>
         >>> # Clear, meaningful metadata
         >>> print(pipeline.get_metadata())
         >>> # {"pipeline_type": "MyPipeline", "dataset_size": 2,
         >>> #  "preprocessing_functions": ["load_csv", "split_features_target", "normalize_features"]}
     """
-        
+
     def __init__(
         self,
-        data_provider: DataProvider, 
+        data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
         logger: Optional[logging.Logger] = None,
@@ -61,7 +66,11 @@ class BasePipeline(ABC):
     ) -> None:
         self.data_provider = data_provider
         self.transforms = [
-            fn if isinstance(fn, Transform) else Transform(fn, getattr(fn, '__name__', 'unknown'))
+            (
+                fn
+                if isinstance(fn, Transform)
+                else Transform(fn, getattr(fn, "__name__", "unknown"))
+            )
             for fn in (transforms or [])
         ]
         self.logger = logger or logging.getLogger(__name__)
@@ -89,34 +98,36 @@ class BasePipeline(ABC):
     def __len__(self) -> int:
         """Return the total number of items in the dataset."""
         return len(self.data_provider)
-        
+
     def sample(self, n: int = 5) -> List[Any]:
         """Return up to n preprocessed items for inspection."""
         return list(itertools.islice(self.__iter__(), n))
-        
-    def shuffle(self, buffer_size: int) -> 'BasePipeline':
+
+    def shuffle(self, buffer_size: int) -> "BasePipeline":
         """Return a new pipeline that shuffles items with a reservoir buffer."""
         from .transform import ShufflePipeline
+
         return ShufflePipeline(self, buffer_size)
 
-    def batch(self, batch_size: int) -> 'BasePipeline':
+    def batch(self, batch_size: int) -> "BasePipeline":
         """Return a new pipeline that batches items into lists."""
         from .transform import BatchPipeline
+
         return BatchPipeline(self, batch_size)
 
-    def prefetch(self) -> 'BasePipeline':
+    def prefetch(self) -> "BasePipeline":
         """Return a new pipeline that prefetches items in background."""
         # TODO: Implement prefetching logic
-    
+
     def reset_error_count(self) -> None:
         """Reset the error count to zero."""
         self.error_count = 0
-    
+
     @abstractmethod
     def to_framework_dataset(self) -> Any:
         """Convert pipeline to framework-native dataset."""
         ...
-    
+
     def to_numpy(self):
         """
         Convert the pipeline to NumPy arrays.
@@ -124,18 +135,17 @@ class BasePipeline(ABC):
         If each item is a single array, returns a single array.
         """
         import numpy as np
-        from tqdm.auto import tqdm  # <- changed here
         from IPython.display import clear_output
+        from tqdm.auto import tqdm  # <- changed here
+
         items = []
-        pbar = tqdm(self,
-                    desc="Converting to numpy",
-                    leave=False,
-                    miniters=1,
-                    position=0)
+        pbar = tqdm(
+            self, desc="Converting to numpy", leave=False, miniters=1, position=0
+        )
         for x in pbar:
             items.append(x)
         pbar.close()
-        clear_output(wait=True)   # <— wipes the cell output (i.e. removes the bar)
+        clear_output(wait=True)  # <— wipes the cell output (i.e. removes the bar)
 
         if not items:
             return None
@@ -144,88 +154,103 @@ class BasePipeline(ABC):
             return tuple(np.stack(c) for c in zip(*items))
         return np.stack(items)
 
+
 class DataPipeline(BasePipeline):
     """Simple pipeline that processes data lazily without storing in memory."""
-    
+
     def to_framework_dataset(self) -> Any:
         """Not supported for lazy processing."""
         raise NotImplementedError(
             "DataPipeline doesn't support framework conversion. "
             "Use InMemoryPipeline or TensorFlowPipeline instead."
         )
-        
+
+
 class InMemoryPipeline(BasePipeline):
     """In-memory pipeline that processes all data upfront."""
-    
+
     def __init__(
         self,
-        data_provider: DataProvider, 
+        data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
         logger: Optional[logging.Logger] = None,
         skip_errors: bool = True,
     ) -> None:
-        super().__init__(data_provider, transforms, logger=logger, skip_errors=skip_errors)
-        
+        super().__init__(
+            data_provider, transforms, logger=logger, skip_errors=skip_errors
+        )
+
         from .transform import apply_transforms_to_dataset
+
         self.dataset, self.error_count = apply_transforms_to_dataset(
             self.data_provider(),
             self.transforms,
             logger=self.logger,
-            skip_errors=self.skip_errors
+            skip_errors=self.skip_errors,
         )
-    
+
     def __iter__(self) -> Iterator[Any]:
         return iter(self.dataset)
-    
+
     def __len__(self) -> int:
         return len(self.dataset)
-    
+
     def __getitem__(self, index: int) -> Any:
         return self.dataset[index]
-    
-    def to_framework_dataset(self, framework: str = "tensorflow", dataset_ops: List[Dict] = None) -> Any:
+
+    def to_framework_dataset(
+        self, framework: str = "tensorflow", dataset_ops: List[Dict] = None
+    ) -> Any:
         """Convert to framework-native dataset using already processed data."""
         if framework.lower() == "tensorflow":
             try:
                 import tensorflow as tf
+
                 dataset = tf.data.Dataset.from_tensor_slices(self.dataset)
-                
+
                 # Apply dataset operations using registry
                 if dataset_ops:
                     from .transform import apply_dataset_operations_from_config
+
                     dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
-                
+
                 return dataset
             except ImportError:
                 raise RuntimeError("TensorFlow not available")
         else:
             raise NotImplementedError(f"Framework {framework} not implemented")
-    
+
+
 class TensorFlowPipeline(BasePipeline):
     """Pipeline that uses TensorFlow-native transforms without preprocessing."""
-    
-    def to_framework_dataset(self, framework: str = "tensorflow", dataset_ops: List[Dict] = None):
+
+    def to_framework_dataset(
+        self, framework: str = "tensorflow", dataset_ops: List[Dict] = None
+    ):
         """Convert to TensorFlow dataset."""
         if framework.lower() != "tensorflow":
-            raise ValueError(f"TensorFlowPipeline only supports tensorflow, got {framework}")
-            
+            raise ValueError(
+                f"TensorFlowPipeline only supports tensorflow, got {framework}"
+            )
+
         try:
             import tensorflow as tf
-            
+
             file_paths = list(self.data_provider())
             dataset = tf.data.Dataset.from_tensor_slices(file_paths)
-            
+
             # Apply TF transforms sequentially
             for transform in self.transforms:
                 dataset = dataset.map(transform.fn, num_parallel_calls=tf.data.AUTOTUNE)
-            
+
             # Apply dataset operations using registry
             if dataset_ops:
                 from .transform import apply_dataset_operations_from_config
+
                 dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
-            
+
             return dataset
-            
+
         except ImportError:
             raise RuntimeError("TensorFlow not available")
