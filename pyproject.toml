@@ -23,7 +23,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy"]
+dev = [
+    "mypy",
+    "pre-commit",
+    "black",
+    "isort",
+]
 docs = ["sphinx", "sphinx-rtd-theme"]
 
 [tool.setuptools]
@@ -35,3 +40,32 @@ exclude = [
     "xflow.extensions",
     "xflow.extensions.*"
 ]  # Exclude extensions from distribution
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+# A regex preceded by a single or double quote
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | docs
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["xflow"]
+src_paths = ["src", "tests"]
+skip_glob = ["docs/*"]
