@@ -6,19 +6,19 @@ XFlow Documentation
 .. toctree::
    :maxdepth: 2
    :caption: Getting Started:
-   
+
    quickstart
 
 .. toctree::
    :maxdepth: 3
    :caption: API Reference:
-   
+
    api/index
 
 .. toctree::
    :maxdepth: 1
    :caption: Examples:
-   
+
    examples/basic_usage
 
 Core Modules
@@ -29,7 +29,7 @@ XFlow is organized into four main modules:
 :doc:`api/data`
    Data loading, processing, and pipeline management
 
-:doc:`api/models` 
+:doc:`api/models`
    Machine learning model implementations
 
 :doc:`api/trainers`
@@ -45,10 +45,10 @@ Quick Example
 
    from xflow.data import BasePipeline
    from xflow.models import BaseModel
-   
+
    # Create a data pipeline
    pipeline = BasePipeline()
-   
+
    # Create and configure model
    model = BaseModel()
 

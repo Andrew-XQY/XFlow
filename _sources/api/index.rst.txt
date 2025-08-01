@@ -9,7 +9,7 @@ Overview
 The XFlow package is structured around four main modules:
 
 - **Data Module** (:doc:`data`) - Data loading, processing, and pipeline management
-- **Models Module** (:doc:`models`) - Machine learning model implementations  
+- **Models Module** (:doc:`models`) - Machine learning model implementations
 - **Trainers Module** (:doc:`trainers`) - Training utilities and callbacks
 - **Utils Module** (:doc:`utils`) - Helper functions and utilities
 
@@ -29,10 +29,10 @@ Module Documentation
 
 .. toctree::
    :maxdepth: 2
-   
+
    core
    data
-   models  
+   models
    trainers
    utils
 

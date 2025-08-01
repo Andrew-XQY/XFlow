@@ -18,7 +18,7 @@
 }
 
 /* Improved table styling */
-.wy-table-responsive table td, 
+.wy-table-responsive table td,
 .wy-table-responsive table th {
     white-space: normal;
 }
@@ -28,7 +28,7 @@
     .wy-nav-content-wrap {
         background: #1e1e1e;
     }
-    
+
     .wy-nav-content {
         background: #1e1e1e;
         color: #e0e0e0;
