@@ -1,0 +1,286 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Basic Usage Examples &mdash; XFlow 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=6b6dda2f" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Utils Module" href="../api/utils.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search"  style="background: #2980B9" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            XFlow
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quickstart Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#core-api">Core API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#module-documentation">Module Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/core.html">Core API</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/core.html#data-pipeline-components">Data Pipeline Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/core.html#training-components">Training Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/core.html#models">Models</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/core.html#utilities">Utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/data.html">Data Module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/data.html#pipeline-classes">Pipeline Classes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/data.html#transform-components">Transform Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/data.html#utility-functions">Utility Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/models.html">Models Module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/models.html#base-classes">Base Classes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/trainers.html">Trainers Module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/trainers.html#training-classes">Training Classes</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/trainers.html#utility-functions">Utility Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/utils.html">Utils Module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/utils.html#visualization-functions">Visualization Functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/utils.html#configuration-functions">Configuration Functions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/utils.html#helper-functions">Helper Functions</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#package-structure">Package Structure</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Basic Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#data-pipeline-example">Data Pipeline Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-management">Configuration Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#model-training-example">Model Training Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#visualization-example">Visualization Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-file-example">Configuration File Example</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu"  style="background: #2980B9" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">XFlow</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Basic Usage Examples</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/examples/basic_usage.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="basic-usage-examples">
+<h1>Basic Usage Examples<a class="headerlink" href="#basic-usage-examples" title="Link to this heading"></a></h1>
+<p>This page provides comprehensive examples of using XFlow for common machine learning tasks.</p>
+<section id="data-pipeline-example">
+<h2>Data Pipeline Example<a class="headerlink" href="#data-pipeline-example" title="Link to this heading"></a></h2>
+<p>Here’s how to create and use data pipelines:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">xflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">BasePipeline</span><span class="p">,</span> <span class="n">InMemoryPipeline</span><span class="p">,</span> <span class="n">ShufflePipeline</span><span class="p">,</span> <span class="n">BatchPipeline</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Create sample data</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">784</span><span class="p">)</span>  <span class="c1"># 1000 samples, 784 features</span>
+<span class="n">labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">1000</span><span class="p">)</span>  <span class="c1"># 10 classes</span>
+
+<span class="c1"># Method 1: Using InMemoryPipeline for small datasets</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">InMemoryPipeline</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+<span class="c1"># Method 2: Building a pipeline with transforms</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">BasePipeline</span><span class="p">()</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">ShufflePipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">)</span>  <span class="c1"># Add shuffling</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">BatchPipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>  <span class="c1"># Add batching</span>
+
+<span class="c1"># Use the pipeline</span>
+<span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">pipeline</span><span class="p">:</span>
+    <span class="c1"># Process each batch</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Batch shape: </span><span class="si">{</span><span class="n">batch</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="configuration-management">
+<h2>Configuration Management<a class="headerlink" href="#configuration-management" title="Link to this heading"></a></h2>
+<p>XFlow provides robust configuration management:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">xflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">xflow.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_validated_config</span>
+
+<span class="c1"># Load configuration from YAML</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">ConfigManager</span><span class="o">.</span><span class="n">load_config</span><span class="p">(</span><span class="s1">&#39;config.yaml&#39;</span><span class="p">)</span>
+
+<span class="c1"># Access nested configuration values</span>
+<span class="n">learning_rate</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">training</span><span class="o">.</span><span class="n">learning_rate</span>
+<span class="n">batch_size</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">batch_size</span>
+
+<span class="c1"># Load and validate configuration</span>
+<span class="n">validated_config</span> <span class="o">=</span> <span class="n">load_validated_config</span><span class="p">(</span><span class="s1">&#39;config.yaml&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="s1">&#39;training_schema.json&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="model-training-example">
+<h2>Model Training Example<a class="headerlink" href="#model-training-example" title="Link to this heading"></a></h2>
+<p>Complete example of setting up and training a model:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">xflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">BaseTrainer</span><span class="p">,</span> <span class="n">BasePipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">xflow.trainers</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_callbacks_from_config</span>
+
+<span class="c1"># Create model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">BaseModel</span><span class="p">()</span>
+
+<span class="c1"># Create data pipeline</span>
+<span class="n">train_pipeline</span> <span class="o">=</span> <span class="n">BasePipeline</span><span class="p">()</span>
+<span class="n">val_pipeline</span> <span class="o">=</span> <span class="n">BasePipeline</span><span class="p">()</span>
+
+<span class="c1"># Build callbacks from configuration</span>
+<span class="n">callbacks</span> <span class="o">=</span> <span class="n">build_callbacks_from_config</span><span class="p">({</span>
+    <span class="s1">&#39;early_stopping&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;patience&#39;</span><span class="p">:</span> <span class="mi">10</span><span class="p">},</span>
+    <span class="s1">&#39;model_checkpoint&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;filepath&#39;</span><span class="p">:</span> <span class="s1">&#39;best_model.h5&#39;</span><span class="p">}</span>
+<span class="p">})</span>
+
+<span class="c1"># Create trainer</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">BaseTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">train_data</span><span class="o">=</span><span class="n">train_pipeline</span><span class="p">,</span>
+    <span class="n">val_data</span><span class="o">=</span><span class="n">val_pipeline</span><span class="p">,</span>
+    <span class="n">callbacks</span><span class="o">=</span><span class="n">callbacks</span>
+<span class="p">)</span>
+
+<span class="c1"># Start training</span>
+<span class="n">history</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">epochs</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="visualization-example">
+<h2>Visualization Example<a class="headerlink" href="#visualization-example" title="Link to this heading"></a></h2>
+<p>Using XFlow’s visualization utilities:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">xflow.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">plot_image</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+
+<span class="c1"># Plot an image</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">)</span>
+<span class="n">plot_image</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Sample Image&quot;</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s1">&#39;gray&#39;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="configuration-file-example">
+<h2>Configuration File Example<a class="headerlink" href="#configuration-file-example" title="Link to this heading"></a></h2>
+<p>Example YAML configuration file (<code class="docutils literal notranslate"><span class="pre">config.yaml</span></code>):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Model configuration</span>
+<span class="nt">model</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;autoencoder&quot;</span>
+<span class="w">  </span><span class="nt">input_shape</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">784</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">latent_dim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">128</span>
+
+<span class="c1"># Training configuration</span>
+<span class="nt">training</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">learning_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.001</span>
+<span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
+<span class="w">  </span><span class="nt">epochs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+
+<span class="c1"># Data configuration</span>
+<span class="nt">data</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">train_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data/train.csv&quot;</span>
+<span class="w">  </span><span class="nt">val_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;data/val.csv&quot;</span>
+<span class="w">  </span><span class="nt">transforms</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;normalize&quot;</span>
+<span class="w">      </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+<span class="w">        </span><span class="nt">std</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+
+<span class="c1"># Callbacks configuration</span>
+<span class="nt">callbacks</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">early_stopping</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">    </span><span class="nt">monitor</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;val_loss&quot;</span>
+<span class="w">  </span><span class="nt">model_checkpoint</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">filepath</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;models/best_model.h5&quot;</span>
+<span class="w">    </span><span class="nt">save_best_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../api/utils.html" class="btn btn-neutral float-left" title="Utils Module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Andrew Xu.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
