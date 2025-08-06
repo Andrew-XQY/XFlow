@@ -1,7 +1,7 @@
 name: Publish Python Package
 
 on:
-  workflow_dispatch:           # manual “Run workflow” button
+  workflow_dispatch:           # manual "Run workflow" button
   push:
     tags:
       - 'v*'                   # only on tags vX.Y.Z
@@ -12,12 +12,14 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Updated to v4
+        with:
+          fetch-depth: 0  # Important for setuptools_scm
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # Updated to v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'  # Specific version is better
 
       - name: Install build tools
         run: |

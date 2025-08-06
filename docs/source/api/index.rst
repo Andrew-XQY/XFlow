@@ -1,45 +1,47 @@
 API Reference
 =============
 
-XFlow API is organized into core modules that provide the building blocks for machine learning workflows.
+XFlow API is organized into four main modules that provide the building blocks for machine learning workflows.
+
+Modules
+-------
+
+.. toctree::
+   :maxdepth: 2
+
+   data
+   models
+   trainers
+   utils
 
 Overview
 --------
 
 The XFlow package is structured around four main modules:
 
-- **Data Module** (:doc:`data`) - Data loading, processing, and pipeline management
-- **Models Module** (:doc:`models`) - Machine learning model implementations
-- **Trainers Module** (:doc:`trainers`) - Training utilities and callbacks
-- **Utils Module** (:doc:`utils`) - Helper functions and utilities
+- **Data Module** (:doc:`data`) - Data pipelines, providers, and transformations
+- **Models Module** (:doc:`models`) - Machine learning model base classes  
+- **Trainers Module** (:doc:`trainers`) - Training utilities and callback management
+- **Utils Module** (:doc:`utils`) - Configuration management and utility functions
 
-Core API
---------
+Quick Start
+-----------
 
-The most commonly used classes are available directly from the package root:
+Access the main components from their respective modules:
 
 .. code-block:: python
 
-   from xflow import BasePipeline, BaseModel, BaseTrainer, ConfigManager
-
-See :doc:`core` for detailed documentation of the core API.
-
-Module Documentation
---------------------
-
-.. toctree::
-   :maxdepth: 2
-
-   core
-   data
-   models
-   trainers
-   utils
-
-Package Structure
------------------
-
-XFlow follows a clear modular structure where each module has a specific responsibility:
+   # Data processing
+   from xflow.data import BasePipeline, InMemoryPipeline, BatchPipeline
+   
+   # Models
+   from xflow.models import BaseModel
+   
+   # Training
+   from xflow.trainers import BaseTrainer, build_callbacks_from_config
+   
+   # Utilities  
+   from xflow.utils import get_base_dir, load_validated_config, plot_image
 
 * **xflow.data** - All data-related functionality
 * **xflow.models** - Model definitions and implementations

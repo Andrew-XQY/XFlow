@@ -1,21 +1,59 @@
 Utils Module
 ============
 
-The utils module provides helper functions for visualization, configuration, and common utilities.
+The utils module provides configuration management and utility functions.
 
 .. currentmodule:: xflow.utils
 
-Visualization Functions
------------------------
+API Reference
+-------------
 
-.. autofunction:: plot_image
+.. autosummary::
+   :toctree: generated/
 
-Configuration Functions
------------------------
+   get_base_dir
+   load_validated_config
+   plot_image
+
+Detailed Documentation
+----------------------
+
+.. autofunction:: get_base_dir
 
 .. autofunction:: load_validated_config
 
-Helper Functions
-----------------
+.. autofunction:: plot_image
 
-.. autofunction:: get_base_dir
+.. autoclass:: BaseTrainerConfig
+   :members:
+   :show-inheritance:
+
+.. autoclass:: BaseModelConfig
+   :members:
+   :show-inheritance:
+
+Helper Functions (Internal)
+---------------------------
+
+.. currentmodule:: xflow.utils.helper
+
+.. autofunction:: split_sequence
+
+.. autofunction:: subsample_sequence
+
+.. autofunction:: deep_update
+
+IO Functions (Internal)
+-----------------------
+
+.. currentmodule:: xflow.utils.io
+
+.. autofunction:: scan_files
+
+.. autofunction:: copy_file
+
+.. currentmodule:: xflow.utils.parser
+
+.. autofunction:: load_file
+
+.. autofunction:: save_file

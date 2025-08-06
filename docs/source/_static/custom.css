@@ -1,13 +1,6 @@
-/* Modern clean styling */
+/* Modern clean styling with comprehensive dark theme support */
 .wy-nav-content {
     max-width: 1200px;
-}
-
-/* Better code blocks */
-.highlight {
-    background: #f8f8f8;
-    border-radius: 4px;
-    padding: 1em;
 }
 
 /* Clean API documentation */
@@ -23,14 +16,193 @@
     white-space: normal;
 }
 
-/* Dark mode media query */
-@media (prefers-color-scheme: dark) {
-    .wy-nav-content-wrap {
-        background: #1e1e1e;
-    }
+/* FORCE DARK THEME FOR ALL USERS */
+/* Override system preferences to ensure consistent dark experience */
 
-    .wy-nav-content {
-        background: #1e1e1e;
-        color: #e0e0e0;
-    }
+/* Main content areas */
+.wy-nav-content-wrap {
+    background: #0d1117 !important;
+}
+
+.wy-nav-content {
+    background: #0d1117 !important;
+    color: #f0f6fc !important;
+}
+
+body.wy-body-for-nav {
+    background: #0d1117 !important;
+}
+
+.rst-content {
+    background: #0d1117 !important;
+    color: #f0f6fc !important;
+}
+
+/* Sidebar */
+.wy-nav-side {
+    background: #161b22 !important;
+}
+
+.wy-menu-vertical li.current a {
+    background: #21262d !important;
+    color: #58a6ff !important;
+}
+
+.wy-menu-vertical a {
+    color: #f0f6fc !important;
+}
+
+.wy-menu-vertical a:hover {
+    background: #21262d !important;
+}
+
+/* Expand navigation by default */
+.wy-menu-vertical li.toctree-l1 > a {
+    padding-left: 1.618em !important;
+}
+
+.wy-menu-vertical li.toctree-l2 > a {
+    padding-left: 2.427em !important;
+}
+
+/* Headers */
+h1, h2, h3, h4, h5, h6 {
+    color: #f0f6fc !important;
+}
+
+/* ALL CODE BLOCKS - Dark theme with white text */
+.highlight, 
+div.highlight,
+.rst-content .highlight,
+.code-block-caption,
+.literal-block,
+pre,
+code {
+    background: #161b22 !important;
+    color: #f0f6fc !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+}
+
+.highlight pre,
+.rst-content pre.literal-block,
+.rst-content div.highlight pre {
+    background: transparent !important;
+    color: #f0f6fc !important;
+    padding: 12px !important;
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* Inline code */
+.rst-content code.literal,
+.rst-content tt.literal,
+code.docutils.literal,
+tt.docutils.literal {
+    background: #161b22 !important;
+    color: #f0f6fc !important;
+    border: 1px solid #30363d !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+}
+
+/* Code in tables and other contexts */
+.wy-table-responsive table td code,
+.wy-table-responsive table th code,
+.rst-content table.docutils td code {
+    background: #161b22 !important;
+    color: #f0f6fc !important;
+}
+
+/* GitHub Dark syntax highlighting */
+.highlight .k, .highlight .kn { color: #ff7b72 !important; } /* keywords */
+.highlight .s, .highlight .s1, .highlight .s2 { color: #a5d6ff !important; } /* strings */
+.highlight .c, .highlight .c1 { color: #8b949e !important; } /* comments */
+.highlight .nf { color: #d2a8ff !important; } /* function names */
+.highlight .nb { color: #79c0ff !important; } /* built-ins */
+.highlight .mi, .highlight .mf { color: #79c0ff !important; } /* numbers */
+.highlight .nn { color: #ffa657 !important; } /* module names */
+.highlight .nc { color: #ffa657 !important; } /* class names */
+.highlight .kd { color: #ff7b72 !important; } /* keyword declarations */
+.highlight .bp { color: #79c0ff !important; } /* built-in pseudo */
+
+/* Links */
+a {
+    color: #58a6ff !important;
+}
+
+a:hover {
+    color: #79c0ff !important;
+}
+
+/* Tables */
+.wy-table-odd td, .wy-table-striped tr:nth-child(2n-1) td {
+    background-color: #21262d !important;
+}
+
+.wy-table-backed, .wy-table-bordered-all, .wy-table-bordered-all td, 
+.wy-table-bordered-all th {
+    border-color: #30363d !important;
+    background-color: #0d1117 !important;
+}
+
+/* API documentation blocks */
+.py.class, .py.function {
+    border-left: 3px solid #58a6ff !important;
+    background: #161b22 !important;
+    padding: 1em !important;
+    border-radius: 4px !important;
+}
+
+/* Search box */
+.wy-nav-top input[type="text"] {
+    background: #21262d !important;
+    border: 1px solid #30363d !important;
+    color: #f0f6fc !important;
+}
+
+/* Breadcrumbs */
+.wy-breadcrumbs li a {
+    color: #58a6ff !important;
+}
+
+/* Footer */
+.rst-footer-buttons {
+    background: #161b22 !important;
+}
+
+/* Admonitions */
+.wy-alert.wy-alert-info {
+    background: #161b22 !important;
+    border-color: #1f6feb !important;
+}
+
+/* Code block captions */
+.code-block-caption {
+    background: #21262d !important;
+    color: #f0f6fc !important;
+    border-bottom: 1px solid #30363d !important;
+}
+
+/* Ensure docstring signatures are dark */
+.rst-content dl:not(.docutils) dt {
+    background: #161b22 !important;
+    color: #f0f6fc !important;
+    border-left: 3px solid #58a6ff !important;
+}
+
+/* Force override any remaining light backgrounds */
+.highlight-default .highlight,
+.highlight-python .highlight,
+.highlight-text .highlight {
+    background: #161b22 !important;
+}
+
+/* Navigation expansion CSS */
+.wy-menu-vertical li.current ul {
+    display: block !important;
+}
+
+.wy-menu-vertical li.current > a span.toctree-expand:before {
+    content: "\f068" !important; /* minus icon */
 }

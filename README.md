@@ -16,7 +16,7 @@
 ![Contributors](https://img.shields.io/github/contributors/Andrew-XQY/XFlow?color=dark-green)
 ![Issues](https://img.shields.io/github/issues/Andrew-XQY/XFlow)
 ![License](https://img.shields.io/github/license/Andrew-XQY/XFlow)
-
+![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
 ---
 
 ## 📖 Table of Contents
@@ -39,7 +39,6 @@ Originally created for physics research, it's now evolving toward generic scient
 **XFlow** keeps things simple and minimal.
 
 > _Includes reusable modules for datasets, models, training loops, visualization, and logging._
-> ![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
 
 ---
 

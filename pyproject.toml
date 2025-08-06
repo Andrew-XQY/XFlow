@@ -41,8 +41,13 @@ dev = [
     "pre-commit",
     "black",
     "isort",
+    "furo>=2024.1.29",
 ]
-docs = ["sphinx", "sphinx-rtd-theme"]
+docs = [
+    "sphinx>=7.0.0", 
+    "furo>=2024.1.29",
+    "setuptools_scm"
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

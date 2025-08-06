@@ -25,15 +25,15 @@ class APIItem:
 # Core API - most commonly used items at package root
 CORE_API = {
     # Data pipeline components
-    "DataPipeline": APIItem("data.pipeline", "DataPipeline"),
-    "SqlProvider": APIItem("data.provider", "SqlProvider"),
-    "FileProvider": APIItem("data.provider", "FileProvider"),
     "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
+    "DataPipeline": APIItem("data.pipeline", "DataPipeline"),
     "Pipeline": APIItem("data.pipeline", "BasePipeline", alias="Pipeline"),
     "InMemoryPipeline": APIItem("data.pipeline", "InMemoryPipeline"),
     "TensorFlowPipeline": APIItem("data.pipeline", "TensorFlowPipeline"),
     "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
     "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
+    "SqlProvider": APIItem("data.provider", "SqlProvider"),
+    "FileProvider": APIItem("data.provider", "FileProvider"),
     "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
     "ConfigManager": APIItem("utils.config", "ConfigManager"),
     # Models
@@ -46,10 +46,14 @@ CORE_API = {
 PACKAGE_API = {
     "data": {
         "BasePipeline": APIItem("pipeline", "BasePipeline"),
+        "DataPipeline": APIItem("pipeline", "DataPipeline"),
         "Pipeline": APIItem("pipeline", "BasePipeline", alias="Pipeline"),
+        "InMemoryPipeline": APIItem("pipeline", "InMemoryPipeline"),
+        "TensorFlowPipeline": APIItem("pipeline", "TensorFlowPipeline"),
         "ShufflePipeline": APIItem("transform", "ShufflePipeline"),
         "BatchPipeline": APIItem("transform", "BatchPipeline"),
-        "InMemoryPipeline": APIItem("pipeline", "InMemoryPipeline"),
+        "SqlProvider": APIItem("provider", "SqlProvider"),
+        "FileProvider": APIItem("provider", "FileProvider"),
         "build_transforms_from_config": APIItem(
             "transform", "build_transforms_from_config"
         ),
@@ -58,12 +62,14 @@ PACKAGE_API = {
         "BaseModel": APIItem("base", "BaseModel"),
     },
     "trainers": {
+        "BaseTrainer": APIItem("trainer", "BaseTrainer"),
+        "CallbackRegistry": APIItem("callback", "CallbackRegistry"),
         "build_callbacks_from_config": APIItem(
             "callback", "build_callbacks_from_config"
         ),
-        "BaseTrainer": APIItem("trainer", "BaseTrainer"),
     },
     "utils": {
+        "ConfigManager": APIItem("config", "ConfigManager"),
         "plot_image": APIItem("visualization", "plot_image"),
         "get_base_dir": APIItem("helper", "get_base_dir"),
         "load_validated_config": APIItem("config", "load_validated_config"),

@@ -8,7 +8,7 @@ Install XFlow using pip:
 
 .. code-block:: bash
 
-   pip install xflow
+   pip install xflow-py
 
 Basic Usage
 -----------

@@ -1,42 +1,49 @@
 Data Module
 ===========
 
-The data module provides pipeline components for loading and processing data.
+The data module provides pipeline and transformation utilities for data processing.
 
 .. currentmodule:: xflow.data
 
-Pipeline Classes
-----------------
+API Reference
+-------------
+
+.. autosummary::
+   :toctree: generated/
+
+   BasePipeline
+   InMemoryPipeline
+   Pipeline
+   ShufflePipeline
+   BatchPipeline
+   build_transforms_from_config
+
+Detailed Documentation
+----------------------
 
 .. autoclass:: BasePipeline
    :members:
+   :undoc-members:
    :show-inheritance:
-   :no-index:
-
-.. autoclass:: Pipeline
-   :members:
-   :show-inheritance:
-   :no-index:
 
 .. autoclass:: InMemoryPipeline
    :members:
+   :undoc-members:
    :show-inheritance:
-   :no-index:
 
-Transform Components
---------------------
+.. autoclass:: Pipeline
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 .. autoclass:: ShufflePipeline
    :members:
+   :undoc-members:
    :show-inheritance:
-   :no-index:
 
 .. autoclass:: BatchPipeline
    :members:
+   :undoc-members:
    :show-inheritance:
-   :no-index:
-
-Utility Functions
------------------
 
 .. autofunction:: build_transforms_from_config

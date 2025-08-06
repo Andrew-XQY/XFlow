@@ -8,7 +8,16 @@ sys.path.insert(0, os.path.abspath("../../src"))
 project = "XFlow"
 copyright = "2025, Andrew Xu"
 author = "Andrew Xu"
-release = "0.1.0"
+
+# Get version from setuptools_scm (single source of truth)
+try:
+    from setuptools_scm import get_version
+    release = get_version(root='../..', relative_to=__file__)
+    version = '.'.join(release.split('.')[:2])  # Major.minor version
+except Exception:
+    # Fallback version if setuptools_scm fails
+    release = "0.1.0"
+    version = "0.1"
 
 # Extensions
 extensions = [
@@ -17,28 +26,21 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
-    "sphinx_rtd_theme",
 ]
 
-# Theme - modern RTD with customization
-html_theme = "sphinx_rtd_theme"
+# Theme configuration
+html_theme = "furo"
+html_title = f"{project} Documentation"
+
+# Furo theme options - minimal and clean
 html_theme_options = {
-    "logo_only": False,
-    "prev_next_buttons_location": "bottom",
-    "style_external_links": False,
-    "collapse_navigation": False,
-    "sticky_navigation": True,
-    "navigation_depth": 4,
-    "includehidden": True,
-    "titles_only": False,
-    "style_nav_header_background": "#2980B9",
+    "sidebar_hide_name": True,  # Hide project name in sidebar for cleaner look
+    "navigation_with_keys": True,  # Keyboard navigation
+    "top_of_page_buttons": ["view", "edit"],  # Simple top buttons
 }
 
-# Custom CSS for dark mode option
+# Static files (Furo handles its own styling)
 html_static_path = ["_static"]
-html_css_files = [
-    "custom.css",
-]
 
 # Autodoc settings
 autodoc_default_options = {
@@ -47,7 +49,13 @@ autodoc_default_options = {
     "special-members": "__init__",
     "undoc-members": True,
     "exclude-members": "__weakref__",
+    "inherited-members": True,
+    "show-inheritance": True,
 }
+
+# Autosummary settings
+autosummary_generate = True
+autosummary_imported_members = True
 
 # Napoleon settings
 napoleon_google_docstring = True

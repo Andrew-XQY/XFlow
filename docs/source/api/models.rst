@@ -1,14 +1,22 @@
 Models Module
 =============
 
-The models module provides base classes and implementations for machine learning models.
+The models module provides base classes for machine learning models.
 
 .. currentmodule:: xflow.models
 
-Base Classes
-------------
+API Reference
+-------------
+
+.. autosummary::
+   :toctree: generated/
+
+   BaseModel
+
+Detailed Documentation
+----------------------
 
 .. autoclass:: BaseModel
    :members:
+   :undoc-members:
    :show-inheritance:
-   :no-index:

@@ -5,20 +5,9 @@ XFlow Documentation
 
 .. toctree::
    :maxdepth: 2
-   :caption: Getting Started:
 
    quickstart
-
-.. toctree::
-   :maxdepth: 3
-   :caption: API Reference:
-
    api/index
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Examples:
-
    examples/basic_usage
 
 Core Modules
