@@ -20,6 +20,7 @@ dependencies = [
     "opencv-python",
     "tqdm",
     "pydantic",
+    "pyyaml>=6.0",
     "typing-extensions>=4.0.0",  
 ]
 
@@ -46,7 +47,8 @@ dev = [
 docs = [
     "sphinx>=7.0.0", 
     "furo>=2024.1.29",
-    "setuptools_scm"
+    "setuptools_scm",
+    "pyyaml>=6.0",
     # No heavy ML dependencies needed - using mocked imports!
 ]
 
