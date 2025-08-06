@@ -66,6 +66,12 @@ Originally created for physics research, it's now evolving toward generic scient
 
 ### Installation
 
+Install from PyPI:
+
+```bash
+pip install xflow-py
+```
+
 Clone the repository and install in editable mode:
 
 ```bash
