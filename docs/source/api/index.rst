@@ -33,15 +33,16 @@ Access the main components from their respective modules:
 
    # Data processing
    from xflow.data import BasePipeline, InMemoryPipeline, BatchPipeline
+   from xflow.data import FileProvider, SqlProvider
    
    # Models
    from xflow.models import BaseModel
    
    # Training
-   from xflow.trainers import BaseTrainer, build_callbacks_from_config
+   from xflow.trainers import BaseTrainer, CallbackRegistry
    
    # Utilities  
-   from xflow.utils import get_base_dir, load_validated_config, plot_image
+   from xflow.utils import ConfigManager, get_base_dir, load_validated_config, plot_image
 
 * **xflow.data** - All data-related functionality
 * **xflow.models** - Model definitions and implementations

@@ -5,18 +5,16 @@ The utils module provides configuration management and utility functions.
 
 .. currentmodule:: xflow.utils
 
-API Reference
--------------
+Configuration Classes
+---------------------
 
-.. autosummary::
-   :toctree: generated/
+.. autoclass:: ConfigManager
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
-   get_base_dir
-   load_validated_config
-   plot_image
-
-Detailed Documentation
-----------------------
+Utility Functions
+-----------------
 
 .. autofunction:: get_base_dir
 

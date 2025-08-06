@@ -5,21 +5,8 @@ The data module provides pipeline and transformation utilities for data processi
 
 .. currentmodule:: xflow.data
 
-API Reference
--------------
-
-.. autosummary::
-   :toctree: generated/
-
-   BasePipeline
-   InMemoryPipeline
-   Pipeline
-   ShufflePipeline
-   BatchPipeline
-   build_transforms_from_config
-
-Detailed Documentation
-----------------------
+Pipeline Classes
+----------------
 
 .. autoclass:: BasePipeline
    :members:
@@ -31,10 +18,18 @@ Detailed Documentation
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: Pipeline
+.. autoclass:: DataPipeline
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: TensorFlowPipeline
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Transform Classes
+-----------------
 
 .. autoclass:: ShufflePipeline
    :members:
@@ -45,5 +40,21 @@ Detailed Documentation
    :members:
    :undoc-members:
    :show-inheritance:
+
+Provider Classes
+----------------
+
+.. autoclass:: FileProvider
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: SqlProvider
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Transform Functions
+-------------------
 
 .. autofunction:: build_transforms_from_config
