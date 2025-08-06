@@ -49,7 +49,6 @@ docs = [
     "furo>=2024.1.29",
     "setuptools_scm",
     "pyyaml>=6.0",
-    # No heavy ML dependencies needed - using mocked imports!
 ]
 
 [tool.setuptools]
