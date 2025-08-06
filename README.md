@@ -39,7 +39,7 @@ Originally created for physics research, it's now evolving toward generic scient
 **XFlow** keeps things simple and minimal.
 
 > _Includes reusable modules for datasets, models, training loops, visualization, and logging._
-> _Current version: 0.1.0_
+> ![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
 
 ---
 

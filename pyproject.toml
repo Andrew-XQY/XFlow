@@ -1,10 +1,13 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = [
+  "setuptools>=61",
+  "setuptools_scm"
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "xflow-py"
-version = "0.1.0"
+dynamic = ["version"]       
 description = "A modular ML framework for training and evaluation tasks"
 authors = [{ name = "Qiyuan Xu" }]
 license = { file = "LICENSE" }
@@ -50,6 +53,12 @@ exclude = [
     "xflow.extensions",
     "xflow.extensions.*"
 ]  # Exclude extensions from distribution
+
+[tool.setuptools_scm]
+version_scheme = "post-release"    # (optional—defaults are fine)
+local_scheme   = "no-local-version"
+write_to       = "src/xflow/_version.py"
+tag_regex      = "^v(?P<version>.*)$"
 
 # Black configuration
 [tool.black]
