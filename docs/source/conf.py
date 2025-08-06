@@ -4,6 +4,19 @@ import sys
 # Add your source code to the Python path
 sys.path.insert(0, os.path.abspath("../../src"))
 
+# Mock heavy dependencies for docs (common practice)
+autodoc_mock_imports = [
+    'numpy',
+    'pandas',
+    'matplotlib', 
+    'cv2',        # opencv-python
+    'tqdm',
+    'pydantic',
+    'yaml',
+    'tensorflow',
+    'keras'
+]
+
 # Project information
 project = "XFlow"
 copyright = "2025, Andrew Xu"

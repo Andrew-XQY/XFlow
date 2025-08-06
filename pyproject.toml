@@ -47,6 +47,7 @@ docs = [
     "sphinx>=7.0.0", 
     "furo>=2024.1.29",
     "setuptools_scm"
+    # No heavy ML dependencies needed - using mocked imports!
 ]
 
 [tool.setuptools]
