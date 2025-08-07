@@ -3,6 +3,38 @@
     max-width: 1200px;
 }
 
+/* Override Furo's automatic title generation */
+.sidebar-brand-text::after {
+    content: "Documentation" !important;
+}
+
+.sidebar-brand-text {
+    display: none !important;
+}
+
+/* Force custom title in header */
+header .sidebar-brand::after {
+    content: "Documentation";
+    font-size: 1.2em;
+    font-weight: 500;
+}
+
+/* Make logo larger and ensure it's clickable */
+.sidebar-brand img {
+    max-width: 120px !important;
+    max-height: 120px !important;
+    cursor: pointer !important;
+}
+
+.sidebar-brand {
+    display: block !important;
+    text-decoration: none !important;
+}
+
+.sidebar-brand:hover {
+    opacity: 0.8 !important;
+}
+
 /* Clean API documentation */
 .py.class, .py.function {
     border-left: 3px solid #2980B9;

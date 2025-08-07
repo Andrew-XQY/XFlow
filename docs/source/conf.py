@@ -22,9 +22,12 @@ autodoc_mock_imports = [
 ]
 
 # Project information
-project = "XFlow"
+project = ""  # Empty to avoid auto-title generation
 copyright = "2025, Andrew Xu"
 author = "Andrew Xu"
+
+# Override the default title pattern
+html_short_title = "Documentation"
 
 # Get version from setuptools_scm (single source of truth)
 try:
@@ -52,7 +55,7 @@ extensions = [
 html_theme = "furo"
 html_title = "Documentation"
 
-# Project logo (links back to repository)
+# Project logo
 html_logo = "https://raw.githubusercontent.com/Andrew-XQY/XFlow/9feba3930f468ca95b35401232a6febd66f2432c/images/logo.png"
 
 # Furo theme options - minimal and clean
@@ -68,6 +71,8 @@ html_theme_options = {
 # Static files and templates
 html_static_path = ["_static"]
 templates_path = ["_templates"]
+html_css_files = ["custom.css"]
+html_js_files = ["clickable-logo.js"]
 
 # Autodoc settings
 autodoc_default_options = {
