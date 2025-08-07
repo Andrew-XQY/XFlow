@@ -19,17 +19,6 @@
 ![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
 ---
 
-## 📖 Table of Contents
-
-- [About the Project](#-about-the-project)
-- [Features](#-features)
-- [Built With](#-built-with)
-- [Getting Started](#-getting-started)
-- [License](#-license)
-- [Author](#-author)
-
----
-
 ## 🔍 About the Project
 
 **XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through vibe coding.
