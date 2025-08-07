@@ -54,6 +54,24 @@ Provider Classes
    :undoc-members:
    :show-inheritance:
 
+Functions
+---------
+
+.. autofunction:: build_transforms_from_config
+
+Provider Classes
+----------------
+
+.. autoclass:: FileProvider
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: SqlProvider
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Transform Functions
 -------------------
 

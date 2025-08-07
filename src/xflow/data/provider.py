@@ -263,7 +263,6 @@ class SqlProvider(DataProvider):
 
     def _add_source(self, source: Dict[str, Any]) -> None:
         """Add data from a source config to unified DataFrame."""
-        # Use atomic functions directly - each handles its own validation
         from ..utils.dataframe import concat_dataframes
         from ..utils.sql import (
             create_database_instance,
@@ -345,7 +344,7 @@ class SqlProvider(DataProvider):
             List of providers for filter split
         """
         if filters is not None:
-            # Filter-based split using generic utility
+            # Filter-based split
             from ..utils.dataframe import split_dataframe_by_filters
 
             filtered_dfs = split_dataframe_by_filters(self._unified_df, filters)
@@ -358,7 +357,7 @@ class SqlProvider(DataProvider):
             return providers
 
         elif ratio is not None:
-            # Ratio-based split using generic utility
+            # Ratio-based split 
             from ..utils.dataframe import split_dataframe_by_ratio
 
             first_df, second_df = split_dataframe_by_ratio(

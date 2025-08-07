@@ -56,6 +56,7 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["xflow*"]
 exclude = [
     "xflow.extensions",
     "xflow.extensions.*"

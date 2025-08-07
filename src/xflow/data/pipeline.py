@@ -136,7 +136,7 @@ class BasePipeline(ABC):
         """
         import numpy as np
         from IPython.display import clear_output
-        from tqdm.auto import tqdm  # <- changed here
+        from tqdm.auto import tqdm 
 
         items = []
         pbar = tqdm(
@@ -145,7 +145,7 @@ class BasePipeline(ABC):
         for x in pbar:
             items.append(x)
         pbar.close()
-        clear_output(wait=True)  # <— wipes the cell output (i.e. removes the bar)
+        clear_output(wait=True) 
 
         if not items:
             return None
@@ -206,15 +206,10 @@ class InMemoryPipeline(BasePipeline):
         if framework.lower() == "tensorflow":
             try:
                 import tensorflow as tf
-
                 dataset = tf.data.Dataset.from_tensor_slices(self.dataset)
-
-                # Apply dataset operations using registry
                 if dataset_ops:
                     from .transform import apply_dataset_operations_from_config
-
                     dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
-
                 return dataset
             except ImportError:
                 raise RuntimeError("TensorFlow not available")
@@ -240,11 +235,9 @@ class TensorFlowPipeline(BasePipeline):
             file_paths = list(self.data_provider())
             dataset = tf.data.Dataset.from_tensor_slices(file_paths)
 
-            # Apply TF transforms sequentially
             for transform in self.transforms:
                 dataset = dataset.map(transform.fn, num_parallel_calls=tf.data.AUTOTUNE)
 
-            # Apply dataset operations using registry
             if dataset_ops:
                 from .transform import apply_dataset_operations_from_config
 

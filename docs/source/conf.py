@@ -2,7 +2,11 @@ import os
 import sys
 
 # Add your source code to the Python path
-sys.path.insert(0, os.path.abspath("../../src"))
+# Tell Sphinx where to find the src/ directory
+sys.path.insert(
+    0,
+    os.path.abspath(os.path.join(__file__, '..', '..', '..', 'src'))
+)
 
 # Mock heavy dependencies for docs (common practice)
 autodoc_mock_imports = [
@@ -41,6 +45,9 @@ extensions = [
     "sphinx.ext.intersphinx",
 ]
 
+# Suppress warnings about duplicate object descriptions
+# suppress_warnings = ['autodoc.duplicate_object']
+
 # Theme configuration
 html_theme = "furo"
 html_title = f"{project} Documentation"
@@ -67,7 +74,7 @@ autodoc_default_options = {
 }
 
 # Autosummary settings
-autosummary_generate = True
+autosummary_generate = False  # No individual files - use tables only
 autosummary_imported_members = True
 
 # Napoleon settings
