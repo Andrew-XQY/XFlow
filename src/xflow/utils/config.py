@@ -1,6 +1,7 @@
 """Config Manager Module"""
 
 import copy
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel, Field
@@ -78,7 +79,7 @@ class ConfigManager:
             raise TypeError("initial_config must be a dictionary")
         self._original_config = copy.deepcopy(initial_config)
         self._config = copy.deepcopy(initial_config)
-        self._extra_files: List[PathLikeStr] = []
+        self._files: List[PathLikeStr] = []
 
     def __repr__(self) -> str:
         return f"ConfigManager(keys={list(self._config.keys())})"
@@ -119,11 +120,11 @@ class ConfigManager:
         """Return config items."""
         return self._config.items()
 
-    def add_extra(self, *file_paths: PathLikeStr) -> Self:
-        """Add extra files that are part of this experiment configuration."""
+    def add_files(self, *file_paths: PathLikeStr) -> Self:
+        """Add files that are part of this configuration."""
         for file_path in file_paths:
-            if file_path not in self._extra_files:
-                self._extra_files.append(file_path)
+            if file_path not in self._files:
+                self._files.append(file_path)
         return self
 
     def get(self) -> Dict[str, Any]:
@@ -133,7 +134,7 @@ class ConfigManager:
     def reset(self) -> None:
         """Revert working config back to original."""
         self._config = copy.deepcopy(self._original_config)
-        self._extra_files = []
+        self._files = []
 
     def update(self, updates: Dict[str, Any]) -> Self:
         """Recursively update in config, Nested dictionaries are merged, other values are replaced."""
@@ -148,8 +149,8 @@ class ConfigManager:
     def save(self, output_path: PathLikeStr) -> None:
         """Write the working config to disk (ext-driven format)."""
         save_file(self._config, output_path)
-        # Copy extra files to same directory
-        if self._extra_files:
-            target_dir = output_path.parent
-            for extra_file in self._extra_files:
-                copy_file(extra_file, target_dir)
+        # Copy files to same directory
+        if self._files:
+            target_dir = Path(output_path).parent
+            for file_path in self._files:
+                copy_file(file_path, target_dir)
