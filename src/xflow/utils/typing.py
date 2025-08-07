@@ -83,3 +83,10 @@ TensorLike: TypeAlias = Union[
     "tf.Tensor",  # TensorFlow tensor
     "torch.Tensor",  # PyTorch tensor
 ]
+
+# Model-like types for ML frameworks
+ModelLike: TypeAlias = Union[
+    "tf.keras.Model",  # TensorFlow/Keras model
+    "torch.nn.Module",  # PyTorch model
+    "Any",  # Any other custom model type
+]

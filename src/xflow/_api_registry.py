@@ -38,6 +38,7 @@ CORE_API = {
     "ConfigManager": APIItem("utils.config", "ConfigManager"),
     # Models
     "BaseModel": APIItem("models.base", "BaseModel"),
+    "show_model_info": APIItem("models.utils", "show_model_info"),
     # Utilities
     "CallbackRegistry": APIItem("trainers.callback", "CallbackRegistry"),
 }
@@ -60,6 +61,7 @@ PACKAGE_API = {
     },
     "models": {
         "BaseModel": APIItem("base", "BaseModel"),
+        "show_model_info": APIItem("utils", "show_model_info"),
     },
     "trainers": {
         "BaseTrainer": APIItem("trainer", "BaseTrainer"),

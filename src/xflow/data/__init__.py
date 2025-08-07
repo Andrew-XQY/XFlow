@@ -1,8 +1,8 @@
 """Auto-generated API exports"""
 # This file is auto-generated. Do not edit manually.
 
-from .pipeline import BasePipeline, InMemoryPipeline, DataPipeline, TensorFlowPipeline
-from .transform import build_transforms_from_config, BatchPipeline, ShufflePipeline
+from .pipeline import InMemoryPipeline, DataPipeline, TensorFlowPipeline, BasePipeline
+from .transform import build_transforms_from_config, ShufflePipeline, BatchPipeline
 from .provider import FileProvider, SqlProvider
 
 Pipeline = BasePipeline
