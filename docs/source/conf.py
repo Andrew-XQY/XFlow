@@ -22,7 +22,7 @@ autodoc_mock_imports = [
 ]
 
 # Project information
-project = ""  # Empty to avoid auto-title generation
+project = "XFlow"
 copyright = "2025, Andrew Xu"
 author = "Andrew Xu"
 

@@ -3,22 +3,6 @@
     max-width: 1200px;
 }
 
-/* Override Furo's automatic title generation */
-.sidebar-brand-text::after {
-    content: "Documentation" !important;
-}
-
-.sidebar-brand-text {
-    display: none !important;
-}
-
-/* Force custom title in header */
-header .sidebar-brand::after {
-    content: "Documentation";
-    font-size: 1.2em;
-    font-weight: 500;
-}
-
 /* Make logo larger and ensure it's clickable */
 .sidebar-brand img {
     max-width: 120px !important;
