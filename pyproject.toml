@@ -16,8 +16,6 @@ requires-python = ">=3.8"
 keywords = ["machine-learning", "tensorflow", "data-pipeline"]
 dependencies = [
     "numpy",
-    "matplotlib",
-    "opencv-python",
     "tqdm",
     "pydantic",
     "pyyaml>=6.0",
@@ -35,17 +33,22 @@ classifiers = [
 
 
 [project.optional-dependencies]
+ml = [
+    "tensorflow==2.16.2",
+    "keras==3.4.1",
+]
+viz = [
+    "matplotlib",
+    "opencv-python",
+]
 dev = [
-    "tensorflow==2.16.2",  
-    "keras==3.4.1",  
     "mypy",
     "pre-commit",
     "black",
     "isort",
-    "furo>=2024.1.29",
 ]
 docs = [
-    "sphinx>=7.0.0", 
+    "sphinx>=7.0.0",
     "furo>=2024.1.29",
     "setuptools_scm",
     "pyyaml>=6.0",
