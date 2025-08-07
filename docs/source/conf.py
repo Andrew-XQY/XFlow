@@ -50,17 +50,24 @@ extensions = [
 
 # Theme configuration
 html_theme = "furo"
-html_title = f"{project} Documentation"
+html_title = "Documentation"
+
+# Project logo (links back to repository)
+html_logo = "https://raw.githubusercontent.com/Andrew-XQY/XFlow/9feba3930f468ca95b35401232a6febd66f2432c/images/logo.png"
 
 # Furo theme options - minimal and clean
 html_theme_options = {
     "sidebar_hide_name": True,  # Hide project name in sidebar for cleaner look
     "navigation_with_keys": True,  # Keyboard navigation
     "top_of_page_buttons": ["view", "edit"],  # Simple top buttons
+    "source_repository": "https://github.com/Andrew-XQY/XFlow",
+    "source_branch": "main",
+    "source_directory": "docs/source/",
 }
 
-# Static files (Furo handles its own styling)
+# Static files and templates
 html_static_path = ["_static"]
+templates_path = ["_templates"]
 
 # Autodoc settings
 autodoc_default_options = {
