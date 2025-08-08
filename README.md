@@ -33,11 +33,11 @@ Originally created for physics research, it's now evolving toward generic scient
 
 ## 🛠 Built With
 
-<a href="https://www.python.org/"><img src="python.svg" height="40"></a>
-<a href="https://www.tensorflow.org/"><img src="tensorflow.svg" height="40"></a>
-<a href="https://keras.io/"><img src="keras.svg" height="40"></a>
-
-
+<p>
+  <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
+  <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
+  <a href="https://keras.io/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/keras/keras-original.svg" height="40px" width="40px" /></a>
+</p>
 
 - Python 3.12
 - TensorFlow 2.x
