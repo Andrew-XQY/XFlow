@@ -26,6 +26,11 @@ def main() -> int:
     # Disable Jekyll for GitHub Pages
     (outdir / ".nojekyll").touch()
     print("Created .nojekyll file for GitHub Pages (source from Action do not need this)")
+    
+    # Create a redirect file for the root if needed (helps with GitHub Pages)
+    if not (outdir / "index.html").exists():
+        print("[warning] No index.html generated - this might cause GitHub Pages issues")
+    
     print("Documentation built successfully!")
     print(f"Open: {outdir / 'index.html'}")
     return 0

@@ -18,7 +18,9 @@ autodoc_mock_imports = [
     'pydantic',
     'yaml',
     'tensorflow',
-    'keras'
+    'keras',
+    'typing_extensions',  # For Python <3.11 compatibility
+    'setuptools_scm'       # Version management
 ]
 
 # Project information
@@ -86,8 +88,15 @@ autodoc_default_options = {
 }
 
 # Autosummary settings
-autosummary_generate = False  # No individual files - use tables only
+autosummary_generate = True  # Generate individual files for better GitHub Pages compatibility
 autosummary_imported_members = True
+
+# GitHub Pages configuration
+html_baseurl = "https://andrew-xqy.github.io/XFlow/"
+
+# Ensure all pages have proper content for GitHub Pages
+html_copy_source = True
+html_show_sourcelink = True
 
 # Napoleon settings
 napoleon_google_docstring = True
