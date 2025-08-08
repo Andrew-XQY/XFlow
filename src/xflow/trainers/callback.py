@@ -88,7 +88,7 @@ def build_callbacks_from_config(
 
     Args:
         config: List of callback config dicts. Each dict should have at least a 'name' key and optionally a 'params' dict.
-        framework: Which framework to use ('tf' or 'pl').
+        framework: Which framework to use ('tf', 'pl', or 'torch').
         name_key: Key in each config dict for the callback/factory name (default: 'name').
         params_key: Key in each config dict for the callback/factory parameters (default: 'params').
 
@@ -127,6 +127,8 @@ def build_callbacks_from_config(
             callbacks.append(make_tf_callback(handlers))
         elif framework in ("pl", "pytorch_lightning"):
             callbacks.append(make_pl_callback(handlers))
+        elif framework in ("torch", "pytorch"):
+            callbacks.append(make_torch_callback(handlers))
         else:
             raise ValueError(f"Unsupported framework: {framework}")
 
@@ -190,3 +192,309 @@ def make_eta_callback():
                 print(f"Estimated time left: {remaining:.1f}s")
 
     return ETACallback()
+
+
+# --- PyTorch (vanilla) Callback System ---
+
+class PyTorchCallback:
+    """Base class for PyTorch callbacks following common callback patterns."""
+    
+    def on_train_begin(self, **kwargs):
+        """Called at the beginning of training."""
+        pass
+    
+    def on_train_end(self, **kwargs):
+        """Called at the end of training."""
+        pass
+        
+    def on_epoch_begin(self, epoch, **kwargs):
+        """Called at the beginning of each epoch."""
+        pass
+        
+    def on_epoch_end(self, epoch, logs=None, **kwargs):
+        """Called at the end of each epoch."""
+        pass
+        
+    def on_batch_begin(self, batch, **kwargs):
+        """Called at the beginning of each batch."""
+        pass
+        
+    def on_batch_end(self, batch, logs=None, **kwargs):
+        pass
+
+
+def make_torch_callback(handlers: Dict[str, List[Callable]]):
+    """Create a unified PyTorch callback from event handlers."""
+    
+    class UnifiedTorchCallback(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.handlers = handlers
+            
+        def _call_handlers(self, event, *args, **kwargs):
+            """Call all handlers for a given event."""
+            if event in self.handlers:
+                for handler in self.handlers[event]:
+                    handler(self, *args, **kwargs)
+        
+        def on_train_begin(self, **kwargs):
+            self._call_handlers("train_start", **kwargs)
+            
+        def on_train_end(self, **kwargs):
+            self._call_handlers("train_end", **kwargs)
+            
+        def on_epoch_begin(self, epoch, **kwargs):
+            self._call_handlers("epoch_start", epoch, **kwargs)
+            
+        def on_epoch_end(self, epoch, logs=None, **kwargs):
+            self._call_handlers("epoch_end", epoch, logs=logs, **kwargs)
+            
+        def on_batch_begin(self, batch, **kwargs):
+            self._call_handlers("batch_start", batch, **kwargs)
+            
+        def on_batch_end(self, batch, logs=None, **kwargs):
+            self._call_handlers("batch_end", batch, logs=logs, **kwargs)
+    
+    return UnifiedTorchCallback()
+
+
+# --- PyTorch Native Callback Implementations ---
+
+@CallbackRegistry.register("torch_early_stopping")
+def make_torch_early_stopping(
+    monitor: str = "val_loss",
+    patience: int = 20,
+    min_delta: float = 0.0,
+    restore_best: bool = True,
+    mode: str = "min"
+):
+    """Create PyTorch EarlyStopping callback."""
+    import copy
+    
+    class TorchEarlyStopping(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.monitor = monitor
+            self.patience = patience
+            self.min_delta = min_delta
+            self.restore_best = restore_best
+            self.mode = mode
+            
+            self.best = float("inf") if mode == "min" else float("-inf")
+            self.wait = 0
+            self.best_state = None
+            self.should_stop = False
+            
+        def _is_better(self, current, best):
+            """Check if current metric is better than best."""
+            if self.mode == "min":
+                return current < best - self.min_delta
+            else:
+                return current > best + self.min_delta
+                
+        def on_epoch_end(self, epoch, logs=None, model=None, **kwargs):
+            """Check if we should stop training."""
+            if logs is None or self.monitor not in logs:
+                return
+                
+            current = logs[self.monitor]
+            
+            if self._is_better(current, self.best):
+                self.best = current
+                self.wait = 0
+                if self.restore_best and model is not None:
+                    try:
+                        import torch
+                        self.best_state = copy.deepcopy(model.state_dict())
+                    except ImportError:
+                        pass
+            else:
+                self.wait += 1
+                if self.wait >= self.patience:
+                    self.should_stop = True
+                    print(f"Early stopping triggered after {epoch + 1} epochs")
+                    
+        def on_train_end(self, model=None, **kwargs):
+            """Restore best weights if requested."""
+            if self.restore_best and self.best_state is not None and model is not None:
+                try:
+                    model.load_state_dict(self.best_state)
+                    print(f"Restored best weights with {self.monitor}={self.best:.4f}")
+                except Exception as e:
+                    print(f"Warning: Could not restore best weights: {e}")
+    
+    return TorchEarlyStopping()
+
+
+@CallbackRegistry.register("torch_model_checkpoint")
+def make_torch_model_checkpoint(
+    filepath: str,
+    monitor: str = "val_loss",
+    save_best_only: bool = True,
+    mode: str = "min",
+    save_weights_only: bool = False
+):
+    """Create PyTorch ModelCheckpoint callback."""
+    import os
+    
+    class TorchModelCheckpoint(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.filepath = filepath
+            self.monitor = monitor
+            self.save_best_only = save_best_only
+            self.mode = mode
+            self.save_weights_only = save_weights_only
+            
+            self.best = float("inf") if mode == "min" else float("-inf")
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+        def _is_better(self, current, best):
+            """Check if current metric is better than best."""
+            if self.mode == "min":
+                return current < best
+            else:
+                return current > best
+                
+        def on_epoch_end(self, epoch, logs=None, model=None, **kwargs):
+            """Save model checkpoint if conditions are met."""
+            if model is None:
+                return
+                
+            should_save = True
+            
+            if self.save_best_only and logs is not None and self.monitor in logs:
+                current = logs[self.monitor]
+                if self._is_better(current, self.best):
+                    self.best = current
+                    should_save = True
+                else:
+                    should_save = False
+            
+            if should_save:
+                try:
+                    import torch
+                    
+                    # Format filepath with epoch number
+                    formatted_path = self.filepath.format(epoch=epoch)
+                    
+                    if self.save_weights_only:
+                        torch.save(model.state_dict(), formatted_path)
+                    else:
+                        torch.save(model, formatted_path)
+                        
+                    print(f"Saved model checkpoint to {formatted_path}")
+                    
+                except ImportError:
+                    print("Warning: PyTorch not available for saving checkpoint")
+                except Exception as e:
+                    print(f"Warning: Could not save checkpoint: {e}")
+    
+    return TorchModelCheckpoint()
+
+
+@CallbackRegistry.register("torch_lr_scheduler")
+def make_torch_lr_scheduler(scheduler_class: str = "StepLR", **scheduler_kwargs):
+    """Create PyTorch learning rate scheduler callback."""
+    
+    class TorchLRScheduler(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.scheduler_class = scheduler_class
+            self.scheduler_kwargs = scheduler_kwargs
+            self.scheduler = None
+            
+        def on_train_begin(self, optimizer=None, **kwargs):
+            """Initialize scheduler with optimizer."""
+            if optimizer is None:
+                print("Warning: No optimizer provided to LR scheduler")
+                return
+                
+            try:
+                import torch.optim.lr_scheduler as lr_scheduler
+                
+                scheduler_cls = getattr(lr_scheduler, self.scheduler_class)
+                self.scheduler = scheduler_cls(optimizer, **self.scheduler_kwargs)
+                print(f"Initialized {self.scheduler_class} scheduler")
+                
+            except ImportError:
+                print("Warning: PyTorch not available for LR scheduling")
+            except AttributeError:
+                print(f"Warning: Unknown scheduler class: {self.scheduler_class}")
+            except Exception as e:
+                print(f"Warning: Could not initialize scheduler: {e}")
+                
+        def on_epoch_end(self, epoch, logs=None, **kwargs):
+            """Step the learning rate scheduler."""
+            if self.scheduler is not None:
+                try:
+                    # Some schedulers need validation loss
+                    if hasattr(self.scheduler, 'step') and logs is not None:
+                        if 'val_loss' in logs and hasattr(self.scheduler, '_step_count'):
+                            # ReduceLROnPlateau needs metric
+                            if 'ReduceLR' in self.scheduler_class:
+                                self.scheduler.step(logs['val_loss'])
+                            else:
+                                self.scheduler.step()
+                        else:
+                            self.scheduler.step()
+                    
+                    # Log current learning rate
+                    if hasattr(self.scheduler, 'get_last_lr'):
+                        current_lr = self.scheduler.get_last_lr()[0]
+                        print(f"Learning rate: {current_lr:.6f}")
+                        
+                except Exception as e:
+                    print(f"Warning: Error stepping scheduler: {e}")
+    
+    return TorchLRScheduler()
+
+
+@CallbackRegistry.register("torch_progress_bar")
+def make_torch_progress_bar(desc: str = "Training"):
+    """Create a simple progress bar callback for PyTorch."""
+    
+    class TorchProgressBar(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.desc = desc
+            self.total_epochs = None
+            
+        def on_train_begin(self, epochs=None, **kwargs):
+            """Initialize progress tracking."""
+            self.total_epochs = epochs
+            print(f"Starting {self.desc}")
+            
+        def on_epoch_end(self, epoch, logs=None, **kwargs):
+            """Update progress after each epoch."""
+            progress = f"Epoch {epoch + 1}"
+            if self.total_epochs:
+                progress += f"/{self.total_epochs}"
+                
+            if logs:
+                metrics = " - ".join([f"{k}: {v:.4f}" for k, v in logs.items()])
+                progress += f" - {metrics}"
+                
+            print(progress)
+            
+        def on_train_end(self, **kwargs):
+            """Finish progress tracking."""
+            print(f"Completed {self.desc}")
+    
+    return TorchProgressBar()
+
+
+# Update the event map to include PyTorch (vanilla) support
+event_map.update({
+    "train_start": {**event_map["train_start"], "torch": "on_train_begin"},
+    "train_end": {**event_map["train_end"], "torch": "on_train_end"},
+    "epoch_start": {**event_map["epoch_start"], "torch": "on_epoch_begin"},
+    "epoch_end": {**event_map["epoch_end"], "torch": "on_epoch_end"},
+    "batch_start": {**event_map["batch_start"], "torch": "on_batch_begin"},
+    "batch_end": {**event_map["batch_end"], "torch": "on_batch_end"},
+})
+
+
+# The build_callbacks_from_config function above now supports PyTorch callbacks
