@@ -25,7 +25,7 @@ def main() -> int:
 
     # Disable Jekyll for GitHub Pages
     (outdir / ".nojekyll").touch()
-    print("Created .nojekyll file for GitHub Pages")
+    print("Created .nojekyll file for GitHub Pages (source from Action do not need this)")
     print("Documentation built successfully!")
     print(f"Open: {outdir / 'index.html'}")
     return 0
