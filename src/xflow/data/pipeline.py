@@ -275,7 +275,7 @@ class PyTorchPipeline(BasePipeline):
             from .transform import TorchDataset, apply_dataset_operations_from_config
             
             # Create a PyTorch-compatible dataset that applies transforms on-the-fly
-            class PyTorchTransformDataset:
+            class PyTorchTransformDataset(TorchDataset):
                 def __init__(self, data_provider, transforms):
                     self.data_provider = data_provider
                     self.transforms = transforms

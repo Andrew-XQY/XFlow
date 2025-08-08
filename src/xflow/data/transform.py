@@ -5,7 +5,7 @@ import logging
 import random
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
@@ -13,6 +13,17 @@ from PIL import Image
 from ..utils.decorator import with_progress
 from ..utils.typing import ImageLike, PathLikeStr, TensorLike
 from .pipeline import BasePipeline
+
+# Only for type checkers; won't import torch at runtime
+if TYPE_CHECKING:
+    from torch.utils.data import Dataset as TorchDataset  # noqa: F401
+
+# Runtime-safe base: real Dataset if available, else a stub so this module imports fine
+try:
+    from torch.utils.data import Dataset as _TorchDataset  # type: ignore
+except Exception:
+    class _TorchDataset:  # minimal stub
+        pass
 
 
 def _copy_pipeline_attributes(target: "BasePipeline", source: BasePipeline) -> None:
@@ -653,14 +664,27 @@ def torch_to_pil(tensor: TensorLike) -> Image.Image:
         raise RuntimeError("torchvision not available")
 
 
-@TransformRegistry.register("torch_normalize")
-def torch_normalize(tensor: TensorLike, mean: List[float], std: List[float]) -> TensorLike:
-    """Normalize tensor with mean and std using torchvision."""
+@TransformRegistry.register("torch_remap_range")
+def torch_remap_range(
+    tensor: TensorLike,
+    current_min: float = 0.0,
+    current_max: float = 255.0,
+    target_min: float = 0.0,
+    target_max: float = 1.0,
+) -> TensorLike:
+    """Remap tensor values from [current_min, current_max] to [target_min, target_max] using PyTorch."""
     try:
-        import torchvision.transforms.functional as F
-        return F.normalize(tensor, mean, std)
+        import torch
+        
+        tensor = tensor.float()
+        denominator = current_max - current_min
+        if denominator == 0:
+            return torch.full_like(tensor, target_min, dtype=torch.float32)
+        normalized = (tensor - current_min) / denominator
+        remapped = normalized * (target_max - target_min) + target_min
+        return remapped
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("PyTorch not available")
 
 
 @TransformRegistry.register("torch_resize")
@@ -778,12 +802,105 @@ def torch_random_rotation(tensor: TensorLike, degrees: List[float]) -> TensorLik
 
 @TransformRegistry.register("torch_to_grayscale")
 def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> TensorLike:
-    """Convert tensor to grayscale using torchvision."""
+    """Convert tensor to grayscale, handling RGB, RGBA, and single-channel images using PyTorch."""
     try:
+        import torch
         import torchvision.transforms.functional as F
-        return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
+        
+        # Handle different tensor shapes
+        if tensor.dim() == 2:
+            # Already grayscale [H, W]
+            if num_output_channels == 1:
+                return tensor.unsqueeze(0)  # Add channel dim: [1, H, W]
+            else:
+                return tensor.unsqueeze(0).repeat(3, 1, 1)  # [3, H, W]
+        
+        elif tensor.dim() == 3:
+            channels = tensor.shape[0]  # PyTorch format: [C, H, W]
+            
+            if channels == 1:
+                # Already grayscale
+                if num_output_channels == 1:
+                    return tensor
+                else:
+                    return tensor.repeat(3, 1, 1)  # Convert to 3-channel
+            
+            elif channels == 3:
+                # RGB image - use torchvision's function
+                return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
+            
+            elif channels == 4:
+                # RGBA image - drop alpha channel first, then convert
+                rgb_tensor = tensor[:3, :, :]  # Keep only RGB channels
+                return F.rgb_to_grayscale(rgb_tensor, num_output_channels=num_output_channels)
+            
+            else:
+                # Handle other channel counts by averaging
+                grayscale = torch.mean(tensor, dim=0, keepdim=True)  # [1, H, W]
+                if num_output_channels == 1:
+                    return grayscale
+                else:
+                    return grayscale.repeat(3, 1, 1)
+        
+        elif tensor.dim() == 4:
+            # Batched tensor [B, C, H, W] - process each in batch
+            batch_size, channels, height, width = tensor.shape
+            
+            if channels == 1:
+                # Already grayscale
+                if num_output_channels == 1:
+                    return tensor
+                else:
+                    return tensor.repeat(1, 3, 1, 1)
+            
+            elif channels == 3:
+                # RGB batch
+                return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
+            
+            elif channels == 4:
+                # RGBA batch - drop alpha channel first
+                rgb_tensor = tensor[:, :3, :, :]  # Keep only RGB channels
+                return F.rgb_to_grayscale(rgb_tensor, num_output_channels=num_output_channels)
+            
+            else:
+                # Handle other channel counts by averaging
+                grayscale = torch.mean(tensor, dim=1, keepdim=True)  # [B, 1, H, W]
+                if num_output_channels == 1:
+                    return grayscale
+                else:
+                    return grayscale.repeat(1, 3, 1, 1)
+        
+        else:
+            raise ValueError(f"Unsupported tensor dimensions: {tensor.dim()}. Expected 2D, 3D, or 4D tensor.")
+            
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("PyTorch not available")
+
+
+@TransformRegistry.register("torch_split_width")
+def torch_split_width(
+    tensor: TensorLike, swap: bool = False
+) -> Tuple[TensorLike, TensorLike]:
+    """Split tensor at width midpoint using PyTorch conventions.
+    
+    Works with any PyTorch tensor where the last dimension is width.
+    """
+    try:
+        import torch
+        
+        # Width is always the last dimension in PyTorch image tensors
+        width = tensor.shape[-1]
+        mid_point = width // 2
+        
+        # Use ellipsis to handle any number of leading dimensions
+        left_half = tensor[..., :mid_point]
+        right_half = tensor[..., mid_point:]
+        
+        if swap:
+            return right_half, left_half
+        return left_half, right_half
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
 
 
 @TransformRegistry.register("torch_adjust_brightness")
@@ -870,70 +987,66 @@ def torch_color_jitter(tensor: TensorLike, brightness: float = 0, contrast: floa
 
 # PyTorch dataset operations
 @DatasetOperationRegistry.register("torch_batch")
-def torch_batch(dataset, batch_size: int, drop_last: bool = False, shuffle: bool = False, num_workers: int = 0):
-    """Create PyTorch DataLoader for batching."""
+def torch_batch(dataset: "_TorchDataset", batch_size: int, drop_last: bool = False,
+                shuffle: bool = False, num_workers: int = 0,
+                pin_memory: bool = False, collate_fn: Optional[Any] = None,
+                pin_memory_device: str = "", worker_init_fn=None,
+                prefetch_factor: Optional[int] = None):
+    """Wrap a dataset in a PyTorch DataLoader for batching."""
     try:
-        import torch
-        from torch.utils.data import DataLoader
-        
-        return DataLoader(
-            dataset, 
-            batch_size=batch_size, 
-            drop_last=drop_last, 
-            shuffle=shuffle, 
-            num_workers=num_workers
-        )
-    except ImportError:
+        from torch.utils.data import DataLoader  # lazy import
+    except Exception:
         raise RuntimeError("PyTorch not available")
-
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        drop_last=drop_last,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        pin_memory_device=pin_memory_device,
+        persistent_workers=(num_workers > 0),
+        collate_fn=collate_fn,
+        worker_init_fn=worker_init_fn,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+    )
 
 @DatasetOperationRegistry.register("torch_subset")
-def torch_subset(dataset, indices: List[int]):
-    """Create a subset of the dataset using indices."""
+def torch_subset(dataset: "_TorchDataset", indices: List[int]):
+    """Create a subset of a dataset using specified indices."""
     try:
-        from torch.utils.data import Subset
-        return Subset(dataset, indices)
-    except ImportError:
+        from torch.utils.data import Subset  # lazy import
+    except Exception:
         raise RuntimeError("PyTorch not available")
-
+    return Subset(dataset, indices)
 
 @DatasetOperationRegistry.register("torch_concat")
-def torch_concat(datasets: List):
-    """Concatenate multiple datasets."""
+def torch_concat(datasets: List["_TorchDataset"]):
+    """Concatenate multiple datasets into one."""
     try:
-        from torch.utils.data import ConcatDataset
-        return ConcatDataset(datasets)
-    except ImportError:
+        from torch.utils.data import ConcatDataset  # lazy import
+    except Exception:
         raise RuntimeError("PyTorch not available")
-
+    return ConcatDataset(datasets)
 
 @DatasetOperationRegistry.register("torch_random_split")
-def torch_random_split(dataset, lengths: List[int], generator=None):
-    """Randomly split dataset into non-overlapping new datasets."""
+def torch_random_split(dataset: "_TorchDataset", lengths: Sequence[int], generator=None):
+    """Randomly split a dataset into non-overlapping subsets."""
     try:
-        from torch.utils.data import random_split
-        return random_split(dataset, lengths, generator=generator)
-    except ImportError:
+        from torch.utils.data import random_split  # lazy import
+    except Exception:
         raise RuntimeError("PyTorch not available")
+    return random_split(dataset, lengths, generator=generator)
 
-
-# PyTorch Dataset class for pipeline integration
-class TorchDataset:
-    """PyTorch Dataset wrapper for BasePipeline compatibility."""
-    
+class TorchDataset(_TorchDataset):
+    """Map-style Dataset wrapper for an indexable pipeline."""
     def __init__(self, pipeline):
-        """Initialize with a BasePipeline."""
-        self.pipeline = pipeline
-        self._items = None
-        
+        self.pipeline = pipeline  # expects __len__ and __getitem__
+
     def __len__(self):
+        """Return number of samples in the pipeline."""
         return len(self.pipeline)
-        
+
     def __getitem__(self, idx):
-        # Cache items for consistent indexing
-        if self._items is None:
-            self._items = list(self.pipeline)
-        return self._items[idx]
-    
-    def __iter__(self):
-        return iter(self.pipeline)
+        """Return a single sample by index."""
+        return self.pipeline[idx]
