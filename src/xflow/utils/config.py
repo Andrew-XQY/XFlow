@@ -4,8 +4,6 @@ import copy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
-from pydantic import BaseModel, Field
-
 # shim Self for Python <3.11
 try:
     from typing import Self
@@ -17,46 +15,17 @@ except ImportError:
 from .helper import deep_update
 from .io import copy_file
 from .parser import load_file, save_file
-from .typing import PathLikeStr
-
-
-# Pydantic schemas
-class BaseDataConfig(BaseModel):
-    """Base data configuration schema."""
-
-    batch_size: int = Field(..., gt=0)
-
-    class Config:
-        extra = "forbid"
-
-
-class BaseTrainerConfig(BaseModel):
-    """Base trainer configuration schema."""
-
-    learning_rate: float = Field(..., gt=0)
-    epochs: int = Field(1, gt=0)
-
-    class Config:
-        extra = "forbid"
-
-
-class BaseModelConfig(BaseModel):
-    """Base model configuration schema."""
-
-    model_type: str = Field(..., min_length=1)
-
-    class Config:
-        extra = "forbid"
+from .typing import PathLikeStr, Schema
 
 
 def load_validated_config(
-    file_path: PathLikeStr, schema: Optional[Type[BaseModel]] = None
+    file_path: PathLikeStr, schema: Optional[Schema] = None
 ) -> Dict[str, Any]:
-    """Load and optionally validate config using Pydantic schema.
+    """Load and optionally validate config using any validation schema.
 
     Args:
         file_path: Path to config file
-        schema: Optional Pydantic model for validation. If None, returns raw dict
+        schema: Optional schema class for validation. If None, returns raw dict
 
     Returns:
         Dict containing configuration data (validated if schema provided)
@@ -141,9 +110,10 @@ class ConfigManager:
         deep_update(self._config, updates)
         return self
 
-    def validate(self, schema: Type[BaseModel]) -> Self:
+    def validate(self, schema: Schema) -> Self:
         """Validate working config against provided schema. Raises Error if invalid."""
-        schema(**self._config)
+        validated = schema(**self._config)
+        validated.model_dump()  # Just to ensure it works, but we don't need the result
         return self
 
     def save(self, output_path: PathLikeStr) -> None:

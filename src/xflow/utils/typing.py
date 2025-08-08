@@ -9,6 +9,7 @@ from __future__ import annotations
 from os import PathLike
 from typing import (
     TYPE_CHECKING,
+    Type,
     Any,
     Callable,
     Dict,
@@ -46,6 +47,17 @@ class ArrayLike(Protocol):
 
     def __array__(self, dtype: type[Any] | None = None) -> NDArray[Any]: ...
 
+# Protocol for validation schemas that can dump their data
+class SupportsValidation(Protocol):
+    """Protocol for any validation schema."""
+    
+    def __init__(self, **data: Any) -> None: ...
+    def model_dump(self) -> Dict[str, Any]: ...
+    # Could also support: to_dict(), dict(), as_dict(), etc.
+
+ModelT = TypeVar("ModelT", bound=SupportsValidation)
+Schema: TypeAlias = Type[ModelT]                    # a schema class (e.g., Pydantic model)
+ValidatorFn: TypeAlias = Callable[[Mapping[str, Any], Schema], Dict[str, Any]]
 
 # Common type aliases
 try:
