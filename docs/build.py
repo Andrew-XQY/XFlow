@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 """Build documentation with proper API structure"""
 
-import os
 import sys
+import subprocess
 from pathlib import Path
 
+def main() -> int:
+    docs_dir = Path(__file__).parent.resolve()
+    source = docs_dir / "source"
+    outdir = docs_dir / "build" / "html"
+    outdir.mkdir(parents=True, exist_ok=True)
 
-def main():
-    """Build the documentation"""
-    docs_dir = Path(__file__).parent
-    os.chdir(docs_dir)
+    if not (source / "index.rst").exists() and not (source / "index.md").exists():
+        print(f"[error] missing index.(rst|md) in {source}")
+        return 2
 
     print("Building XFlow documentation...")
+    # -W: treat warnings as errors (optional), --keep-going: continue building
+    cmd = [sys.executable, "-m", "sphinx", "-b", "html", str(source), str(outdir)]
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        print("[error] Documentation build failed!")
+        return result.returncode
 
-    # Build docs
-    result = os.system("sphinx-build -b html source build/html")
-
-    if result == 0:
-        # Create .nojekyll file to disable Jekyll on GitHub Pages
-        nojekyll_path = docs_dir / "build" / "html" / ".nojekyll"
-        nojekyll_path.touch()
-        print("Created .nojekyll file for GitHub Pages")
-        
-        print("Documentation built successfully!")
-        print(f"Open: {docs_dir}/build/html/index.html")
-    else:
-        print("Documentation build failed!")
-        return 1
-
+    # Disable Jekyll for GitHub Pages
+    (outdir / ".nojekyll").touch()
+    print("Created .nojekyll file for GitHub Pages")
+    print("Documentation built successfully!")
+    print(f"Open: {outdir / 'index.html'}")
     return 0
 
-
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
