@@ -1,0 +1,72 @@
+# ====================
+# Swin-Transformer fiber image reconstruction configuration file
+# ====================
+
+seed: 42
+name: "swin_transformer.yaml"
+framework: "pytorch"
+
+paths:
+  base: "/Users/andrewxu/Documents/"      # Machine-specific absolute root
+  output: &output "results/"              # Output directory for results
+  dataset: "/Users/andrewxu/Documents/DataHub/local_images/MMF/"    # Dataset path
+
+callbacks:
+  - name: "torch_eta"                     # Factory key for ETA (training time estimation)
+  - name: "torch_early_stopping"          # Factory key for early stopping
+    params:
+      monitor: "val_loss"                 # Metric to monitor
+      patience: 8                        # Epochs to wait before stopping
+      verbose: 1                          # Verbosity level
+  - name: "torch_image_reconstruction_callback"
+    params:
+      save_dir: *output                   # Directory to save results
+
+data:
+  train_val_split: 0.8                        # Train/validation split ratio
+  val_test_split: 0.5                       # Validation/test split ratio
+  image_size: [256, 256]                  # Input image dimensions [H, W]
+  transforms:
+    torch:
+      - name: "torch_load_image"          # Image loading transform
+      - name: "torch_to_tensor"           # Convert to tensor
+      - name: "torch_to_grayscale"        # Convert to grayscale
+      - name: "torch_remap_range"         # Normalize pixel values to [0,1]
+      - name: "torch_split_width"         # Split image into left/right halves
+        params:
+          swap: True                      # Swap left/right halves
+  dataset_ops:                            # Dataset level operations
+    - name: "torch_batch"                 # Batch images
+      params:
+        batch_size: 4                     # Number of images per batch
+        shuffle: True                     # Shuffle dataset
+        num_workers: 0                    # Number of worker threads for data loading
+        prefetch_factor: 2                # Number of batches to prefetch
+
+model:
+  img_size: 256                           # Height & width of input/output images
+  channels: 1                             # Number of image channels (1 for grayscale)
+  
+  # Stage 1: Shallow feature extraction
+  shallow_kernel: 3                       # Kernel size for initial conv layer
+  
+  # Stage 2: Swin backbone parameters
+  patch_size: 4                           # Size of each non-overlapping patch
+  window_size: 7                          # Number of patches per attention window
+  embed_dim: 96                           # Dimensionality of patch embedding vectors
+  depths: [2, 2, 6, 2]                    # Number of Swin blocks per stage
+  num_heads: [3, 6, 12, 24]               # Number of attention heads per stage
+  mlp_ratio: 4.0                          # Expansion ratio for MLP hidden layer
+  qkv_bias: true                          # Include bias terms in Q/K/V projections
+  drop_rate: 0.0                          # Dropout rate after each MLP layer
+  attn_drop_rate: 0.0                     # Dropout rate within attention softmax
+  drop_path_rate: 0.1                     # Stochastic depth rate for residual connections
+  
+  # Stage 3: Reconstruction
+  upsample_method: "bicubic"              # Upsampling method for reconstruction
+  recon_kernel: 3                         # Kernel size for final conv layer
+
+training:
+  batch_size: 16                          # Samples per gradient update
+  epochs: 100                             # Number of full passes over training data
+  learning_rate: 1e-4                     # Initial learning rate for optimizer
