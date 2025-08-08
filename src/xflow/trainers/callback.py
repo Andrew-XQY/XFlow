@@ -194,6 +194,7 @@ def make_eta_callback():
     return ETACallback()
 
 
+
 # --- PyTorch (vanilla) Callback System ---
 
 class PyTorchCallback:
@@ -259,6 +260,53 @@ def make_torch_callback(handlers: Dict[str, List[Callable]]):
 
 
 # --- PyTorch Native Callback Implementations ---
+
+@CallbackRegistry.register("torch_eta")
+def make_torch_eta_callback():
+    """Create PyTorch ETA callback to estimate remaining training time."""
+    import time
+    
+    class TorchETACallback(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.times = []
+            self.start_time = None
+            self.total_epochs = None
+            
+        def on_train_begin(self, epochs=None, **kwargs):
+            """Initialize timing tracking."""
+            self.times = []
+            self.total_epochs = epochs
+            
+        def on_epoch_begin(self, epoch, **kwargs):
+            """Record epoch start time."""
+            self.start_time = time.time()
+            
+        def on_epoch_end(self, epoch, **kwargs):
+            """Calculate and display ETA."""
+            if self.start_time is None:
+                return
+                
+            elapsed = time.time() - self.start_time
+            self.times.append(elapsed)
+            
+            # Smooth over last 5 epochs
+            recent_times = self.times[-5:]
+            avg_time = sum(recent_times) / len(recent_times)
+            
+            if self.total_epochs:
+                remaining_epochs = self.total_epochs - epoch - 1
+                remaining_time = remaining_epochs * avg_time
+                
+                if remaining_time > 3600:
+                    hrs = remaining_time // 3600
+                    mins = (remaining_time % 3600) // 60
+                    print(f"Estimated time left: {hrs:.0f}h {mins:.0f}m")
+                else:
+                    print(f"Estimated time left: {remaining_time:.1f}s")
+    
+    return TorchETACallback()
+
 
 @CallbackRegistry.register("torch_early_stopping")
 def make_torch_early_stopping(
@@ -496,5 +544,3 @@ event_map.update({
     "batch_end": {**event_map["batch_end"], "torch": "on_batch_end"},
 })
 
-
-# The build_callbacks_from_config function above now supports PyTorch callbacks
