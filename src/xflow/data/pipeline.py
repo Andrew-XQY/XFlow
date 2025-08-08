@@ -213,6 +213,16 @@ class InMemoryPipeline(BasePipeline):
                 return dataset
             except ImportError:
                 raise RuntimeError("TensorFlow not available")
+        elif framework.lower() in ("pytorch", "torch"):
+            try:
+                from .transform import TorchDataset, apply_dataset_operations_from_config
+                
+                torch_dataset = TorchDataset(self)
+                if dataset_ops:
+                    torch_dataset = apply_dataset_operations_from_config(torch_dataset, dataset_ops)
+                return torch_dataset
+            except ImportError:
+                raise RuntimeError("PyTorch not available")
         else:
             raise NotImplementedError(f"Framework {framework} not implemented")
 
@@ -247,3 +257,45 @@ class TensorFlowPipeline(BasePipeline):
 
         except ImportError:
             raise RuntimeError("TensorFlow not available")
+
+
+class PyTorchPipeline(BasePipeline):
+    """Pipeline that uses PyTorch-native transforms without preprocessing."""
+
+    def to_framework_dataset(
+        self, framework: str = "pytorch", dataset_ops: List[Dict] = None
+    ):
+        """Convert to PyTorch dataset."""
+        if framework.lower() not in ("pytorch", "torch"):
+            raise ValueError(
+                f"PyTorchPipeline only supports pytorch/torch, got {framework}"
+            )
+
+        try:
+            from .transform import TorchDataset, apply_dataset_operations_from_config
+            
+            # Create a PyTorch-compatible dataset that applies transforms on-the-fly
+            class PyTorchTransformDataset:
+                def __init__(self, data_provider, transforms):
+                    self.data_provider = data_provider
+                    self.transforms = transforms
+                    self._file_paths = list(data_provider())
+                    
+                def __len__(self):
+                    return len(self._file_paths)
+                    
+                def __getitem__(self, idx):
+                    item = self._file_paths[idx]
+                    for transform in self.transforms:
+                        item = transform.fn(item)
+                    return item
+            
+            dataset = PyTorchTransformDataset(self.data_provider, self.transforms)
+            
+            if dataset_ops:
+                dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
+                
+            return dataset
+
+        except ImportError:
+            raise RuntimeError("PyTorch not available")

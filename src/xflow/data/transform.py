@@ -610,3 +610,330 @@ def tf_substring(text: TensorLike, start: int, length: int) -> TensorLike:
     import tensorflow as tf
 
     return tf.strings.substr(text, start, length)
+
+
+# PyTorch/torchvision transforms
+@TransformRegistry.register("torch_load_image")
+def torch_load_image(path: PathLikeStr) -> TensorLike:
+    """Load image from file path using torchvision."""
+    try:
+        import torchvision.io
+        return torchvision.io.read_image(str(path))
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_to_tensor")
+def torch_to_tensor(image: ImageLike) -> TensorLike:
+    """Convert image to PyTorch tensor."""
+    try:
+        import torch
+        import torchvision.transforms.functional as F
+        from PIL import Image
+        
+        if isinstance(image, Image.Image):
+            return F.to_tensor(image)
+        elif isinstance(image, np.ndarray):
+            return torch.from_numpy(image).float()
+        elif hasattr(image, "__array__"):
+            return torch.from_numpy(np.asarray(image)).float()
+        else:
+            raise ValueError(f"Cannot convert {type(image)} to PyTorch tensor")
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+@TransformRegistry.register("torch_to_pil")
+def torch_to_pil(tensor: TensorLike) -> Image.Image:
+    """Convert PyTorch tensor to PIL Image."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.to_pil_image(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_normalize")
+def torch_normalize(tensor: TensorLike, mean: List[float], std: List[float]) -> TensorLike:
+    """Normalize tensor with mean and std using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.normalize(tensor, mean, std)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_resize")
+def torch_resize(tensor: TensorLike, size: List[int], interpolation: str = "bilinear") -> TensorLike:
+    """Resize tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        from torchvision.transforms import InterpolationMode
+        
+        interp_map = {
+            "nearest": InterpolationMode.NEAREST,
+            "bilinear": InterpolationMode.BILINEAR,
+            "bicubic": InterpolationMode.BICUBIC,
+            "lanczos": InterpolationMode.LANCZOS,
+        }
+        
+        interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
+        return F.resize(tensor, size, interpolation=interp_mode)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_center_crop")
+def torch_center_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
+    """Center crop tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.center_crop(tensor, size)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_random_crop")
+def torch_random_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
+    """Random crop tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.RandomCrop(size)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_horizontal_flip")
+def torch_horizontal_flip(tensor: TensorLike) -> TensorLike:
+    """Horizontally flip tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.hflip(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_vertical_flip")
+def torch_vertical_flip(tensor: TensorLike) -> TensorLike:
+    """Vertically flip tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.vflip(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_random_horizontal_flip")
+def torch_random_horizontal_flip(tensor: TensorLike, p: float = 0.5) -> TensorLike:
+    """Randomly horizontally flip tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.RandomHorizontalFlip(p=p)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_random_vertical_flip")
+def torch_random_vertical_flip(tensor: TensorLike, p: float = 0.5) -> TensorLike:
+    """Randomly vertically flip tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.RandomVerticalFlip(p=p)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_rotation")
+def torch_rotation(tensor: TensorLike, angle: float, interpolation: str = "bilinear") -> TensorLike:
+    """Rotate tensor by angle using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        from torchvision.transforms import InterpolationMode
+        
+        interp_map = {
+            "nearest": InterpolationMode.NEAREST,
+            "bilinear": InterpolationMode.BILINEAR,
+            "bicubic": InterpolationMode.BICUBIC,
+        }
+        
+        interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
+        return F.rotate(tensor, angle, interpolation=interp_mode)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_random_rotation")
+def torch_random_rotation(tensor: TensorLike, degrees: List[float]) -> TensorLike:
+    """Randomly rotate tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.RandomRotation(degrees)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_to_grayscale")
+def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> TensorLike:
+    """Convert tensor to grayscale using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_adjust_brightness")
+def torch_adjust_brightness(tensor: TensorLike, brightness_factor: float) -> TensorLike:
+    """Adjust brightness of tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.adjust_brightness(tensor, brightness_factor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_adjust_contrast")
+def torch_adjust_contrast(tensor: TensorLike, contrast_factor: float) -> TensorLike:
+    """Adjust contrast of tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.adjust_contrast(tensor, contrast_factor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_adjust_saturation")
+def torch_adjust_saturation(tensor: TensorLike, saturation_factor: float) -> TensorLike:
+    """Adjust saturation of tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.adjust_saturation(tensor, saturation_factor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_adjust_hue")
+def torch_adjust_hue(tensor: TensorLike, hue_factor: float) -> TensorLike:
+    """Adjust hue of tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.adjust_hue(tensor, hue_factor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_gaussian_blur")
+def torch_gaussian_blur(tensor: TensorLike, kernel_size: List[int], sigma: List[float] = None) -> TensorLike:
+    """Apply Gaussian blur to tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.gaussian_blur(tensor, kernel_size, sigma)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_pad")
+def torch_pad(tensor: TensorLike, padding: List[int], fill: float = 0, padding_mode: str = "constant") -> TensorLike:
+    """Pad tensor using torchvision."""
+    try:
+        import torchvision.transforms.functional as F
+        return F.pad(tensor, padding, fill=fill, padding_mode=padding_mode)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_random_crop_resize")
+def torch_random_crop_resize(tensor: TensorLike, size: List[int], scale: List[float] = (0.8, 1.0), ratio: List[float] = (0.75, 1.33)) -> TensorLike:
+    """Random crop and resize tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.RandomResizedCrop(size, scale=scale, ratio=ratio)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_color_jitter")
+def torch_color_jitter(tensor: TensorLike, brightness: float = 0, contrast: float = 0, saturation: float = 0, hue: float = 0) -> TensorLike:
+    """Apply color jitter to tensor using torchvision."""
+    try:
+        import torchvision.transforms as T
+        transform = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+        return transform(tensor)
+    except ImportError:
+        raise RuntimeError("torchvision not available")
+
+
+# PyTorch dataset operations
+@DatasetOperationRegistry.register("torch_batch")
+def torch_batch(dataset, batch_size: int, drop_last: bool = False, shuffle: bool = False, num_workers: int = 0):
+    """Create PyTorch DataLoader for batching."""
+    try:
+        import torch
+        from torch.utils.data import DataLoader
+        
+        return DataLoader(
+            dataset, 
+            batch_size=batch_size, 
+            drop_last=drop_last, 
+            shuffle=shuffle, 
+            num_workers=num_workers
+        )
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+@DatasetOperationRegistry.register("torch_subset")
+def torch_subset(dataset, indices: List[int]):
+    """Create a subset of the dataset using indices."""
+    try:
+        from torch.utils.data import Subset
+        return Subset(dataset, indices)
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+@DatasetOperationRegistry.register("torch_concat")
+def torch_concat(datasets: List):
+    """Concatenate multiple datasets."""
+    try:
+        from torch.utils.data import ConcatDataset
+        return ConcatDataset(datasets)
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+@DatasetOperationRegistry.register("torch_random_split")
+def torch_random_split(dataset, lengths: List[int], generator=None):
+    """Randomly split dataset into non-overlapping new datasets."""
+    try:
+        from torch.utils.data import random_split
+        return random_split(dataset, lengths, generator=generator)
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+# PyTorch Dataset class for pipeline integration
+class TorchDataset:
+    """PyTorch Dataset wrapper for BasePipeline compatibility."""
+    
+    def __init__(self, pipeline):
+        """Initialize with a BasePipeline."""
+        self.pipeline = pipeline
+        self._items = None
+        
+    def __len__(self):
+        return len(self.pipeline)
+        
+    def __getitem__(self, idx):
+        # Cache items for consistent indexing
+        if self._items is None:
+            self._items = list(self.pipeline)
+        return self._items[idx]
+    
+    def __iter__(self):
+        return iter(self.pipeline)

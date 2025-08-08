@@ -48,7 +48,31 @@ XFlow provides a simple and intuitive API for building machine learning pipeline
       # Start training
       trainer.train()
 
-4. **Configuration Management**
+4. **Data Transforms (PyTorch Support)**
+
+   XFlow now supports PyTorch/torchvision transforms alongside TensorFlow transforms:
+
+   .. code-block:: python
+
+      from xflow.data.transform import TransformRegistry, build_transforms_from_config
+
+      # Use individual PyTorch transforms
+      to_tensor = TransformRegistry.get("torch_to_tensor")
+      resize = TransformRegistry.get("torch_resize")
+      normalize = TransformRegistry.get("torch_normalize")
+
+      # Or build from configuration
+      config = [
+          {"name": "torch_to_tensor"},
+          {"name": "torch_resize", "params": {"size": [224, 224]}},
+          {"name": "torch_normalize", "params": {"mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]}}
+      ]
+      transforms = build_transforms_from_config(config)
+
+      # Convert pipeline to PyTorch dataset
+      torch_dataset = pipeline.to_framework_dataset("pytorch")
+
+5. **Configuration Management**
 
    .. code-block:: python
 
