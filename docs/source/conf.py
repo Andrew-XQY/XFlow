@@ -20,7 +20,9 @@ autodoc_mock_imports = [
     'tensorflow',
     'keras',
     'typing_extensions',  # For Python <3.11 compatibility
-    'setuptools_scm'       # Version management
+    'setuptools_scm',     # Version management
+    'PIL',                # Pillow
+    'Pillow',             # Alternative import name
 ]
 
 # Project information

@@ -27,11 +27,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[docs]"
+        
+    - name: Verify installation
+      run: |
+        python -c "import xflow; print('XFlow package imported successfully')"
+        python -c "import sphinx; print(f'Sphinx version: {sphinx.__version__}')"
 
     - name: Build documentation
       run: |
         cd docs
-        sphinx-build -b html source build/html
+        python build.py
 
     - uses: actions/configure-pages@v4
 
