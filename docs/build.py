@@ -17,6 +17,11 @@ def main():
     result = os.system("sphinx-build -b html source build/html")
 
     if result == 0:
+        # Create .nojekyll file to disable Jekyll on GitHub Pages
+        nojekyll_path = docs_dir / "build" / "html" / ".nojekyll"
+        nojekyll_path.touch()
+        print("Created .nojekyll file for GitHub Pages")
+        
         print("Documentation built successfully!")
         print(f"Open: {docs_dir}/build/html/index.html")
     else:
