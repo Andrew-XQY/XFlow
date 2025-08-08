@@ -31,18 +31,13 @@ Originally created for physics research, it's now evolving toward generic scient
 
 ---
 
-## ✨ Features
-
-- Modular `core/` for dataset/model/trainer abstraction
-- Plug-and-play task logic (`tasks/`)
-
----
-
 ## 🛠 Built With
 
-<a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
-<a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
-<a href="https://keras.io/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/keras/keras-original.svg" height="40px" /></a>
+<a href="https://www.python.org/"><img src="python.svg" height="40"></a>
+<a href="https://www.tensorflow.org/"><img src="tensorflow.svg" height="40"></a>
+<a href="https://keras.io/"><img src="keras.svg" height="40"></a>
+
+
 
 - Python 3.12
 - TensorFlow 2.x
