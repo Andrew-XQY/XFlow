@@ -1,4 +1,10 @@
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except ImportError:
+    raise ImportError(
+        "Pydantic is required for built-in validation schemas. "
+        "Install with: pip install xflow-py[validation]"
+    )
 
 class TrainerConfig(BaseModel):
     learning_rate: float = Field(..., gt=0)

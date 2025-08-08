@@ -17,7 +17,6 @@ keywords = ["machine-learning", "tensorflow", "data-pipeline"]
 dependencies = [
     "numpy",
     "tqdm",
-    "pydantic",
     "pyyaml>=6.0",
     "typing-extensions>=4.0.0",  
 ]
@@ -33,6 +32,9 @@ classifiers = [
 
 
 [project.optional-dependencies]
+validation = [
+    "pydantic>=2.0.0",
+]
 ml = [
     "tensorflow==2.16.2",
     "keras==3.4.1",
@@ -52,6 +54,9 @@ docs = [
     "furo>=2024.1.29",
     "setuptools_scm",
     "pyyaml>=6.0",
+]
+all = [
+    "xflow-py[validation,ml,viz]",
 ]
 
 [tool.setuptools]
