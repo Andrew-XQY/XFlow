@@ -7,7 +7,7 @@ from tensorflow.keras.optimizers import Adam
 
 from xflow import ConfigManager, DataPipeline, FileProvider
 from xflow.data import build_transforms_from_config
-from xflow.trainers.callback import build_callbacks_from_config
+from xflow.trainers import build_callbacks_from_config
 from xflow.utils import get_base_dir, load_validated_config, plot_image
 
 cur_dir = get_base_dir()

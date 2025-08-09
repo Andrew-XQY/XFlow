@@ -7,9 +7,9 @@ name: "swin_transformer.yaml"
 framework: "pytorch"
 
 paths:
-  base: "/Users/andrewxu/Documents/"      # Machine-specific absolute root
+  base: "/Users/Documents/"      # Machine-specific absolute root
   output: &output "results/"              # Output directory for results
-  dataset: "/Users/andrewxu/Documents/DataHub/local_images/MMF/"    # Dataset path
+  dataset: "/Users/Documents/etc"    # Dataset path
 
 callbacks:
   - name: "torch_eta"                     # Factory key for ETA (training time estimation)

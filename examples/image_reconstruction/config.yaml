@@ -1,57 +1,55 @@
+# ====================
+# Image Reconstruction Regressor Configuration File
+# ====================
+
 seed: 42
 name: "regressor.yaml"
+framework: "tensorflow"                   # Deep learning framework
 
 paths:
-  base: "Documents/"    # machine-specific abs root
-  output: "results/"
-
-framework: "tensorflow"
+  base: "Documents/"                      # Machine-specific absolute root directory
+  output: "results/"                      # Output directory for results and models
 
 model:
-  input_shape: [256, 256, 1]
-  output_shape: [4,]
+  input_shape: [256, 256, 1]              # Input image dimensions [H, W, C]
+  output_shape: [4,]                      # Output shape for regression target
 
 training:
-  epochs: 50
-  batch_size: 32
-  loss: "mean_squared_error"
-  learning_rate: 0.0001
+  epochs: 50                              # Number of training epochs
+  batch_size: 32                          # Number of samples per batch
+  loss: "mean_squared_error"              # Loss function for regression
+  learning_rate: 0.0001                   # Learning rate for optimizer
 
 callbacks:
-  - name: "tf_early_stopping"        # factory key
+  - name: "tf_early_stopping"             # Factory key for early stopping
     params:
-      monitor: "val_loss"
-      patience: 10
-      verbose: 1
-  - name: "tf_model_checkpoint"      # when framework=tf
+      monitor: "val_loss"                 # Metric to monitor for early stopping
+      patience: 10                        # Epochs to wait before stopping
+      verbose: 1                          # Verbosity level
+  - name: "tf_model_checkpoint"           # Factory key for model checkpointing
     params:
-      filepath: "results/best_regressor.keras"
-      monitor: "val_loss"
-      save_best_only: true
-      save_weights_only: true
-  - name: "centroid_ellipse_callback"
+      filepath: "results/best_regressor.keras"  # Path to save best model
+      monitor: "val_loss"                 # Metric to monitor for best model
+      save_best_only: true                # Only save model when performance improves
+      save_weights_only: true             # Save only weights, not full model
+  - name: "centroid_ellipse_callback"     # Custom callback for ellipse analysis
     params:
-      save_dir: "results/"
-
+      save_dir: "results/"                # Directory to save callback outputs
 
 data:
-  root: "DataHub/local_images/MMF/"
-  first_split: 0.8
-  second_split: 0.5
-  image_size: [256, 256]
+  root: "DataHub/local_images/MMF/"       # Root directory for dataset
+  first_split: 0.8                        # Train/validation split ratio
+  second_split: 0.5                       # Validation/test split ratio
+  image_size: [256, 256]                  # Target image dimensions [H, W]
   transforms:
     numpy:
-      - name: "load_image"
-      - name: "to_narray"
-      - name: "to_grayscale"
-      - name: "remap_range"
-      - name: "expand_dims"
-      - name: "split_width_with_analysis"
+      - name: "load_image"                # Load image from file
+      - name: "to_narray"                 # Convert to numpy array
+      - name: "to_grayscale"              # Convert to grayscale
+      - name: "remap_range"               # Normalize pixel values
+      - name: "expand_dims"               # Add batch dimension
+      - name: "split_width_with_analysis" # Split image and perform analysis
         params:
-          swap: false
-          return_all: true
-          method: "gaussian"
-
-logging:
-  log_path: "./logs"
-  tensorboard: true
+          swap: false                     # Whether to swap image halves
+          return_all: true                # Return all analysis results
+          method: "gaussian"              # Analysis method to use
