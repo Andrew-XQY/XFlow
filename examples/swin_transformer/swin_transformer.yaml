@@ -7,24 +7,24 @@ name: "swin_transformer.yaml"
 framework: "pytorch"
 
 paths:
-  base: "/Users/Documents/"      # Machine-specific absolute root
+  base: "/Users/Documents/"               # Machine-specific absolute root
   output: &output "results/"              # Output directory for results
-  dataset: "/Users/Documents/etc"    # Dataset path
+  dataset: "/Users/Documents/etc"         # Dataset path
 
 callbacks:
   - name: "torch_eta"                     # Factory key for ETA (training time estimation)
   - name: "torch_early_stopping"          # Factory key for early stopping
     params:
       monitor: "val_loss"                 # Metric to monitor
-      patience: 8                        # Epochs to wait before stopping
+      patience: 8                         # Epochs to wait before stopping
       verbose: 1                          # Verbosity level
   - name: "torch_image_reconstruction_callback"
     params:
       save_dir: *output                   # Directory to save results
 
 data:
-  train_val_split: 0.8                        # Train/validation split ratio
-  val_test_split: 0.5                       # Validation/test split ratio
+  train_val_split: 0.8                    # Train/validation split ratio
+  val_test_split: 0.5                     # Validation/test split ratio
   image_size: [256, 256]                  # Input image dimensions [H, W]
   transforms:
     torch:
