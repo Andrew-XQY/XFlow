@@ -44,6 +44,7 @@ Originally created for physics research, it's now evolving toward generic scient
 - Python 3.12
 - TensorFlow 2.x
 - Keras 3.x
+- PyTorch 2.5.x
 
 ---
 
