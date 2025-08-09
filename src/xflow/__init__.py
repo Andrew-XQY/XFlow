@@ -1,9 +1,14 @@
 """Auto-generated API exports"""
 # This file is auto-generated. Do not edit manually.
 
-from .data.pipeline import TensorFlowPipeline, PyTorchPipeline, DataPipeline, InMemoryPipeline, BasePipeline
+try:
+    from ._version import version as __version__
+except Exception:
+    __version__ = "0.0.0"
+
+from .data.pipeline import BasePipeline, DataPipeline, InMemoryPipeline, PyTorchPipeline, TensorFlowPipeline
 from .data.transform import BatchPipeline, ShufflePipeline
-from .data.provider import SqlProvider, FileProvider
+from .data.provider import FileProvider, SqlProvider
 from .trainers.trainer import BaseTrainer
 from .utils.config import ConfigManager
 from .models.base import BaseModel

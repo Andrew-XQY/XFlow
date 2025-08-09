@@ -40,19 +40,16 @@ def generate_all_apis():
 
     # Generate main package __init__.py
     main_init = src_dir / "xflow" / "__init__.py"
-    main_content = generate_init(CORE_API, "xflow")
-
+    main_content = generate_init(CORE_API, "xflow", include_version=True)  # <-- add flag
     print(f"Generating {main_init}")
     with open(main_init, "w") as f:
         f.write(main_content)
 
-    # Generate subpackage __init__.py files
+    # Generate subpackage __init__.py files (no version)
     for package_name, api_dict in PACKAGE_API.items():
         package_init = src_dir / "xflow" / package_name / "__init__.py"
         package_init.parent.mkdir(parents=True, exist_ok=True)
-
-        package_content = generate_init(api_dict, f"xflow.{package_name}")
-
+        package_content = generate_init(api_dict, f"xflow.{package_name}", include_version=False)
         print(f"Generating {package_init}")
         with open(package_init, "w") as f:
             f.write(package_content)

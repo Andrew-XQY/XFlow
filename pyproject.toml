@@ -74,7 +74,7 @@ exclude = [
 version_scheme = "no-guess-dev"    # Clean versions without .post
 local_scheme   = "no-local-version"
 write_to       = "src/xflow/_version.py"
-tag_regex      = "^v(?P<version>.*)$"
+tag_regex = "^v(?P<version>\\d+\\.\\d+\\.\\d+(?:[abrc]\\d+)?)$"
 
 # Black configuration
 [tool.black]
