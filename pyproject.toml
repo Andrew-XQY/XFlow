@@ -71,7 +71,7 @@ exclude = [
 ]  # Exclude extensions from distribution
 
 [tool.setuptools_scm]
-version_scheme = "post-release"    # (optional—defaults are fine)
+version_scheme = "no-guess-dev"    # Clean versions without .post
 local_scheme   = "no-local-version"
 write_to       = "src/xflow/_version.py"
 tag_regex      = "^v(?P<version>.*)$"
