@@ -116,11 +116,31 @@ class ConfigManager:
         validated.model_dump()  # Just to ensure it works, but we don't need the result
         return self
 
-    def save(self, output_path: PathLikeStr) -> None:
-        """Write the working config to disk (ext-driven format)."""
-        save_file(self._config, output_path)
-        # Copy files to same directory
+    def save_config(self, file_path: PathLikeStr) -> None:
+        """Save the internal config to a specific file path (must include filename and extension)."""
+        save_file(self._config, file_path)
+
+    def copy_associated_files(self, target_dir: PathLikeStr) -> None:
+        """Copy all associated files to the target directory."""
         if self._files:
-            target_dir = Path(output_path).parent
+            target_dir = Path(target_dir)
             for file_path in self._files:
                 copy_file(file_path, target_dir)
+
+    def save(self, output_dir: PathLikeStr, config_filename: Optional[str] = None) -> None:
+        """Save config and copy associated files to target directory.
+        
+        Args:
+            output_dir: Target directory path
+            config_filename: Config filename with extension (e.g., 'config.yaml'). 
+                           If None or empty, only copies associated files.
+        """
+        output_dir = Path(output_dir)
+        
+        # Save config only if filename is provided
+        if config_filename:
+            config_path = output_dir / config_filename
+            self.save_config(config_path)
+        
+        # Always copy associated files
+        self.copy_associated_files(output_dir)

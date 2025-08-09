@@ -22,7 +22,7 @@ class APIItem:
         return self.alias or self.class_name
 
 
-# Core API - most commonly used items at package root
+# Core API - most commonly used items at package root expose to users
 CORE_API = {
     # Data pipeline components
     "BasePipeline": APIItem("data.pipeline", "BasePipeline"),
