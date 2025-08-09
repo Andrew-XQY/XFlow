@@ -19,32 +19,13 @@
 ![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
 ---
 
-## 🔍 About the Project
+## About the Project
 
 **XFlow** is a lightweight modular machine-learning framework, built with a clear high-level structure and developed through vibe coding.
 
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
-**XFlow** keeps things simple and minimal.
-
-> _Includes reusable modules for datasets, models, training loops, visualization, and logging._
-
----
-
-## 🛠 Built With
-
-<p>
-  <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
-  <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
-  <a href="https://keras.io/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/keras/keras-original.svg" height="40px" width="40px" /></a>
-  <a href="https://pytorch.org/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/pytorch/pytorch-original.svg" height="40px" width="40px" /></a>
-</p>
-</p>
-
-- Python 3.12
-- TensorFlow 2.x
-- Keras 3.x
-- PyTorch 2.5.x
+**XFlow** keeps things **simple** and **minimal**.
 
 ---
 
@@ -65,6 +46,22 @@ git clone https://github.com/Andrew-XQY/XFlow.git
 cd XFlow
 pip install -e .
 ```
+---
+
+## 🛠 Built With
+
+<p>
+  <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
+  <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
+  <a href="https://keras.io/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/keras/keras-original.svg" height="40px" width="40px" /></a>
+  <a href="https://pytorch.org/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/pytorch/pytorch-original.svg" height="40px" width="40px" /></a>
+</p>
+</p>
+
+- Python 3.12
+- TensorFlow 2.x
+- Keras 3.x
+- PyTorch 2.5.x
 
 ---
 
