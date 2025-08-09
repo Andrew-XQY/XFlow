@@ -802,79 +802,36 @@ def torch_random_rotation(tensor: TensorLike, degrees: List[float]) -> TensorLik
 
 @TransformRegistry.register("torch_to_grayscale")
 def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> TensorLike:
-    """Convert tensor to grayscale, handling RGB, RGBA, and single-channel images using PyTorch."""
-    try:
-        import torch
-        import torchvision.transforms.functional as F
-        
-        # Handle different tensor shapes
-        if tensor.dim() == 2:
-            # Already grayscale [H, W]
-            if num_output_channels == 1:
-                return tensor.unsqueeze(0)  # Add channel dim: [1, H, W]
-            else:
-                return tensor.unsqueeze(0).repeat(3, 1, 1)  # [3, H, W]
-        
-        elif tensor.dim() == 3:
-            channels = tensor.shape[0]  # PyTorch format: [C, H, W]
-            
-            if channels == 1:
-                # Already grayscale
-                if num_output_channels == 1:
-                    return tensor
-                else:
-                    return tensor.repeat(3, 1, 1)  # Convert to 3-channel
-            
-            elif channels == 3:
-                # RGB image - use torchvision's function
-                return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
-            
-            elif channels == 4:
-                # RGBA image - drop alpha channel first, then convert
-                rgb_tensor = tensor[:3, :, :]  # Keep only RGB channels
-                return F.rgb_to_grayscale(rgb_tensor, num_output_channels=num_output_channels)
-            
-            else:
-                # Handle other channel counts by averaging
-                grayscale = torch.mean(tensor, dim=0, keepdim=True)  # [1, H, W]
-                if num_output_channels == 1:
-                    return grayscale
-                else:
-                    return grayscale.repeat(3, 1, 1)
-        
-        elif tensor.dim() == 4:
-            # Batched tensor [B, C, H, W] - process each in batch
-            batch_size, channels, height, width = tensor.shape
-            
-            if channels == 1:
-                # Already grayscale
-                if num_output_channels == 1:
-                    return tensor
-                else:
-                    return tensor.repeat(1, 3, 1, 1)
-            
-            elif channels == 3:
-                # RGB batch
-                return F.rgb_to_grayscale(tensor, num_output_channels=num_output_channels)
-            
-            elif channels == 4:
-                # RGBA batch - drop alpha channel first
-                rgb_tensor = tensor[:, :3, :, :]  # Keep only RGB channels
-                return F.rgb_to_grayscale(rgb_tensor, num_output_channels=num_output_channels)
-            
-            else:
-                # Handle other channel counts by averaging
-                grayscale = torch.mean(tensor, dim=1, keepdim=True)  # [B, 1, H, W]
-                if num_output_channels == 1:
-                    return grayscale
-                else:
-                    return grayscale.repeat(1, 3, 1, 1)
-        
-        else:
-            raise ValueError(f"Unsupported tensor dimensions: {tensor.dim()}. Expected 2D, 3D, or 4D tensor.")
-            
-    except ImportError:
-        raise RuntimeError("PyTorch not available")
+    """Convert tensor to grayscale, handling tensors shaped (..., C, H, W) or (H, W). Supports 1/3/4 channels."""
+    import torch
+    import torchvision.transforms.functional as F
+
+    if num_output_channels not in (1, 3):
+        raise ValueError("num_output_channels must be 1 or 3.")
+
+    # Normalize to have a channel dim
+    if tensor.dim() == 2:                               # (H, W)
+        tensor = tensor.unsqueeze(0)                    # (1, H, W)
+
+    if tensor.dim() < 3:
+        raise ValueError("Expected at least 3D tensor with channel dimension.")
+
+    C = tensor.shape[-3]
+
+    if C == 1:
+        y = tensor
+    elif C == 3:
+        y = F.rgb_to_grayscale(tensor, num_output_channels=1)
+    elif C == 4:
+        y = F.rgb_to_grayscale(tensor[..., :3, :, :], num_output_channels=1)
+    else:
+        # Fallback: simple mean across channels
+        y = tensor.float().mean(dim=-3, keepdim=True).to(tensor.dtype) if tensor.is_floating_point() else tensor.mean(dim=-3, keepdim=True)
+
+    if num_output_channels == 3:
+        y = y.repeat_interleave(3, dim=-3)
+
+    return y
 
 
 @TransformRegistry.register("torch_split_width")
