@@ -2,15 +2,16 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
 from matplotlib.patches import Ellipse
 
 from ...trainers.callback import CallbackRegistry
+from ...utils.visualization import to_numpy_image
 
 
 @CallbackRegistry.register("centroid_ellipse_callback")
 def make_centroid_ellipse_callback(dataset=None, save_dir=None):
     """Callback that visualizes beam centroid and width ellipses using a fixed sample from dataset."""
+    import tensorflow as tf
 
     class CentroidEllipseCallback(tf.keras.callbacks.Callback):
         def __init__(self, save_dir=save_dir):
@@ -213,15 +214,23 @@ def plot_centroid_ellipse(
 from datetime import datetime
 
 
-def _visualize_image_reconstruction(img_in, img_pred, img_true, epoch, save_dir=None, cmap="viridis"):
+def _visualize_image_reconstruction(
+    img_in, img_pred, img_true, epoch, save_dir=None, cmap="viridis"
+):
     """Shared visualization logic for image reconstruction callbacks."""
     import os
-    
+
     fig, axs = plt.subplots(2, 3, figsize=(10, 6))
     images = [img_in, img_pred, img_true, img_in, img_pred, img_true]
-    titles = ["Input", "Reconstructed", "Ground Truth", 
-             "Input (rescale)", "Reconstructed (rescale)", "Ground Truth (rescale)"]
-    
+    titles = [
+        "Input",
+        "Reconstructed",
+        "Ground Truth",
+        "Input (rescale)",
+        "Reconstructed (rescale)",
+        "Ground Truth (rescale)",
+    ]
+
     for i, ax in enumerate(axs.flat):
         if i < 3:
             ax.imshow(images[i], cmap=cmap, vmin=0, vmax=1)
@@ -241,6 +250,7 @@ def _visualize_image_reconstruction(img_in, img_pred, img_true, epoch, save_dir=
     else:
         try:
             from IPython.display import clear_output, display
+
             clear_output(wait=True)
             display(fig)
         except ImportError:
@@ -251,24 +261,17 @@ def _visualize_image_reconstruction(img_in, img_pred, img_true, epoch, save_dir=
             arr = arr.numpy()
         return np.max(arr)
 
-    print(f"input image max pixel: {get_max(img_in)}, "
-          f"ground truth image max pixel: {get_max(img_true)}, "
-          f"reconstructed image max pixel: {get_max(img_pred)}")
-
-
-def _get_image_from_array(arr):
-    """Shared helper to extract image from array/tensor."""
-    if hasattr(arr, 'numpy'):
-        arr = arr.numpy()
-    arr = arr[0] if arr.ndim > 3 else arr
-    if arr.ndim == 3 and arr.shape[-1] == 1:
-        arr = arr[..., 0]
-    return arr
+    print(
+        f"input image max pixel: {get_max(img_in)}, "
+        f"ground truth image max pixel: {get_max(img_true)}, "
+        f"reconstructed image max pixel: {get_max(img_pred)}"
+    )
 
 
 @CallbackRegistry.register("image_reconstruction_callback")
 def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridis"):
     """Callback that visualizes input, predicted, and ground truth images side by side, with and without min-max rescaling."""
+    import tensorflow as tf
 
     class ImageReconstructionCallback(tf.keras.callbacks.Callback):
         def __init__(self, save_dir=save_dir, cmap=cmap):
@@ -308,11 +311,13 @@ def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridi
                 y_true = Y[idx]
                 y_pred = self.model.predict(x, verbose=0)
 
-                img_in = _get_image_from_array(x)
-                img_pred = _get_image_from_array(y_pred)
-                img_true = _get_image_from_array(y_true)
+                img_in = to_numpy_image(x)
+                img_pred = to_numpy_image(y_pred)
+                img_true = to_numpy_image(y_true)
 
-                _visualize_image_reconstruction(img_in, img_pred, img_true, epoch, self.save_dir, self.cmap)
+                _visualize_image_reconstruction(
+                    img_in, img_pred, img_true, epoch, self.save_dir, self.cmap
+                )
 
             except Exception as e:
                 print(f"ImageReconstructionCallback error: {e}")
@@ -321,14 +326,17 @@ def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridi
 
 
 @CallbackRegistry.register("torch_image_reconstruction_callback")
-def make_torch_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridis"):
+def make_torch_image_reconstruction_callback(
+    dataset=None, save_dir=None, cmap="viridis"
+):
     """Create PyTorch image reconstruction visualization callback."""
     import os
     from datetime import datetime
+
     from ...trainers.callback import PyTorchCallback
-    
+
     class TorchImageReconstructionCallback(PyTorchCallback):
-        def __init__(self):
+        def __init__(self, save_dir=save_dir, cmap=cmap):
             super().__init__()
             self.dataset = dataset
             self.sample_batch = None
@@ -356,27 +364,29 @@ def make_torch_image_reconstruction_callback(dataset=None, save_dir=None, cmap="
                 return
             try:
                 import torch
-                
+
                 X, Y = self.sample_batch
                 idx = np.random.randint(0, len(X))
-                x = X[idx:idx+1]
+                x = X[idx : idx + 1]
                 y_true = Y[idx]
-                
+
                 model.eval()
                 with torch.no_grad():
-                    if hasattr(x, 'to'):
+                    if hasattr(x, "to"):
                         x = x.to(next(model.parameters()).device)
                     y_pred = model(x)
-                    if hasattr(y_pred, 'cpu'):
+                    if hasattr(y_pred, "cpu"):
                         y_pred = y_pred.cpu()
 
-                img_in = _get_image_from_array(x)
-                img_pred = _get_image_from_array(y_pred)
-                img_true = _get_image_from_array(y_true)
+                img_in = to_numpy_image(x)
+                img_pred = to_numpy_image(y_pred)
+                img_true = to_numpy_image(y_true)
 
-                _visualize_image_reconstruction(img_in, img_pred, img_true, epoch, self.save_dir, self.cmap)
+                _visualize_image_reconstruction(
+                    img_in, img_pred, img_true, epoch, self.save_dir, self.cmap
+                )
 
             except Exception as e:
                 print(f"TorchImageReconstructionCallback error: {e}")
-    
+
     return TorchImageReconstructionCallback()

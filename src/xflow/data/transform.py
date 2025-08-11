@@ -5,7 +5,18 @@ import logging
 import random
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 import numpy as np
 from PIL import Image
@@ -22,6 +33,7 @@ if TYPE_CHECKING:
 try:
     from torch.utils.data import Dataset as _TorchDataset  # type: ignore
 except Exception:
+
     class _TorchDataset:  # minimal stub
         pass
 
@@ -629,6 +641,7 @@ def torch_load_image(path: PathLikeStr) -> TensorLike:
     """Load image from file path using torchvision."""
     try:
         import torchvision.io
+
         return torchvision.io.read_image(str(path))
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -641,7 +654,7 @@ def torch_to_tensor(image: ImageLike) -> TensorLike:
         import torch
         import torchvision.transforms.functional as F
         from PIL import Image
-        
+
         if isinstance(image, Image.Image):
             return F.to_tensor(image)
         elif isinstance(image, np.ndarray):
@@ -659,6 +672,7 @@ def torch_to_pil(tensor: TensorLike) -> Image.Image:
     """Convert PyTorch tensor to PIL Image."""
     try:
         import torchvision.transforms.functional as F
+
         return F.to_pil_image(tensor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -675,7 +689,7 @@ def torch_remap_range(
     """Remap tensor values from [current_min, current_max] to [target_min, target_max] using PyTorch."""
     try:
         import torch
-        
+
         tensor = tensor.float()
         denominator = current_max - current_min
         if denominator == 0:
@@ -688,19 +702,21 @@ def torch_remap_range(
 
 
 @TransformRegistry.register("torch_resize")
-def torch_resize(tensor: TensorLike, size: List[int], interpolation: str = "bilinear") -> TensorLike:
+def torch_resize(
+    tensor: TensorLike, size: List[int], interpolation: str = "bilinear"
+) -> TensorLike:
     """Resize tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
         from torchvision.transforms import InterpolationMode
-        
+
         interp_map = {
             "nearest": InterpolationMode.NEAREST,
             "bilinear": InterpolationMode.BILINEAR,
             "bicubic": InterpolationMode.BICUBIC,
             "lanczos": InterpolationMode.LANCZOS,
         }
-        
+
         interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
         return F.resize(tensor, size, interpolation=interp_mode)
     except ImportError:
@@ -712,6 +728,7 @@ def torch_center_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
     """Center crop tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.center_crop(tensor, size)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -722,6 +739,7 @@ def torch_random_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
     """Random crop tensor using torchvision."""
     try:
         import torchvision.transforms as T
+
         transform = T.RandomCrop(size)
         return transform(tensor)
     except ImportError:
@@ -733,6 +751,7 @@ def torch_horizontal_flip(tensor: TensorLike) -> TensorLike:
     """Horizontally flip tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.hflip(tensor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -743,6 +762,7 @@ def torch_vertical_flip(tensor: TensorLike) -> TensorLike:
     """Vertically flip tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.vflip(tensor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -753,6 +773,7 @@ def torch_random_horizontal_flip(tensor: TensorLike, p: float = 0.5) -> TensorLi
     """Randomly horizontally flip tensor using torchvision."""
     try:
         import torchvision.transforms as T
+
         transform = T.RandomHorizontalFlip(p=p)
         return transform(tensor)
     except ImportError:
@@ -764,6 +785,7 @@ def torch_random_vertical_flip(tensor: TensorLike, p: float = 0.5) -> TensorLike
     """Randomly vertically flip tensor using torchvision."""
     try:
         import torchvision.transforms as T
+
         transform = T.RandomVerticalFlip(p=p)
         return transform(tensor)
     except ImportError:
@@ -771,18 +793,20 @@ def torch_random_vertical_flip(tensor: TensorLike, p: float = 0.5) -> TensorLike
 
 
 @TransformRegistry.register("torch_rotation")
-def torch_rotation(tensor: TensorLike, angle: float, interpolation: str = "bilinear") -> TensorLike:
+def torch_rotation(
+    tensor: TensorLike, angle: float, interpolation: str = "bilinear"
+) -> TensorLike:
     """Rotate tensor by angle using torchvision."""
     try:
         import torchvision.transforms.functional as F
         from torchvision.transforms import InterpolationMode
-        
+
         interp_map = {
             "nearest": InterpolationMode.NEAREST,
             "bilinear": InterpolationMode.BILINEAR,
             "bicubic": InterpolationMode.BICUBIC,
         }
-        
+
         interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
         return F.rotate(tensor, angle, interpolation=interp_mode)
     except ImportError:
@@ -794,6 +818,7 @@ def torch_random_rotation(tensor: TensorLike, degrees: List[float]) -> TensorLik
     """Randomly rotate tensor using torchvision."""
     try:
         import torchvision.transforms as T
+
         transform = T.RandomRotation(degrees)
         return transform(tensor)
     except ImportError:
@@ -810,8 +835,8 @@ def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> Tens
         raise ValueError("num_output_channels must be 1 or 3.")
 
     # Normalize to have a channel dim
-    if tensor.dim() == 2:                               # (H, W)
-        tensor = tensor.unsqueeze(0)                    # (1, H, W)
+    if tensor.dim() == 2:  # (H, W)
+        tensor = tensor.unsqueeze(0)  # (1, H, W)
 
     if tensor.dim() < 3:
         raise ValueError("Expected at least 3D tensor with channel dimension.")
@@ -826,7 +851,11 @@ def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> Tens
         y = F.rgb_to_grayscale(tensor[..., :3, :, :], num_output_channels=1)
     else:
         # Fallback: simple mean across channels
-        y = tensor.float().mean(dim=-3, keepdim=True).to(tensor.dtype) if tensor.is_floating_point() else tensor.mean(dim=-3, keepdim=True)
+        y = (
+            tensor.float().mean(dim=-3, keepdim=True).to(tensor.dtype)
+            if tensor.is_floating_point()
+            else tensor.mean(dim=-3, keepdim=True)
+        )
 
     if num_output_channels == 3:
         y = y.repeat_interleave(3, dim=-3)
@@ -836,23 +865,27 @@ def torch_to_grayscale(tensor: TensorLike, num_output_channels: int = 1) -> Tens
 
 @TransformRegistry.register("torch_split_width")
 def torch_split_width(
-    tensor: TensorLike, swap: bool = False
+    tensor: TensorLike, swap: bool = False, width_dim: int = -1
 ) -> Tuple[TensorLike, TensorLike]:
-    """Split tensor at width midpoint using PyTorch conventions.
-    
-    Works with any PyTorch tensor where the last dimension is width.
+    """Split tensor at width midpoint along specified dimension.
+
+    Args:
+        tensor: Input tensor to split
+        swap: If True, return (right_half, left_half) instead of (left_half, right_half)
+        width_dim: Dimension to split along (0, 1, 2, 3, etc. or -1 for last)
+
+    Returns:
+        Tuple of (left_half, right_half) or (right_half, left_half) if swap=True
     """
     try:
         import torch
-        
-        # Width is always the last dimension in PyTorch image tensors
-        width = tensor.shape[-1]
+
+        width = tensor.shape[width_dim]
         mid_point = width // 2
-        
-        # Use ellipsis to handle any number of leading dimensions
-        left_half = tensor[..., :mid_point]
-        right_half = tensor[..., mid_point:]
-        
+
+        left_half = torch.split(tensor, mid_point, dim=width_dim)[0]
+        right_half = torch.split(tensor, mid_point, dim=width_dim)[1]
+
         if swap:
             return right_half, left_half
         return left_half, right_half
@@ -865,6 +898,7 @@ def torch_adjust_brightness(tensor: TensorLike, brightness_factor: float) -> Ten
     """Adjust brightness of tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.adjust_brightness(tensor, brightness_factor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -875,6 +909,7 @@ def torch_adjust_contrast(tensor: TensorLike, contrast_factor: float) -> TensorL
     """Adjust contrast of tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.adjust_contrast(tensor, contrast_factor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -885,6 +920,7 @@ def torch_adjust_saturation(tensor: TensorLike, saturation_factor: float) -> Ten
     """Adjust saturation of tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.adjust_saturation(tensor, saturation_factor)
     except ImportError:
         raise RuntimeError("torchvision not available")
@@ -895,36 +931,52 @@ def torch_adjust_hue(tensor: TensorLike, hue_factor: float) -> TensorLike:
     """Adjust hue of tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.adjust_hue(tensor, hue_factor)
     except ImportError:
         raise RuntimeError("torchvision not available")
 
 
 @TransformRegistry.register("torch_gaussian_blur")
-def torch_gaussian_blur(tensor: TensorLike, kernel_size: List[int], sigma: List[float] = None) -> TensorLike:
+def torch_gaussian_blur(
+    tensor: TensorLike, kernel_size: List[int], sigma: List[float] = None
+) -> TensorLike:
     """Apply Gaussian blur to tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.gaussian_blur(tensor, kernel_size, sigma)
     except ImportError:
         raise RuntimeError("torchvision not available")
 
 
 @TransformRegistry.register("torch_pad")
-def torch_pad(tensor: TensorLike, padding: List[int], fill: float = 0, padding_mode: str = "constant") -> TensorLike:
+def torch_pad(
+    tensor: TensorLike,
+    padding: List[int],
+    fill: float = 0,
+    padding_mode: str = "constant",
+) -> TensorLike:
     """Pad tensor using torchvision."""
     try:
         import torchvision.transforms.functional as F
+
         return F.pad(tensor, padding, fill=fill, padding_mode=padding_mode)
     except ImportError:
         raise RuntimeError("torchvision not available")
 
 
 @TransformRegistry.register("torch_random_crop_resize")
-def torch_random_crop_resize(tensor: TensorLike, size: List[int], scale: List[float] = (0.8, 1.0), ratio: List[float] = (0.75, 1.33)) -> TensorLike:
+def torch_random_crop_resize(
+    tensor: TensorLike,
+    size: List[int],
+    scale: List[float] = (0.8, 1.0),
+    ratio: List[float] = (0.75, 1.33),
+) -> TensorLike:
     """Random crop and resize tensor using torchvision."""
     try:
         import torchvision.transforms as T
+
         transform = T.RandomResizedCrop(size, scale=scale, ratio=ratio)
         return transform(tensor)
     except ImportError:
@@ -932,23 +984,81 @@ def torch_random_crop_resize(tensor: TensorLike, size: List[int], scale: List[fl
 
 
 @TransformRegistry.register("torch_color_jitter")
-def torch_color_jitter(tensor: TensorLike, brightness: float = 0, contrast: float = 0, saturation: float = 0, hue: float = 0) -> TensorLike:
+def torch_color_jitter(
+    tensor: TensorLike,
+    brightness: float = 0,
+    contrast: float = 0,
+    saturation: float = 0,
+    hue: float = 0,
+) -> TensorLike:
     """Apply color jitter to tensor using torchvision."""
     try:
         import torchvision.transforms as T
-        transform = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
+        transform = T.ColorJitter(
+            brightness=brightness, contrast=contrast, saturation=saturation, hue=hue
+        )
         return transform(tensor)
     except ImportError:
         raise RuntimeError("torchvision not available")
 
 
+@TransformRegistry.register("torch_permute")
+def torch_permute(
+    tensor, dims=None, format_from="BHWC", format_to="BCHW", make_contiguous=False
+):
+    """
+    Permute tensor dims either explicitly (dims) or via format strings.
+    Examples:
+      torch_permute(x, dims=[0,3,1,2])           # BHWC -> BCHW
+      torch_permute(x, format_from="BHWC", format_to="BCHW")
+      torch_permute(x, format_from="HWC",  format_to="CHW")
+    """
+    import torch
+
+    rank = tensor.dim()
+
+    if dims is not None:
+        if len(dims) != rank:
+            raise ValueError(f"dims length {len(dims)} != tensor rank {rank}")
+        if sorted(dims) != list(range(rank)):
+            raise ValueError(f"dims must be a permutation of 0..{rank-1}, got {dims}")
+        out = tensor.permute(*dims)
+        return out.contiguous() if make_contiguous else out
+
+    # Normalize format strings
+    fr = "".join(format_from.split()).upper()
+    to = "".join(format_to.split()).upper()
+
+    if len(fr) != len(to):
+        raise ValueError(f"format lengths differ: {fr} vs {to}")
+    if len(fr) != rank:
+        raise ValueError(f"format length {len(fr)} != tensor rank {rank}")
+    if len(set(fr)) != len(fr) or len(set(to)) != len(to):
+        raise ValueError("format chars must be unique (e.g., no repeated 'H')")
+    if set(fr) != set(to):
+        raise ValueError(f"formats must contain same symbols: {fr} vs {to}")
+
+    # Build permutation: for each target char, find its index in source
+    idx = [fr.index(ch) for ch in to]
+    out = tensor.permute(*idx)
+    return out.contiguous() if make_contiguous else out
+
+
 # PyTorch dataset operations
 @DatasetOperationRegistry.register("torch_batch")
-def torch_batch(dataset: "_TorchDataset", batch_size: int, drop_last: bool = False,
-                shuffle: bool = False, num_workers: int = 0,
-                pin_memory: bool = False, collate_fn: Optional[Any] = None,
-                pin_memory_device: str = "", worker_init_fn=None,
-                prefetch_factor: Optional[int] = None):
+def torch_batch(
+    dataset: "_TorchDataset",
+    batch_size: int,
+    drop_last: bool = False,
+    shuffle: bool = False,
+    num_workers: int = 0,
+    pin_memory: bool = False,
+    collate_fn: Optional[Any] = None,
+    pin_memory_device: str = "",
+    worker_init_fn=None,
+    prefetch_factor: Optional[int] = None,
+):
     """Wrap a dataset in a PyTorch DataLoader for batching."""
     try:
         from torch.utils.data import DataLoader  # lazy import
@@ -968,6 +1078,7 @@ def torch_batch(dataset: "_TorchDataset", batch_size: int, drop_last: bool = Fal
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
     )
 
+
 @DatasetOperationRegistry.register("torch_subset")
 def torch_subset(dataset: "_TorchDataset", indices: List[int]):
     """Create a subset of a dataset using specified indices."""
@@ -976,6 +1087,7 @@ def torch_subset(dataset: "_TorchDataset", indices: List[int]):
     except Exception:
         raise RuntimeError("PyTorch not available")
     return Subset(dataset, indices)
+
 
 @DatasetOperationRegistry.register("torch_concat")
 def torch_concat(datasets: List["_TorchDataset"]):
@@ -986,8 +1098,11 @@ def torch_concat(datasets: List["_TorchDataset"]):
         raise RuntimeError("PyTorch not available")
     return ConcatDataset(datasets)
 
+
 @DatasetOperationRegistry.register("torch_random_split")
-def torch_random_split(dataset: "_TorchDataset", lengths: Sequence[int], generator=None):
+def torch_random_split(
+    dataset: "_TorchDataset", lengths: Sequence[int], generator=None
+):
     """Randomly split a dataset into non-overlapping subsets."""
     try:
         from torch.utils.data import random_split  # lazy import
@@ -995,8 +1110,10 @@ def torch_random_split(dataset: "_TorchDataset", lengths: Sequence[int], generat
         raise RuntimeError("PyTorch not available")
     return random_split(dataset, lengths, generator=generator)
 
+
 class TorchDataset(_TorchDataset):
     """Map-style Dataset wrapper for an indexable pipeline."""
+
     def __init__(self, pipeline):
         self.pipeline = pipeline  # expects __len__ and __getitem__
 

@@ -4,7 +4,16 @@ from typing import Dict, Optional, Tuple
 
 from ...data.transform import TransformRegistry
 from ...utils.typing import TensorLike
-from .beam import extract_beam_parameters, extract_beam_parameters_tf
+from .beam import extract_beam_parameters
+
+# Conditionally import TensorFlow version if available
+try:
+    from .beam import extract_beam_parameters_tf
+
+    TF_AVAILABLE = True
+except ImportError:
+    extract_beam_parameters_tf = None
+    TF_AVAILABLE = False
 
 
 @TransformRegistry.register("split_width_with_analysis")
@@ -80,6 +89,11 @@ def tf_split_width_with_analysis(
         Tuple of (right_half_image, parameters_dict) or (right_half_image, parameters_dict, left_half_image)
         if return_all is True, or None if extraction fails or parameters are unreasonable
     """
+    if not TF_AVAILABLE:
+        raise ImportError(
+            "TensorFlow is required for tf_split_width_with_analysis but not available"
+        )
+
     import tensorflow as tf
 
     # Split image at width midpoint
