@@ -25,8 +25,6 @@
 
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
-**XFlow** keeps things **simple** and **minimal**.
-
 ---
 
 ## 🚀 Getting Started
