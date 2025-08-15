@@ -1150,7 +1150,8 @@ def torch_unsqueeze(tensor: TensorLike, dim: int) -> TensorLike:
 def torch_debug_shape(
     tensor: TensorLike, 
     label: str = "tensor", 
-    show_stats: bool = False
+    show_stats: bool = False,
+    blocking: bool = False
 ) -> TensorLike:
     """Debug utility that prints tensor shape and passes data through unchanged.
     
@@ -1161,6 +1162,7 @@ def torch_debug_shape(
         tensor: Input PyTorch tensor (passed through unchanged)
         label: Descriptive label for the tensor (default: "tensor")
         show_stats: Whether to show additional statistics (mean, std, min, max)
+        blocking: If True, waits for user input before continuing (useful for step-by-step debugging)
     
     Returns:
         The input tensor unchanged
@@ -1171,9 +1173,14 @@ def torch_debug_shape(
         >>> x = torch_debug_shape(x, "after_loading")
         # Prints: "[DEBUG] after_loading: torch.Size([32, 3, 224, 224]) | dtype: float32"
         
-        >>> # With statistics
-        >>> x = torch_debug_shape(x, "normalized", show_stats=True)
+        >>> # With statistics and blocking
+        >>> x = torch_debug_shape(x, "normalized", show_stats=True, blocking=True)
         # Prints: "[DEBUG] normalized: torch.Size([32, 3, 224, 224]) | dtype: float32 | μ=0.02 σ=1.0 [min=-2.1, max=2.3]"
+        # Waits: "Press Enter to continue..."
+        
+        >>> # Step-by-step pipeline debugging
+        >>> x = torch_debug_shape(x, "critical_point", blocking=True)
+        # Pauses execution to examine this specific step
     """
     try:
         import torch
@@ -1194,10 +1201,16 @@ def torch_debug_shape(
                 shape_str += f" | range=[{min_val}, {max_val}]"
         
         print(shape_str)
+        
+        if blocking:
+            input("Press Enter to continue...")
+        
         return tensor
         
     except ImportError:
         print(f"[DEBUG] {label}: <torch not available>")
+        if blocking:
+            input("Press Enter to continue...")
         return tensor
 
 
