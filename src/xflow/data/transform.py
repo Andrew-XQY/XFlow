@@ -1062,6 +1062,86 @@ def torch_permute(
     return out.contiguous() if make_contiguous else out
 
 
+@TransformRegistry.register("torch_squeeze")
+def torch_squeeze(tensor: TensorLike, dim: Optional[int] = None) -> TensorLike:
+    """Remove dimensions of size 1 from PyTorch tensor.
+    
+    This is the PyTorch equivalent of the numpy squeeze function, designed to 
+    handle image channel squeezing operations like:
+    - (256, 256, 1) -> (256, 256)  # Remove trailing single channel
+    - (1, 256, 256) -> (256, 256)  # Remove leading single channel
+    - (1, 1, 256, 256) -> (256, 256)  # Remove multiple single dimensions
+    
+    Args:
+        tensor: Input PyTorch tensor
+        dim: If given, only removes dimensions of size 1 at the specified dimension.
+             If None, removes all dimensions of size 1.
+    
+    Returns:
+        Squeezed tensor with single-size dimensions removed
+    
+    Examples:
+        >>> # Remove trailing channel dimension: (H, W, 1) -> (H, W)
+        >>> tensor = torch.randn(256, 256, 1)
+        >>> squeezed = torch_squeeze(tensor, dim=2)  # or dim=-1
+        
+        >>> # Remove leading batch/channel dimension: (1, H, W) -> (H, W)
+        >>> tensor = torch.randn(1, 256, 256)
+        >>> squeezed = torch_squeeze(tensor, dim=0)
+        
+        >>> # Remove all single dimensions automatically
+        >>> tensor = torch.randn(1, 256, 256, 1)
+        >>> squeezed = torch_squeeze(tensor)  # -> (256, 256)
+    """
+    try:
+        import torch
+        
+        if dim is not None:
+            # Only squeeze the specified dimension if it has size 1
+            if tensor.size(dim) == 1:
+                return torch.squeeze(tensor, dim=dim)
+            else:
+                return tensor  # Return unchanged if dimension is not size 1
+        else:
+            # Squeeze all dimensions of size 1
+            return torch.squeeze(tensor)
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
+@TransformRegistry.register("torch_unsqueeze")
+def torch_unsqueeze(tensor: TensorLike, dim: int) -> TensorLike:
+    """Add a dimension of size 1 at the specified position in PyTorch tensor.
+    
+    This is the PyTorch equivalent of expand_dims, useful for adding channel 
+    dimensions or batch dimensions:
+    - (256, 256) -> (256, 256, 1)  # Add channel dimension
+    - (256, 256) -> (1, 256, 256)  # Add batch dimension
+    
+    Args:
+        tensor: Input PyTorch tensor
+        dim: Position where the new dimension of size 1 will be inserted
+    
+    Returns:
+        Tensor with added dimension
+    
+    Examples:
+        >>> # Add channel dimension: (H, W) -> (H, W, 1)
+        >>> tensor = torch.randn(256, 256)
+        >>> with_channel = torch_unsqueeze(tensor, dim=2)  # or dim=-1
+        
+        >>> # Add batch dimension: (H, W) -> (1, H, W)
+        >>> tensor = torch.randn(256, 256)
+        >>> batched = torch_unsqueeze(tensor, dim=0)
+    """
+    try:
+        import torch
+        
+        return torch.unsqueeze(tensor, dim=dim)
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
 # PyTorch dataset operations
 @DatasetOperationRegistry.register("torch_batch")
 def torch_batch(
