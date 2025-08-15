@@ -33,11 +33,13 @@ CORE_API = {
     "PyTorchPipeline": APIItem("data.pipeline", "PyTorchPipeline"),
     "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
     "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
+    # Data source providers
     "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
+    # Manager modules
     "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
     "ConfigManager": APIItem("utils.config", "ConfigManager"),
-    # Models
+    # ML Models
     "BaseModel": APIItem("models.base", "BaseModel"),
     "show_model_info": APIItem("models.utils", "show_model_info"),
     # Utilities
