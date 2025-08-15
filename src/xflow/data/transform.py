@@ -1111,26 +1111,30 @@ def torch_squeeze(tensor: TensorLike, dim: Optional[int] = None) -> TensorLike:
 
 @TransformRegistry.register("torch_unsqueeze")
 def torch_unsqueeze(tensor: TensorLike, dim: int) -> TensorLike:
-    """Add a dimension of size 1 at the specified position in PyTorch tensor.
+    """Add dimension to PyTorch tensor at specified position.
     
-    This is the PyTorch equivalent of expand_dims, useful for adding channel 
-    dimensions or batch dimensions:
-    - (256, 256) -> (256, 256, 1)  # Add channel dimension
-    - (256, 256) -> (1, 256, 256)  # Add batch dimension
+    This is the PyTorch equivalent of numpy's expand_dims function, useful for:
+    - Adding batch dimension: (H, W, C) -> (1, H, W, C)
+    - Adding channel dimension: (H, W) -> (H, W, 1)
+    - Preparing tensors for operations that require specific dimensionality
     
     Args:
         tensor: Input PyTorch tensor
-        dim: Position where the new dimension of size 1 will be inserted
+        dim: Position where the new axis is placed
     
     Returns:
-        Tensor with added dimension
+        Tensor with an additional dimension of size 1 inserted at the specified position
     
     Examples:
-        >>> # Add channel dimension: (H, W) -> (H, W, 1)
-        >>> tensor = torch.randn(256, 256)
-        >>> with_channel = torch_unsqueeze(tensor, dim=2)  # or dim=-1
+        >>> # Add batch dimension at the beginning: (H, W, C) -> (1, H, W, C)
+        >>> tensor = torch.randn(256, 256, 3)
+        >>> batched = torch_unsqueeze(tensor, dim=0)
         
-        >>> # Add batch dimension: (H, W) -> (1, H, W)
+        >>> # Add channel dimension at the end: (H, W) -> (H, W, 1)
+        >>> tensor = torch.randn(256, 256)
+        >>> with_channel = torch_unsqueeze(tensor, dim=-1)
+        
+        >>> # Add dimension for broadcasting: (N,) -> (N, 1)
         >>> tensor = torch.randn(256, 256)
         >>> batched = torch_unsqueeze(tensor, dim=0)
     """
@@ -1140,6 +1144,94 @@ def torch_unsqueeze(tensor: TensorLike, dim: int) -> TensorLike:
         return torch.unsqueeze(tensor, dim=dim)
     except ImportError:
         raise RuntimeError("PyTorch not available")
+
+
+@TransformRegistry.register("torch_debug_shape")
+def torch_debug_shape(
+    tensor: TensorLike, 
+    label: str = "tensor", 
+    show_stats: bool = False
+) -> TensorLike:
+    """Debug utility that prints tensor shape and passes data through unchanged.
+    
+    Useful for inspecting data flow in transform pipelines without modifying the data.
+    Can be inserted anywhere in a pipeline to understand tensor dimensions.
+    
+    Args:
+        tensor: Input PyTorch tensor (passed through unchanged)
+        label: Descriptive label for the tensor (default: "tensor")
+        show_stats: Whether to show additional statistics (mean, std, min, max)
+    
+    Returns:
+        The input tensor unchanged
+    
+    Examples:
+        >>> # Basic shape debugging
+        >>> x = torch.randn(32, 3, 224, 224)
+        >>> x = torch_debug_shape(x, "after_loading")
+        # Prints: "[DEBUG] after_loading: torch.Size([32, 3, 224, 224]) | dtype: float32"
+        
+        >>> # With statistics
+        >>> x = torch_debug_shape(x, "normalized", show_stats=True)
+        # Prints: "[DEBUG] normalized: torch.Size([32, 3, 224, 224]) | dtype: float32 | μ=0.02 σ=1.0 [min=-2.1, max=2.3]"
+    """
+    try:
+        import torch
+        
+        # Basic info
+        shape_str = f"[DEBUG] {label}: {tensor.shape} | dtype: {tensor.dtype}"
+        
+        if show_stats and tensor.numel() > 0:
+            if tensor.is_floating_point():
+                mean_val = tensor.mean().item()
+                std_val = tensor.std().item() if tensor.numel() > 1 else 0.0
+                min_val = tensor.min().item()
+                max_val = tensor.max().item()
+                shape_str += f" | μ={mean_val:.2f} σ={std_val:.2f} [min={min_val:.1f}, max={max_val:.1f}]"
+            else:
+                min_val = tensor.min().item()
+                max_val = tensor.max().item()
+                shape_str += f" | range=[{min_val}, {max_val}]"
+        
+        print(shape_str)
+        return tensor
+        
+    except ImportError:
+        print(f"[DEBUG] {label}: <torch not available>")
+        return tensor
+
+
+@TransformRegistry.register("torch_shape")
+def torch_shape(tensor: TensorLike, label: str = "") -> TensorLike:
+    """Minimal shape debug utility - just prints shape and passes through.
+    
+    Ultra-simple version for quick debugging. Just prints the shape with 
+    optional label and returns the tensor unchanged.
+    
+    Args:
+        tensor: Input tensor (unchanged)
+        label: Optional prefix label
+    
+    Returns:
+        Input tensor unchanged
+        
+    Examples:
+        >>> x = torch_shape(torch.randn(3, 224, 224), "input")
+        # Prints: "input: (3, 224, 224)"
+        
+        >>> x = torch_shape(x)  # No label
+        # Prints: "(3, 224, 224)"
+    """
+    try:
+        import torch
+        if label:
+            print(f"{label}: {tuple(tensor.shape)}")
+        else:
+            print(f"{tuple(tensor.shape)}")
+        return tensor
+    except ImportError:
+        print(f"{label}: <torch unavailable>" if label else "<torch unavailable>")
+        return tensor
 
 
 # PyTorch dataset operations
