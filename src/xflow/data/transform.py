@@ -408,9 +408,26 @@ def build_transforms_from_config(
             )
         name = transform_config[name_key]
         params = transform_config.get(params_key, {})
-        transform_fn = TransformRegistry.get(name)
-        if params:
-            transform_fn = partial(transform_fn, **params)
+        
+        # Check if params has 'transforms' list (multi-branch pattern)
+        if "transforms" in params and isinstance(params["transforms"], list):
+            processed_params = params.copy()
+            nested_transforms = []
+            
+            for nested_config in params["transforms"]:
+                if nested_config is None:
+                    nested_transforms.append(None)
+                else:
+                    nested_transforms.append(build_transform_closure(nested_config, name_key, params_key))
+            
+            processed_params["transforms"] = nested_transforms
+            transform_fn = partial(TransformRegistry.get(name), **processed_params)
+        else:
+            # Regular transform - original behavior preserved
+            transform_fn = TransformRegistry.get(name)
+            if params:
+                transform_fn = partial(transform_fn, **params)
+        
         transforms.append(transform_fn)
     return transforms
 
@@ -1110,6 +1127,61 @@ def torch_random_split(
         raise RuntimeError("PyTorch not available")
     return random_split(dataset, lengths, generator=generator)
 
+
+@TransformRegistry.register("multi_transform")
+def multi_transform(inputs, transforms):
+    """Apply different transforms to multiple inputs.
+    
+    Args:
+        inputs: tuple/list of inputs (e.g., from split operations)
+        transforms: list of transform functions, one per input
+        
+    Returns:
+        tuple of transformed outputs
+    """
+    if not isinstance(inputs, (tuple, list)):
+        raise ValueError("inputs must be tuple or list")
+    
+    if len(inputs) != len(transforms):
+        raise ValueError(f"Number of inputs ({len(inputs)}) must match transforms ({len(transforms)})")
+    
+    results = []
+    for inp, transform in zip(inputs, transforms):
+        if transform is not None:  # Allow None to mean "no transform"
+            results.append(transform(inp))
+        else:
+            results.append(inp)
+    
+    return tuple(results)
+
+def build_transform_closure(transform_config, name_key="name", params_key="params"):
+    """Build a single transform function with preset parameters.
+    
+    Args:
+        transform_config: dict with transform name and params
+        
+    Returns:
+        Callable transform function with parameters bound
+    """
+    if isinstance(transform_config, str):
+        # Simple case: just transform name, no params
+        return TransformRegistry.get(transform_config)
+    
+    if name_key not in transform_config:
+        raise ValueError(f"Transform config missing '{name_key}' key: {transform_config}")
+    
+    name = transform_config[name_key]
+    params = transform_config.get(params_key, {})
+    transform_fn = TransformRegistry.get(name)
+    
+    if params:
+        return partial(transform_fn, **params)
+    return transform_fn
+
+@TransformRegistry.register("tuple_select")
+def tuple_select(inputs, index=0):
+    """Select specific item from tuple/list (useful after multi_transform)."""
+    return inputs[index]
 
 class TorchDataset(_TorchDataset):
     """Map-style Dataset wrapper for an indexable pipeline."""
