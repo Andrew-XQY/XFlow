@@ -2,7 +2,7 @@
 
 import copy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 # shim Self for Python <3.11
 try:
@@ -89,11 +89,21 @@ class ConfigManager:
         """Return config items."""
         return self._config.items()
 
-    def add_files(self, *file_paths: PathLikeStr) -> Self:
-        """Add files that are part of this configuration."""
-        for file_path in file_paths:
-            if file_path not in self._files:
-                self._files.append(file_path)
+    def add_files(self, file_paths: Union[PathLikeStr, List[PathLikeStr], Tuple[PathLikeStr, ...]]) -> Self:
+        """Add files that are part of this configuration.
+        
+        Args:
+            file_paths: Single file path or iterable of file paths
+        """
+        # Handle single file path
+        if isinstance(file_paths, (str, Path)):
+            if file_paths not in self._files:
+                self._files.append(file_paths)
+        # Handle iterable of file paths
+        else:
+            for file_path in file_paths:
+                if file_path not in self._files:
+                    self._files.append(file_path)
         return self
 
     def get(self) -> Dict[str, Any]:
