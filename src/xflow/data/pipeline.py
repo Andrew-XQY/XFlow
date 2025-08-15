@@ -299,3 +299,87 @@ class PyTorchPipeline(BasePipeline):
 
         except ImportError:
             raise RuntimeError("PyTorch not available")
+
+    def to_memory_dataset(self, dataset_ops: List[Dict] = None):
+        """
+        Load and process ALL data samples into memory as PyTorch TensorDataset.
+        Only use this for datasets that fit comfortably in your available RAM.
+        
+        This method:
+        1. Processes all data samples through the complete transform pipeline
+        2. Converts results to PyTorch tensors
+        3. Stores everything in memory for ultra-fast O(1) random access
+        4. Returns a native PyTorch TensorDataset
+        
+        Benefits:
+        - Eliminates file I/O during training (much faster)
+        - Enables efficient shuffling and random sampling
+        - Optimized for GPU transfer
+        
+        Args:
+            dataset_ops: Optional list of dataset operations to apply after loading
+            
+        Returns:
+            torch.utils.data.TensorDataset: In-memory dataset with all pre-processed tensors
+            
+        Example:
+            >>> pipeline = PyTorchPipeline(provider, transforms)
+            >>> # Load entire dataset into memory (use carefully!)
+            >>> memory_dataset = pipeline.load_all_into_memory()
+            >>> dataloader = DataLoader(memory_dataset, batch_size=32, shuffle=True)
+        """
+        try:
+            import torch
+            from torch.utils.data import TensorDataset
+            from .transform import apply_dataset_operations_from_config
+            from IPython.display import clear_output
+            from tqdm.auto import tqdm
+            
+            # Process all data through pipeline and collect results
+            processed_data = []
+            pbar = tqdm(
+                self, desc="Loading data into memory", leave=False, miniters=1, position=0
+            )
+            
+            for item in pbar:
+                # Convert to tensor if not already
+                if not isinstance(item, torch.Tensor):
+                    if isinstance(item, (tuple, list)):
+                        # Handle multiple outputs (e.g., features, labels)
+                        item = tuple(
+                            torch.tensor(x) if not isinstance(x, torch.Tensor) else x 
+                            for x in item
+                        )
+                    else:
+                        item = torch.tensor(item)
+                processed_data.append(item)
+            
+            pbar.close()
+            clear_output(wait=True)
+            
+            if not processed_data:
+                raise ValueError("No data was processed from the pipeline")
+            
+            # Handle the case where each item is a tuple/list (multiple tensors)
+            first_item = processed_data[0]
+            if isinstance(first_item, (tuple, list)):
+                # Stack each component separately
+                tensors = []
+                for i in range(len(first_item)):
+                    component_tensors = [item[i] for item in processed_data]
+                    stacked = torch.stack(component_tensors)
+                    tensors.append(stacked)
+                dataset = TensorDataset(*tensors)
+            else:
+                # Single tensor per item
+                stacked_tensor = torch.stack(processed_data)
+                dataset = TensorDataset(stacked_tensor)
+            
+            # Apply any additional dataset operations
+            if dataset_ops:
+                dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
+                
+            return dataset
+            
+        except ImportError:
+            raise RuntimeError("PyTorch not available")
