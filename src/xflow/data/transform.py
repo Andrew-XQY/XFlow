@@ -1317,12 +1317,24 @@ def torch_batch(
     pin_memory_device: str = "",
     worker_init_fn=None,
     prefetch_factor: Optional[int] = None,
+    seed: Optional[int] = None,   # <--- new
 ):
-    """Wrap a dataset in a PyTorch DataLoader for batching."""
-    try:
-        from torch.utils.data import DataLoader  # lazy import
-    except Exception:
-        raise RuntimeError("PyTorch not available")
+    """Wrap a dataset in a PyTorch DataLoader for batching with optional seed."""
+    from torch.utils.data import DataLoader
+    import torch
+
+    generator = None
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(int(seed))
+
+        if worker_init_fn is None and num_workers > 0:
+            def seed_worker(worker_id):
+                worker_seed = torch.initial_seed() % 2**32
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+            worker_init_fn = seed_worker
+
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -1335,6 +1347,7 @@ def torch_batch(
         collate_fn=collate_fn,
         worker_init_fn=worker_init_fn,
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
+        generator=generator,   # <--- key for deterministic shuffle
     )
 
 
