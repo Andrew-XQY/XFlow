@@ -695,6 +695,63 @@ def torch_to_pil(tensor: TensorLike) -> Image.Image:
         raise RuntimeError("torchvision not available")
 
 
+@TransformRegistry.register("torch_flatten")
+def torch_flatten(
+    tensor: TensorLike, 
+    start_dim: int = 1, 
+    end_dim: int = -1,
+    make_contiguous: bool = True
+) -> TensorLike:
+    """Flatten tensor dimensions for vectorization (e.g., image serialization).
+    
+    This is the standard PyTorch approach for converting multi-dimensional tensors
+    into vectors while preserving batch dimensions or other specified dimensions.
+    Commonly used for:
+    - Image vectorization: (B, C, H, W) -> (B, C*H*W)
+    - Feature flattening: (B, H, W, C) -> (B, H*W*C) 
+    - Complete flattening: (H, W, C) -> (H*W*C,)
+    
+    Args:
+        tensor: Input PyTorch tensor to flatten
+        start_dim: First dimension to flatten (inclusive). Default: 1 (preserve batch)
+        end_dim: Last dimension to flatten (inclusive). Default: -1 (last dimension)
+        make_contiguous: Whether to ensure output is contiguous in memory for better performance
+    
+    Returns:
+        Flattened tensor with dimensions from start_dim to end_dim collapsed into a single dimension
+    
+    Examples:
+        >>> # Image vectorization preserving batch: (32, 3, 224, 224) -> (32, 150528)
+        >>> images = torch.randn(32, 3, 224, 224)
+        >>> flattened = torch_flatten(images)  # start_dim=1 by default
+        
+        >>> # Complete flattening: (3, 224, 224) -> (150528,)
+        >>> image = torch.randn(3, 224, 224) 
+        >>> vector = torch_flatten(image, start_dim=0)
+        
+        >>> # Flatten spatial dimensions only: (32, 256, 7, 7) -> (32, 256, 49)
+        >>> features = torch.randn(32, 256, 7, 7)
+        >>> spatial_flat = torch_flatten(features, start_dim=2)
+        
+        >>> # Flatten everything except last dim: (32, 256, 7, 7) -> (114688, 7)
+        >>> flattened = torch_flatten(features, start_dim=0, end_dim=2)
+    """
+    try:
+        import torch
+        
+        # Use torch.flatten which is the standard and most efficient approach
+        flattened = torch.flatten(tensor, start_dim=start_dim, end_dim=end_dim)
+        
+        # Ensure contiguous memory layout for better performance if requested
+        if make_contiguous and not flattened.is_contiguous():
+            flattened = flattened.contiguous()
+            
+        return flattened
+        
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
+
+
 @TransformRegistry.register("torch_remap_range")
 def torch_remap_range(
     tensor: TensorLike,
