@@ -390,3 +390,83 @@ def make_torch_image_reconstruction_callback(
                 print(f"TorchImageReconstructionCallback error: {e}")
 
     return TorchImageReconstructionCallback()
+
+
+@CallbackRegistry.register("torch_serialized_image_reconstruction_callback")
+def make_torch_serialized_image_reconstruction_callback(
+    dataset=None, save_dir=None, cmap="viridis", inp_size=(128, 128), out_size=(128, 128)
+):
+    """Callback for models that output serialized (flattened) images."""
+    import torch
+    from ...trainers.callback import PyTorchCallback
+
+    class TorchSerializedImageReconstructionCallback(PyTorchCallback):
+        def __init__(self, save_dir=save_dir, cmap=cmap, inp_size=inp_size, out_size=out_size):
+            super().__init__()
+            self.dataset = dataset
+            self.sample_batch = None
+            self.save_dir = save_dir
+            self.cmap = cmap
+            self.inp_H, self.inp_W = inp_size
+            self.out_H, self.out_W = out_size
+            if self.dataset is not None:
+                self._refresh_sample()
+
+        def set_dataset(self, dataset):
+            self.dataset = dataset
+            self._refresh_sample()
+
+        def _refresh_sample(self):
+            if self.dataset is None:
+                raise ValueError("Dataset must be set before using the callback.")
+            if isinstance(self.dataset, tuple) and len(self.dataset) == 2:
+                self.sample_batch = self.dataset
+            else:
+                self.sample_batch = next(iter(self.dataset))
+
+        def on_epoch_begin(self, epoch, model=None, **kwargs):
+            if self.dataset is not None:
+                self._refresh_sample()
+            if self.sample_batch is None or model is None:
+                return
+            try:
+                X, Y = self.sample_batch
+                idx = np.random.randint(0, len(X))
+                x = X[idx : idx + 1]
+                y_true = Y[idx]
+
+                model.eval()
+                with torch.no_grad():
+                    if hasattr(x, "to"):
+                        x = x.to(next(model.parameters()).device)
+                    y_pred = model(x)
+                    if hasattr(y_pred, "cpu"):
+                        y_pred = y_pred.cpu()
+
+                # reshape serialized input to image
+                if x.ndim == 2 and x.shape[1] == self.inp_H * self.inp_W:
+                    x = x.view(-1, 1, self.inp_H, self.inp_W)
+                
+                # reshape serialized output to image
+                if y_pred.ndim == 2 and y_pred.shape[1] == self.out_H * self.out_W:
+                    y_pred = y_pred.view(-1, 1, self.out_H, self.out_W)
+                
+                # reshape serialized label to image
+                if y_true.ndim == 1 and len(y_true) == self.out_H * self.out_W:
+                    y_true = y_true.view(1, self.out_H, self.out_W)
+                elif y_true.ndim == 2 and y_true.shape[1] == self.out_H * self.out_W:
+                    y_true = y_true.view(-1, 1, self.out_H, self.out_W)
+
+                img_in = to_numpy_image(x)
+                img_pred = to_numpy_image(y_pred)
+                img_true = to_numpy_image(y_true)
+
+                _visualize_image_reconstruction(
+                    img_in, img_pred, img_true, epoch, self.save_dir, self.cmap
+                )
+
+            except Exception as e:
+                print(f"TorchSerializedImageReconstructionCallback error: {e}")
+
+    return TorchSerializedImageReconstructionCallback()
+
