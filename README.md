@@ -25,6 +25,11 @@
 
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
+<p align="center">
+  <img src="https://github.com/Andrew-XQY/XFlow/blob/64633e97d4393201ac759fb74ebed59541951cd0/images/Xflow.png" 
+       alt="XFlow Conceptual Design" width="600">
+</p>
+
 ---
 
 ## 🚀 Getting Started
