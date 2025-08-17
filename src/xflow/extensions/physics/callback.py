@@ -262,9 +262,9 @@ def _visualize_image_reconstruction(
         return np.max(arr)
 
     print(
-        f"input image max pixel: {get_max(img_in)}, "
-        f"ground truth image max pixel: {get_max(img_true)}, "
-        f"reconstructed image max pixel: {get_max(img_pred)}"
+        f"input image max pixel: {get_max(img_in):.4f}, "
+        f"ground truth image max pixel: {get_max(img_true):.4f}, "
+        f"reconstructed image max pixel: {get_max(img_pred):.4f}"
     )
 
 
