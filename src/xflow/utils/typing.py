@@ -104,6 +104,6 @@ ModelLike: TypeAlias = Union[
 ]
 
 # Model-related types
-Metrics: TypeAlias = Dict[str, Union[float, int, np.floating, np.integer]]
+Metrics: TypeAlias = Dict[str, Union[float, int, "np.floating", "np.integer"]]
 Batch: TypeAlias = Tuple[Any, Any]
 LossOrMetrics: TypeAlias = Union[float, Metrics]
