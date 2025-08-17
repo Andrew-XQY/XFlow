@@ -102,3 +102,8 @@ ModelLike: TypeAlias = Union[
     "torch.nn.Module",  # PyTorch model
     "Any",  # Any other custom model type
 ]
+
+# Model-related types
+Metrics: TypeAlias = Dict[str, Union[float, int, np.floating, np.integer]]
+Batch: TypeAlias = Tuple[Any, Any]
+LossOrMetrics: TypeAlias = Union[float, Metrics]
