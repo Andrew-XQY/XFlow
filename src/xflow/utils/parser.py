@@ -49,20 +49,55 @@ class YAMLParser(ConfigParser):
         with open(file_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
+    @staticmethod
+    def _add_blank_lines_between_top_level_keys(yaml_text: str) -> str:
+        """
+        Insert a single blank line between first-level mapping entries.
+        Leaves lists and nested blocks untouched.
+        """
+        import re
+
+        lines = yaml_text.splitlines()
+        out = []
+        seen_first_key = False
+        # Match a top-level key line like: key: ...   (not starting with space/#/-)
+        key_re = re.compile(r'^[^\s#-][^:]*:\s*(?:#.*)?$')
+
+        for line in lines:
+            if key_re.match(line):
+                if seen_first_key:
+                    # ensure exactly one blank line before the next top-level key
+                    if len(out) > 0 and out[-1].strip() != "":
+                        out.append("")
+                seen_first_key = True
+            out.append(line)
+
+        # Ensure trailing newline at EOF
+        return "\n".join(out) + "\n"
+
     def save(self, data: Any, file_path: PathLikeStr) -> None:
-        """Save data to YAML file."""
+        """Save data to YAML file with blank lines between top-level blocks."""
+        from pathlib import Path
+
         file_path = Path(file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                data,
-                f,
-                default_flow_style=False,
-                indent=2,
-                sort_keys=False,  # Preserve order
-                allow_unicode=True,
-            )
+        # Dump to a string first
+        dumped = yaml.dump(
+            data,
+            default_flow_style=False,
+            indent=2,
+            sort_keys=False,   # Preserve order
+            allow_unicode=True,
+        )
+
+        # Normalize newlines and add spacing between first-level keys
+        dumped = dumped.replace("\r\n", "\n").replace("\r", "\n")
+        pretty = self._add_blank_lines_between_top_level_keys(dumped)
+
+        with open(file_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(pretty)
+
 
 
 @register_parser(".json")
