@@ -36,7 +36,8 @@ CORE_API = {
     # Data source providers
     "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
-    # Manager modules
+    # Trainers
+    "TorchTrainer": APIItem("trainers.trainer", "TorchTrainer"),
     "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
     "ConfigManager": APIItem("utils.config", "ConfigManager"),
     # ML Models
@@ -68,6 +69,7 @@ PACKAGE_API = {
         "show_model_info": APIItem("utils", "show_model_info"),
     },
     "trainers": {
+        "TorchTrainer": APIItem("trainer", "TorchTrainer"),
         "BaseTrainer": APIItem("trainer", "BaseTrainer"),
         "CallbackRegistry": APIItem("callback", "CallbackRegistry"),
         "build_callbacks_from_config": APIItem(
@@ -83,9 +85,11 @@ PACKAGE_API = {
 }
 
 
-def generate_init(api_dict: Dict[str, APIItem],
-                  package_name: str = "xflow",
-                  include_version: bool = False) -> str:
+def generate_init(
+    api_dict: Dict[str, APIItem],
+    package_name: str = "xflow",
+    include_version: bool = False,
+) -> str:
     """Generate __init__.py content from API dictionary"""
     imports, aliases, all_items = [], [], []
 
@@ -95,7 +99,9 @@ def generate_init(api_dict: Dict[str, APIItem],
         if item.deprecated:
             continue
         full_module = f"{package_name}.{item.module_path}"
-        module_imports.setdefault(full_module, []).append((item.class_name, public_name))
+        module_imports.setdefault(full_module, []).append(
+            (item.class_name, public_name)
+        )
 
     # Import statements (relative)
     for module, items in module_imports.items():
@@ -127,6 +133,12 @@ def generate_init(api_dict: Dict[str, APIItem],
             "",
         ]
 
-    content = header + version_block + imports + [""] + aliases + ["", f"__all__ = {sorted(all_items)}"]
+    content = (
+        header
+        + version_block
+        + imports
+        + [""]
+        + aliases
+        + ["", f"__all__ = {sorted(all_items)}"]
+    )
     return "\n".join(content)
-
