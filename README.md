@@ -26,13 +26,13 @@
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
 <p align="center">
-  <img src="https://github.com/Andrew-XQY/XFlow/blob/d829e7f1291261fddca530cdb6ad5c9563db9d52/images/Xflow.png" 
+  <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/ab43da1ef082e09a683d1da21f82e9cef54d4033/images/Xflow.png" 
        alt="XFlow Conceptual Design" width="800">
 </p>
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Installation
 
@@ -51,7 +51,7 @@ pip install -e .
 ```
 ---
 
-## 🛠 Built With
+## Built With
 
 <p>
   <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
