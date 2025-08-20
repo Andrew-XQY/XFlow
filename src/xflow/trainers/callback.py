@@ -545,9 +545,16 @@ def make_torch_batch_progress_bar(
     update_freq: int = 1,
     show_metrics: bool = True,
     bar_width: int = 30,
+    only_keys=None,  # e.g. ["train_loss", "val_loss"]
+    hide_keys=None,  # e.g. ["val_accuracy"]
 ):
-    """Create a batch-level progress bar callback for PyTorch with detailed progress tracking."""
-    import sys
+    """Create a batch-level progress bar callback for PyTorch with detailed progress tracking.
+
+    Use:
+        make_torch_batch_progress_bar(only_keys=["train_loss", "val_loss"])
+        # or
+        make_torch_batch_progress_bar(hide_keys=["beam_param_metric"])
+    """
     import time
 
     class TorchBatchProgressBar(PyTorchCallback):
@@ -558,6 +565,10 @@ def make_torch_batch_progress_bar(
             self.show_metrics = show_metrics
             self.bar_width = max(10, bar_width)
 
+            # filtering
+            self.only_keys = set(only_keys) if only_keys else None
+            self.hide_keys = set(hide_keys or [])
+
             # Training state
             self.total_epochs = None
             self.current_epoch = 0
@@ -566,6 +577,27 @@ def make_torch_batch_progress_bar(
             self.epoch_start_time = None
             self.batch_times = []
 
+        # ------------------------ helpers ------------------------
+        def _format_metrics(self, logs):
+            if not logs or not self.show_metrics:
+                return ""
+            items = list(logs.items())
+            if self.only_keys is not None:
+                items = [(k, v) for k, v in items if k in self.only_keys]
+            if self.hide_keys:
+                items = [(k, v) for k, v in items if k not in self.hide_keys]
+            if not items:
+                return ""
+
+            def _fmt_val(v):
+                try:
+                    return f"{float(v):.4f}"
+                except Exception:
+                    return str(v)
+
+            return " - " + " - ".join(f"{k}: {_fmt_val(v)}" for k, v in items)
+
+        # ------------------------ lifecycle ------------------------
         def on_train_begin(self, epochs=None, **kwargs):
             """Initialize progress tracking."""
             self.total_epochs = epochs
@@ -588,19 +620,23 @@ def make_torch_batch_progress_bar(
                 epoch_info += f" - {self.total_batches} batches"
             print(f"\n{epoch_info}")
 
-        def on_batch_begin(self, batch, **kwargs):
-            """Track batch start."""
-            self.current_batch = batch
+        def on_batch_begin(self, batch=None, batch_idx=None, **kwargs):
+            """Track batch start (supports either arg name)."""
+            b = batch if batch is not None else batch_idx
+            if b is not None:
+                self.current_batch = b
 
-        def on_batch_end(self, batch, logs=None, **kwargs):
+        def on_batch_end(self, batch=None, batch_idx=None, logs=None, **kwargs):
             """Update progress bar after each batch."""
-            self.current_batch = batch + 1
+            b = batch if batch is not None else batch_idx
+            if b is None:
+                b = self.current_batch
+            self.current_batch = b + 1
 
             # Update every N batches or at the end
-            should_update = (batch + 1) % self.update_freq == 0 or (
-                self.total_batches and batch + 1 == self.total_batches
+            should_update = ((b + 1) % self.update_freq == 0) or (
+                self.total_batches and (b + 1) == self.total_batches
             )
-
             if should_update:
                 self._update_progress_bar(logs)
 
@@ -614,25 +650,20 @@ def make_torch_batch_progress_bar(
                 time.time() - self.epoch_start_time if self.epoch_start_time else 0
             )
             summary = f"\nEpoch {epoch + 1} completed in {epoch_time:.2f}s"
-
-            if logs and self.show_metrics:
-                metrics = " - ".join([f"{k}: {v:.4f}" for k, v in logs.items()])
-                summary += f" - {metrics}"
-
+            summary += self._format_metrics(logs)
             print(summary)
 
         def on_train_end(self, **kwargs):
             """Finish progress tracking."""
             print(f"\n{self.desc} completed!")
 
+        # ------------------------ rendering ------------------------
         def _update_progress_bar(self, logs=None, force_complete=False):
             """Update the progress bar display."""
             if self.total_batches is None:
                 # Simple counter if total unknown
                 progress = f"\rBatch {self.current_batch}"
-                if logs and self.show_metrics:
-                    metrics = " - ".join([f"{k}: {v:.4f}" for k, v in logs.items()])
-                    progress += f" - {metrics}"
+                progress += self._format_metrics(logs)
                 print(progress, end="", flush=True)
                 return
 
@@ -647,49 +678,39 @@ def make_torch_batch_progress_bar(
             # Create progress bar (TensorFlow style)
             filled_width = int(self.bar_width * progress_ratio)
             if progress_ratio < 1.0 and filled_width > 0:
-                # Show progress with = and > like TensorFlow
                 bar = (
                     "=" * (filled_width - 1)
                     + ">"
                     + "." * (self.bar_width - filled_width)
                 )
             elif progress_ratio >= 1.0:
-                # Complete bar
                 bar = "=" * self.bar_width
             else:
-                # Empty bar
                 bar = "." * self.bar_width
 
-            # Calculate percentage
+            # Percentage + ETA
             percentage = progress_ratio * 100
-
-            # Estimate time remaining
             if self.epoch_start_time and self.current_batch > 0:
                 elapsed = time.time() - self.epoch_start_time
                 if progress_ratio > 0:
                     total_estimated = elapsed / progress_ratio
                     remaining = max(0, total_estimated - elapsed)
-
-                    if remaining > 60:
-                        eta = f"{remaining/60:.1f}m"
-                    else:
-                        eta = f"{remaining:.0f}s"
+                    eta = (
+                        f"{remaining/60:.1f}m"
+                        if remaining > 60
+                        else f"{remaining:.0f}s"
+                    )
                 else:
                     eta = "?"
             else:
                 eta = "?"
 
-            # Build progress string
-            progress_str = f"\r[{bar}] {current}/{self.total_batches} "
-            progress_str += f"({percentage:5.1f}%) - ETA: {eta}"
+            # Build line
+            progress_str = f"\r[{bar}] {current}/{self.total_batches} ({percentage:5.1f}%) - ETA: {eta}"
+            progress_str += self._format_metrics(logs)
 
-            # Add metrics if available
-            if logs and self.show_metrics:
-                metrics = " - ".join([f"{k}: {v:.4f}" for k, v in logs.items()])
-                progress_str += f" - {metrics}"
-
-            # Print with proper spacing to clear previous line
-            print(f"{progress_str:<100}", end="", flush=True)
+            # Print with spacing to clear previous line
+            print(f"{progress_str:<120}", end="", flush=True)
 
     return TorchBatchProgressBar()
 

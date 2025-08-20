@@ -277,7 +277,7 @@ class TorchTrainer(BaseTrainer):
             total_batches=len(train_loader),
             logs={},
         )
-
+        ctx.epochs = epochs  # NEW: make epochs visible to callbacks
         self.cb.call("on_train_begin", ctx)
 
         global_step = 0
@@ -290,6 +290,7 @@ class TorchTrainer(BaseTrainer):
             sum_loss = 0.0
             for i, batch in enumerate(train_loader):
                 ctx.batch_idx = i
+                ctx.batch = i  # NEW: provide PyTorch-style 'batch'
                 self.cb.call("on_batch_begin", ctx)
                 logs = self.train_step(batch)
                 sum_loss += logs.get("loss", 0.0)
@@ -311,6 +312,7 @@ class TorchTrainer(BaseTrainer):
                 acc = collections.defaultdict(float)
                 for j, batch in enumerate(val_loader):
                     ctx.batch_idx = j
+                    ctx.batch = j
                     self.cb.call("on_val_batch_begin", ctx)
                     logs = self.val_step(batch)
                     for k, v in logs.items():
