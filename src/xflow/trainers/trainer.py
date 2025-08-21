@@ -293,6 +293,7 @@ class TorchTrainer(BaseTrainer):
                 ctx.batch = i  # NEW: provide PyTorch-style 'batch'
                 self.cb.call("on_batch_begin", ctx)
                 logs = self.train_step(batch)
+                logs["train_loss"] = float(logs.get("loss", 0.0))   # pass train_loss
                 sum_loss += logs.get("loss", 0.0)
                 global_step += 1
                 ctx.logs = logs
