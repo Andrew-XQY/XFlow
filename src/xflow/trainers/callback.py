@@ -569,15 +569,27 @@ def make_torch_batch_progress_bar(
             self.only_keys = set(only_keys) if only_keys else None
             self.hide_keys = set(hide_keys or [])
 
-            # Training state
+            # high-level training state
             self.total_epochs = None
             self.current_epoch = 0
+
+            # per-phase state
+            self.phase = "train"  # "train" or "val"
             self.total_batches = None
             self.current_batch = 0
-            self.epoch_start_time = None
-            self.batch_times = []
+            self.phase_start_time = None  # ETA timer per phase
 
         # ------------------------ helpers ------------------------
+        def _set_phase(self, phase: str, total_batches=None):
+            """Switch phase and reset per-phase counters/timer."""
+            self.phase = "train" if phase == "train" else "val"
+            self.total_batches = total_batches
+            self.current_batch = 0
+            self.phase_start_time = time.time()
+
+        def _phase_prefix(self):
+            return "Train" if self.phase == "train" else "Val  "
+
         def _format_metrics(self, logs):
             if not logs or not self.show_metrics:
                 return ""
@@ -597,122 +609,152 @@ def make_torch_batch_progress_bar(
 
             return " - " + " - ".join(f"{k}: {_fmt_val(v)}" for k, v in items)
 
-        # ------------------------ lifecycle ------------------------
+        # ------------------------ lifecycle: train ------------------------
         def on_train_begin(self, epochs=None, **kwargs):
-            """Initialize progress tracking."""
             self.total_epochs = epochs
             print(f"Starting {self.desc}")
             if self.total_epochs:
                 print(f"Total epochs: {self.total_epochs}")
 
         def on_epoch_begin(self, epoch, total_batches=None, **kwargs):
-            """Start epoch progress tracking."""
             self.current_epoch = epoch
-            self.total_batches = total_batches
-            self.current_batch = 0
-            self.epoch_start_time = time.time()
-            self.batch_times.clear()
-
-            epoch_info = f"Epoch {epoch + 1}"
+            self._set_phase("train", total_batches=total_batches)
+            epoch_info = f"\nEpoch {epoch + 1}"
             if self.total_epochs:
                 epoch_info += f"/{self.total_epochs}"
             if self.total_batches:
-                epoch_info += f" - {self.total_batches} batches"
-            print(f"\n{epoch_info}")
+                epoch_info += f" - {self.total_batches} train batches"
+            print(epoch_info)
 
         def on_batch_begin(self, batch=None, batch_idx=None, **kwargs):
-            """Track batch start (supports either arg name)."""
+            # Training batch begin (kept for backward compatibility)
+            if self.phase != "train":
+                self._set_phase("train", total_batches=self.total_batches)
             b = batch if batch is not None else batch_idx
             if b is not None:
                 self.current_batch = b
 
         def on_batch_end(self, batch=None, batch_idx=None, logs=None, **kwargs):
-            """Update progress bar after each batch."""
+            # Training batch end
+            if self.phase != "train":
+                self._set_phase("train", total_batches=self.total_batches)
             b = batch if batch is not None else batch_idx
             if b is None:
                 b = self.current_batch
             self.current_batch = b + 1
 
-            # Update every N batches or at the end
             should_update = ((b + 1) % self.update_freq == 0) or (
                 self.total_batches and (b + 1) == self.total_batches
             )
             if should_update:
                 self._update_progress_bar(logs)
 
+        # ------------------------ lifecycle: validation (two naming styles) ------------------------
+        # Style A: on_val_*
+        def on_val_epoch_begin(self, total_batches=None, **kwargs):
+            self._set_phase("val", total_batches=total_batches)
+            print(f"\nValidation ({total_batches or '?'} batches)")
+
+        def on_val_batch_begin(self, batch=None, batch_idx=None, **kwargs):
+            if self.phase != "val":
+                self._set_phase("val", total_batches=self.total_batches)
+            b = batch if batch is not None else batch_idx
+            if b is not None:
+                self.current_batch = b
+
+        def on_val_batch_end(self, batch=None, batch_idx=None, logs=None, **kwargs):
+            if self.phase != "val":
+                self._set_phase("val", total_batches=self.total_batches)
+            b = batch if batch is not None else batch_idx
+            if b is None:
+                b = self.current_batch
+            self.current_batch = b + 1
+
+            should_update = ((b + 1) % self.update_freq == 0) or (
+                self.total_batches and (b + 1) == self.total_batches
+            )
+            if should_update:
+                self._update_progress_bar(logs)
+
+        def on_val_epoch_end(self, logs=None, **kwargs):
+            self._update_progress_bar(logs, force_complete=True)
+            print("")  # newline
+            # reset phase; next epoch_begin will re-init train state
+            self.phase = "train"
+            self.total_batches = None
+            self.current_batch = 0
+            self.phase_start_time = None
+
+        # Style B: on_validation_* (aliases to A)
+        on_validation_begin = on_val_epoch_begin
+        on_validation_batch_end = on_val_batch_end
+        on_validation_end = on_val_epoch_end
+
+        # ------------------------ epoch/train end ------------------------
         def on_epoch_end(self, epoch, logs=None, **kwargs):
-            """Finalize epoch progress."""
-            # Ensure final update
+            # finalize training line
+            if self.phase != "train":
+                self._set_phase("train", total_batches=self.total_batches)
             self._update_progress_bar(logs, force_complete=True)
 
-            # Show epoch summary
-            epoch_time = (
-                time.time() - self.epoch_start_time if self.epoch_start_time else 0
-            )
+            # epoch summary (train + any aggregated val logs if provided)
+            epoch_time = 0.0
+            if self.phase_start_time:
+                epoch_time = time.time() - self.phase_start_time
             summary = f"\nEpoch {epoch + 1} completed in {epoch_time:.2f}s"
             summary += self._format_metrics(logs)
             print(summary)
 
         def on_train_end(self, **kwargs):
-            """Finish progress tracking."""
             print(f"\n{self.desc} completed!")
 
         # ------------------------ rendering ------------------------
         def _update_progress_bar(self, logs=None, force_complete=False):
-            """Update the progress bar display."""
+            """Update the progress bar display for current phase."""
+            prefix = self._phase_prefix()
+
             if self.total_batches is None:
                 # Simple counter if total unknown
-                progress = f"\rBatch {self.current_batch}"
+                progress = f"\r{prefix} | Batch {self.current_batch}"
                 progress += self._format_metrics(logs)
                 print(progress, end="", flush=True)
                 return
 
-            # Calculate progress
+            # progress ratio
             if force_complete:
                 progress_ratio = 1.0
                 current = self.total_batches
             else:
-                progress_ratio = min(self.current_batch / self.total_batches, 1.0)
+                progress_ratio = min(self.current_batch / max(1, self.total_batches), 1.0)
                 current = self.current_batch
 
-            # Create progress bar (TensorFlow style)
-            filled_width = int(self.bar_width * progress_ratio)
-            if progress_ratio < 1.0 and filled_width > 0:
-                bar = (
-                    "=" * (filled_width - 1)
-                    + ">"
-                    + "." * (self.bar_width - filled_width)
-                )
+            # bar
+            filled = int(self.bar_width * progress_ratio)
+            if progress_ratio < 1.0 and filled > 0:
+                bar = "=" * (filled - 1) + ">" + "." * (self.bar_width - filled)
             elif progress_ratio >= 1.0:
                 bar = "=" * self.bar_width
             else:
                 bar = "." * self.bar_width
 
-            # Percentage + ETA
+            # ETA based on current phase timer
             percentage = progress_ratio * 100
-            if self.epoch_start_time and self.current_batch > 0:
-                elapsed = time.time() - self.epoch_start_time
+            eta = "?"
+            if self.phase_start_time and self.current_batch > 0:
+                elapsed = time.time() - self.phase_start_time
                 if progress_ratio > 0:
-                    total_estimated = elapsed / progress_ratio
-                    remaining = max(0, total_estimated - elapsed)
-                    eta = (
-                        f"{remaining/60:.1f}m"
-                        if remaining > 60
-                        else f"{remaining:.0f}s"
-                    )
-                else:
-                    eta = "?"
-            else:
-                eta = "?"
+                    total_est = elapsed / max(1e-12, progress_ratio)
+                    remaining = max(0.0, total_est - elapsed)
+                    eta = f"{remaining/60:.1f}m" if remaining > 60 else f"{remaining:.0f}s"
 
-            # Build line
-            progress_str = f"\r[{bar}] {current}/{self.total_batches} ({percentage:5.1f}%) - ETA: {eta}"
-            progress_str += self._format_metrics(logs)
+            line = f"\r{prefix} | [{bar}] {current}/{self.total_batches} ({percentage:5.1f}%) - ETA: {eta}"
+            line += self._format_metrics(logs)
 
-            # Print with spacing to clear previous line
-            print(f"{progress_str:<120}", end="", flush=True)
+            # pad to clear previous line
+            print(f"{line:<140}", end="", flush=True)
 
     return TorchBatchProgressBar()
+
 
 
 # Update the event map to include PyTorch (vanilla) support
