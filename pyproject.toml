@@ -37,9 +37,12 @@ classifiers = [
 validation = [
     "pydantic>=2.0.0",
 ]
-ml = [
-    "tensorflow==2.16.2",
-    "keras==3.4.1",
+ml_tf = [
+    "tensorflow>=2.16.2",
+    "keras>=3.4.1",
+]
+ml_torch = [
+    "torch>=2.5.0",
 ]
 viz = [
     "matplotlib",
@@ -57,8 +60,11 @@ docs = [
     "setuptools_scm",
     "pyyaml>=6.0",
 ]
+ext = [
+    "scipy",
+]
 all = [
-    "xflow-py[validation,ml,viz]",
+    "xflow-py[validation,ml_torch,viz]",
 ]
 
 [tool.setuptools]
