@@ -3,7 +3,7 @@
 
 from .config import ConfigManager, load_validated_config
 from .visualization import plot_image, save_image
-from .helper import get_base_dir
+from .helper import get_base_dir, is_container
 
 
-__all__ = ['ConfigManager', 'get_base_dir', 'load_validated_config', 'plot_image', 'save_image']
+__all__ = ['ConfigManager', 'get_base_dir', 'is_container', 'load_validated_config', 'plot_image', 'save_image']
