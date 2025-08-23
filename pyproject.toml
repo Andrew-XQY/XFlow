@@ -20,6 +20,7 @@ dependencies = [
     "tqdm",
     "Pillow",
     "matplotlib",
+    "ipython",
     "webdataset",
     "pyyaml>=6.0",
     "typing-extensions>=4.0.0",
