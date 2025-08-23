@@ -8,31 +8,28 @@ from .typing import ImageLike
 
 def to_numpy_image(img: ImageLike) -> np.ndarray:
     """
-    Convert various image formats to a 2D numpy array suitable for display.
-
-    Args:
-        img: PIL Image, numpy array, TensorFlow tensor, or PyTorch tensor
-
-    Returns:
-        numpy.ndarray: 2D array representing the image
+    Convert various image formats to a 2D/3D numpy array suitable for display.
+    Works for CPU/GPU PyTorch tensors, TF eager tensors, PIL, and numpy arrays.
     """
-    if hasattr(img, "numpy"):  # TF tensor
-        arr = img.numpy()
-    elif hasattr(img, "detach"):  # PyTorch tensor
+    import torch
+    if isinstance(img, torch.Tensor):  # PyTorch tensor
         arr = img.detach().cpu().numpy()
+    elif hasattr(img, "numpy"):  # TF tensor
+        arr = img.numpy()
     elif isinstance(img, Image.Image):  # PIL
         arr = np.array(img)
     elif isinstance(img, np.ndarray):  # already numpy
         arr = img
-    else:
-        arr = np.array(img)  # fallback
+    else:  # fallback
+        arr = np.array(img)
 
-    if arr.ndim == 4:  # If batch dim, take first sample
+    # Normalize shape for display
+    if arr.ndim == 4:               # (B, C, H, W) or (B, H, W, C) → take first
         arr = arr[0]
-    if arr.ndim == 3 and arr.shape[0] in (1, 3):  # If channel-first, move channels last
+    if arr.ndim == 3 and arr.shape[0] in (1, 3):  # channel-first → channel-last
         arr = np.transpose(arr, (1, 2, 0))
-    if arr.ndim == 3 and arr.shape[2] == 1:  # If single channel, squeeze
-        arr = arr[:, :, 0]
+    if arr.ndim == 3 and arr.shape[-1] == 1:      # single channel → squeeze
+        arr = arr[..., 0]
     return arr
 
 

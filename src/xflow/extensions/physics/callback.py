@@ -257,8 +257,7 @@ def _visualize_image_reconstruction(
             plt.show()
 
     def get_max(arr):
-        if hasattr(arr, "numpy"):
-            arr = arr.numpy()
+        arr = to_numpy_image(arr)
         return np.max(arr)
 
     print(
