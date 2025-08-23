@@ -46,6 +46,7 @@ ml_tf = [
 ]
 ml_torch = [
     "torch>=2.5.0",
+    "torchvision",
 ]
 viz = [
     "matplotlib",
