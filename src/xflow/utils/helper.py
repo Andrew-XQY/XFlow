@@ -248,3 +248,53 @@ def deep_merge(*dicts: Dict[str, Any]) -> Dict[str, Any]:
     for d in dicts:
         deep_update(result, d)
     return result
+
+
+# =============================================================================
+# Environment/OS helpers
+# =============================================================================
+
+_CGROUP_HINTS = ("docker", "containerd", "kubepods", "libpod", "buildkit", "podman")
+
+def is_container() -> bool:
+    # 0) explicit override wins
+    flag = os.getenv("IN_CONTAINER")
+    if flag and flag.lower() not in ("0", "false", "no", "off"):
+        return True
+
+    # 1) systemd's official hint
+    try:
+        if Path("/run/systemd/container").exists():         # readable by all
+            return True                                     # systemd sets this inside containers
+        if os.geteuid() == 0:
+            env1 = Path("/proc/1/environ").read_bytes()
+            if b"container=" in env1:                       # e.g., container=podman/docker/lxc
+                return True
+    except Exception:
+        pass
+
+    # 2) Podman marker
+    if Path("/run/.containerenv").exists():                 # created by Podman/CRI-O
+        return True
+
+    # 3) Docker marker (may be absent under buildx/buildkit)
+    if Path("/.dockerenv").exists():
+        return True
+
+    # 4) Apptainer/Singularity (common on HPC)
+    if any(k in os.environ for k in ("APPTAINER_NAME", "SINGULARITY_NAME")):
+        return True
+
+    # 5) Kubernetes (env injected by kubelet)
+    if "KUBERNETES_SERVICE_HOST" in os.environ:
+        return True
+
+    # 6) cgroups heuristic (last resort; not 100% on cgroup v2)
+    try:
+        txt = Path("/proc/1/cgroup").read_text()
+        if any(s in txt for s in _CGROUP_HINTS):
+            return True
+    except Exception:
+        pass
+
+    return False

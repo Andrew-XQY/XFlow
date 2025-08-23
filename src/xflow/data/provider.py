@@ -232,6 +232,9 @@ class FileProvider(DataProvider):
         return self._from_file_list(combined_files, merged_extensions, self.path_type)
 
 
+
+        
+
 class SqlProvider(DataProvider):
     """Data provider that unifies data from SQL database sources into a DataFrame."""
 
@@ -408,3 +411,4 @@ class SqlProvider(DataProvider):
         from ..utils.sql import get_supported_db_types
 
         return get_supported_db_types()
+

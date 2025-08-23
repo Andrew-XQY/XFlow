@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 from PIL import Image
 
 from .typing import ImageLike
@@ -60,3 +61,36 @@ def plot_image(
         plt.title(title)
     plt.tight_layout()
     plt.show()
+
+
+def save_image(
+    img: ImageLike,
+    path: str,
+    cmap: str | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (6, 4),
+    dpi: int = 150,
+) -> None:
+    """
+    Same as plot_image, but saves to disk instead of showing.
+    Defaults ensure it runs without extra args.
+    """
+    arr = to_numpy_image(img)
+    if cmap is None:
+        cmap = "gray" if arr.ndim == 2 else None
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(arr, cmap=cmap)
+    ax.set_xlabel("X (pixel index)")
+    ax.set_ylabel("Y (pixel index)")
+    # Colorbar can fail for RGB; keep behavior but make it safe
+    try:
+        fig.colorbar(im, ax=ax, label="Pixel value")
+    except Exception:
+        pass
+    if title:
+        ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=dpi)
+    plt.close(fig)

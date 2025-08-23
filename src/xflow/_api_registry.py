@@ -79,8 +79,10 @@ PACKAGE_API = {
     "utils": {
         "ConfigManager": APIItem("config", "ConfigManager"),
         "plot_image": APIItem("visualization", "plot_image"),
+        "save_image": APIItem("visualization", "save_image"),
         "get_base_dir": APIItem("helper", "get_base_dir"),
         "load_validated_config": APIItem("config", "load_validated_config"),
+        "is_container": APIItem("helper", "is_container"),
     },
 }
 

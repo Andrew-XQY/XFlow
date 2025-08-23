@@ -9,7 +9,7 @@ except Exception:
 from .data.pipeline import BasePipeline, DataPipeline, InMemoryPipeline, PyTorchPipeline, TensorFlowPipeline
 from .data.transform import BatchPipeline, ShufflePipeline
 from .data.provider import FileProvider, SqlProvider
-from .trainers.trainer import BaseTrainer
+from .trainers.trainer import BaseTrainer, TorchTrainer
 from .utils.config import ConfigManager
 from .models.base import BaseModel
 from .models.utils import show_model_info
@@ -17,4 +17,4 @@ from .trainers.callback import CallbackRegistry
 
 Pipeline = BasePipeline
 
-__all__ = ['BaseModel', 'BasePipeline', 'BaseTrainer', 'BatchPipeline', 'CallbackRegistry', 'ConfigManager', 'DataPipeline', 'FileProvider', 'InMemoryPipeline', 'Pipeline', 'PyTorchPipeline', 'ShufflePipeline', 'SqlProvider', 'TensorFlowPipeline', 'show_model_info']
+__all__ = ['BaseModel', 'BasePipeline', 'BaseTrainer', 'BatchPipeline', 'CallbackRegistry', 'ConfigManager', 'DataPipeline', 'FileProvider', 'InMemoryPipeline', 'Pipeline', 'PyTorchPipeline', 'ShufflePipeline', 'SqlProvider', 'TensorFlowPipeline', 'TorchTrainer', 'show_model_info']
