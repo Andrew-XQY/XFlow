@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ...utils.typing import TensorLike
+from ...utils.visualization import to_numpy_image
 
 # Try to import TensorFlow with fallback
 try:
@@ -39,11 +40,8 @@ def extract_beam_parameters(
     try:
         import numpy as np
 
-        # Convert to numpy if needed
-        if hasattr(image, "numpy"):
-            image_np = image.numpy()
-        else:
-            image_np = np.asarray(image)
+        # Convert to numpy if needed        
+        image_np = to_numpy_image(image)
 
         # Background subtraction - subtract minimum pixel value
         min_val = np.min(image_np)
