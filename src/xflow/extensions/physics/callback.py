@@ -8,6 +8,205 @@ from ...trainers.callback import CallbackRegistry
 from ...utils.visualization import to_numpy_image
 
 
+
+@CallbackRegistry.register("torch_centroid_ellipse_callback")
+def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
+    """Visualize centroid/width ellipses each epoch.
+    Assumes dataset yields EXACTLY (A, y_true, B_img) as torch.Tensors."""
+    import os
+    import torch
+    from ...trainers.callback import PyTorchCallback
+
+    KEYS = ["h_centroid", "v_centroid", "h_width", "v_width"]
+
+    class TorchCentroidEllipseCallback(PyTorchCallback):
+        def __init__(self, save_dir=save_dir):
+            super().__init__()
+            self.dataset = dataset
+            self.sample_batch = None
+            self.save_dir = save_dir
+            if self.dataset is not None:
+                self._refresh_sample()
+
+        def set_dataset(self, dataset):
+            self.dataset = dataset
+            self._refresh_sample()
+
+        def _refresh_sample(self):
+            if self.dataset is None:
+                raise ValueError("Dataset must be set before using the callback.")
+            # Only the (A, y_true, B_img) case, as requested
+            if isinstance(self.dataset, tuple) and len(self.dataset) == 3:
+                self.sample_batch = self.dataset
+            else:
+                self.sample_batch = next(iter(self.dataset))
+
+        def on_epoch_begin(self, epoch, model=None, **kwargs):
+            if self.dataset is not None:
+                self._refresh_sample()
+
+        def on_epoch_end(self, epoch, model=None, **kwargs):
+            if self.sample_batch is None or model is None:
+                return
+            try:
+                A, y_true, B_img = self.sample_batch  # all torch.Tensors
+
+                # ---- Forward pass on A ----
+                device = next(model.parameters()).device
+                x = A.to(device)
+                model.eval()
+                with torch.no_grad():
+                    y_pred = model(x).detach().cpu()
+
+                # ---- Take first sample ----
+                img = B_img[0].detach().cpu()
+                t = y_true[0].detach().cpu().view(-1).numpy()
+                p = y_pred[0].detach().cpu().view(-1).numpy()
+
+                # Ensure image is (H, W)
+                if img.ndim == 3:          # (C,H,W) → take first channel
+                    img = img[0]
+                elif img.ndim == 4:        # (N,C,H,W) shouldn't happen after [0], but guard anyway
+                    img = img[0, 0]
+                img_np = img.numpy()
+
+                true_dict = dict(zip(KEYS, t))
+                pred_dict = dict(zip(KEYS, p))
+
+                fig, ax = plt.subplots(figsize=(6, 6))
+                save_path = None
+                if self.save_dir is not None:
+                    abs_save_dir = os.path.abspath(self.save_dir)
+                    os.makedirs(abs_save_dir, exist_ok=True)
+                    save_path = os.path.join(abs_save_dir, f"epoch_{epoch+1}.png")
+
+                plot_centroid_ellipse(ax, img_np, true_dict,
+                                      pred_params=pred_dict, save_path=save_path)
+                ax.set_title(f"Epoch {epoch + 1}")
+                plt.tight_layout()
+
+                if save_path is None:
+                    try:
+                        from IPython.display import clear_output, display
+                        clear_output(wait=True); display(fig)
+                    except Exception:
+                        plt.show()
+                    finally:
+                        plt.close(fig)
+
+            except Exception as e:
+                print(f"TorchCentroidEllipseCallback error: {e}")
+
+    return TorchCentroidEllipseCallback()
+
+# @CallbackRegistry.register("torch_centroid_ellipse_callback")
+# def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
+#     """Predict 4 params from imageA and plot True/Pred ellipses on imageB.
+#     Assumes dataset yields (imageA, parameters, imageB) as torch.Tensors.
+#     """
+#     import os
+#     import torch
+#     import matplotlib.pyplot as plt
+#     from ...trainers.callback import PyTorchCallback
+#     # uses plot_centroid_ellipse already defined in this module
+
+#     KEYS = ["h_centroid", "v_centroid", "h_width", "v_width"]
+
+#     class TorchCentroidEllipseCallback(PyTorchCallback):
+#         def __init__(self, save_dir=save_dir):
+#             super().__init__()
+#             self.dataset = dataset
+#             self.sample = None
+#             self.save_dir = save_dir
+#             if self.dataset is not None:
+#                 self._refresh_sample()
+
+#         def set_dataset(self, dataset):
+#             self.dataset = dataset
+#             self._refresh_sample()
+
+#         def _refresh_sample(self):
+#             if self.dataset is None:
+#                 raise ValueError("Dataset must be set before using the callback.")
+#             # strictly assume triplet batch
+#             self.sample = next(iter(self.dataset))  # (imageA, parameters, imageB)
+
+#         def on_epoch_begin(self, epoch, **kwargs):
+#             if self.dataset is not None:
+#                 self._refresh_sample()
+
+#         def on_epoch_end(self, epoch, model=None, **kwargs):
+#             if self.sample is None or model is None:
+#                 return
+#             try:
+#                 A, y_true, B_img = self.sample  # all torch.Tensors
+
+#                 # ---- Model forward on imageA (ensure NCHW, pick first sample) ----
+#                 x = A
+#                 if x.ndim == 2:                 # (H,W) -> (1,1,H,W)
+#                     x = x.unsqueeze(0).unsqueeze(0)
+#                 elif x.ndim == 3:
+#                     if x.shape[0] in (1, 3):    # (C,H,W) -> (1,C,H,W)
+#                         x = x.unsqueeze(0)
+#                     else:                       # (N,H,W) -> (N,1,H,W)
+#                         x = x.unsqueeze(1)
+#                 # if x.ndim == 4: assume (N,C,H,W)
+#                 if x.shape[0] > 1:
+#                     x = x[:1]                   # visualize first sample only
+
+#                 device = next(model.parameters()).device
+#                 x = x.to(device)
+
+#                 model.eval()
+#                 with torch.no_grad():
+#                     y_pred = model(x).detach().cpu()
+
+#                 # ---- Params for first sample ----
+#                 pred = y_pred[0].reshape(-1).tolist()
+#                 if y_true.ndim > 1:
+#                     true = y_true[0].detach().cpu().reshape(-1).tolist()
+#                 else:
+#                     true = y_true.detach().cpu().reshape(-1).tolist()
+
+#                 pred_dict = dict(zip(KEYS, pred))
+#                 true_dict = dict(zip(KEYS, true))
+
+#                 # ---- Prepare imageB for plotting (HxW) ----
+#                 img = B_img
+#                 if img.ndim == 4:       # (N,C,H,W) -> first sample
+#                     img = img[0]
+#                 if img.ndim == 3 and img.shape[0] in (1, 3):  # (C,H,W) -> (H,W) take first channel
+#                     img = img[0]
+#                 # if img.ndim == 2: already HxW
+#                 img_np = img.detach().cpu().numpy()
+
+#                 # ---- Plot ----
+#                 fig, ax = plt.subplots(figsize=(6, 6))
+#                 save_path = None
+#                 if self.save_dir is not None:
+#                     os.makedirs(self.save_dir, exist_ok=True)
+#                     save_path = os.path.join(self.save_dir, f"epoch_{epoch+1}.png")
+
+#                 plot_centroid_ellipse(ax, img_np, true_dict, pred_params=pred_dict, save_path=save_path)
+#                 ax.set_title(f"Epoch {epoch + 1}")
+#                 plt.tight_layout()
+
+#                 if save_path is None:
+#                     try:
+#                         from IPython.display import clear_output, display
+#                         clear_output(wait=True); display(fig)
+#                     except Exception:
+#                         plt.show()
+#                     finally:
+#                         plt.close(fig)
+
+#             except Exception as e:
+#                 print(f"TorchCentroidEllipseCallback error: {e}")
+
+#     return TorchCentroidEllipseCallback()
+
+
+
 @CallbackRegistry.register("centroid_ellipse_callback")
 def make_centroid_ellipse_callback(dataset=None, save_dir=None):
     """Callback that visualizes beam centroid and width ellipses using a fixed sample from dataset."""

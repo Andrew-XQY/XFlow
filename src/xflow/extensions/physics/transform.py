@@ -70,6 +70,40 @@ def split_width_with_analysis(
         return right_half, parameters  # input, label
 
 
+
+@TransformRegistry.register("torch_split_width_with_analysis")
+def torch_split_width_with_analysis(
+    tensor: TensorLike,
+    swap: bool = False,
+    width_dim: int = -1,
+    return_all: bool = False,
+    method: str = "moments",
+):
+    try:
+        import torch
+
+        width = tensor.shape[width_dim]
+        mid_point = width // 2
+
+        left_half = torch.split(tensor, mid_point, dim=width_dim)[0]
+        right_half = torch.split(tensor, mid_point, dim=width_dim)[1]
+
+        parameters = extract_beam_parameters(left_half, method=method)
+        
+        if parameters is None:
+            return None
+        if not return_all:
+            return left_half, parameters
+        if swap:
+            return right_half, parameters, left_half
+        return left_half, parameters, right_half
+    
+    except ImportError:
+        raise RuntimeError("Split or beam parameter extraction failed")
+
+
+
+
 @TransformRegistry.register("tf_split_width_with_analysis")
 def tf_split_width_with_analysis(
     image: TensorLike,
