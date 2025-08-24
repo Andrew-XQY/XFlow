@@ -7,11 +7,13 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
 
 from ..utils.io import create_directory
 from ..utils.typing import ModelType, PathLikeStr
 
+if TYPE_CHECKING:
+    import torch
 # ============================== Callback core ==============================
 
 
@@ -346,3 +348,89 @@ class TorchTrainer(BaseTrainer):
             x, _ = self._to_device(batch)
             preds.append(self.model(x))
         return preds
+
+class TorchGANTrainer(TorchTrainer):
+    def __init__(
+        self,
+        *,
+        generator: torch.nn.Module,
+        discriminator: torch.nn.Module,
+        optimizer_g: torch.optim.Optimizer,
+        optimizer_d: torch.optim.Optimizer,
+        losses,  # Pix2PixLosses(lambda_l1=100)
+        data_pipeline: Any,
+        output_dir: str,
+        device: Any = None,
+        callbacks: Optional[List[Any]] = None,
+        model_io: Optional[Any] = None,
+        config: Optional[Dict[str, Any]] = None,
+        val_metrics: Optional[List[Any]] = None,
+    ):
+        # keep base fields happy: treat "model" as the generator
+        super().__init__(
+            model=generator,
+            data_pipeline=data_pipeline,
+            output_dir=output_dir,
+            optimizer=optimizer_g,
+            criterion=losses,  # stored; we won’t call base train_step
+            device=device,
+            callbacks=callbacks,
+            model_io=model_io,
+            config=config,
+            val_metrics=val_metrics or [],
+        )
+        self.discriminator = discriminator
+        self.optimizer_d = optimizer_d
+        self.losses = losses  # Pix2PixLosses
+
+    def train_step(self, batch) -> Dict[str, float]:
+        import torch
+        
+        x, y = self._to_device(batch)
+
+        # ---- D step ----
+        self.optimizer_d.zero_grad(set_to_none=True)
+        with torch.no_grad():
+            fake = self.model(x)
+        d_real = self.discriminator(x, y)
+        d_fake = self.discriminator(x, fake)
+        d_loss = self.losses.discriminator_loss(d_real, d_fake)
+        d_loss.backward()
+        self.optimizer_d.step()
+
+        # ---- G step ----
+        self.optimizer.zero_grad(set_to_none=True)  # optimizer for G
+        fake = self.model(x)
+        d_fake_for_g = self.discriminator(x, fake)
+        g_total, g_gan, g_l1 = self.losses.generator_loss(d_fake_for_g, fake, y)
+        g_total.backward()
+        self.optimizer.step()
+
+        return {
+            "loss": float(g_total.item()),
+            "g_gan": float(g_gan.item()),
+            "g_l1": float(g_l1.item()),
+            "d_loss": float(d_loss.item()),
+        }
+
+    def val_step(self, batch) -> Dict[str, float]:
+        import torch
+        
+        with torch.no_grad():
+            x, y = self._to_device(batch)
+            fake = self.model(x)
+            d_fake = self.discriminator(x, fake)
+            d_real = self.discriminator(x, y)
+            g_total, g_gan, g_l1 = self.losses.generator_loss(d_fake, fake, y)
+            d_loss = self.losses.discriminator_loss(d_real, d_fake)
+            logs = {
+                "val_loss": float(g_total.item()),
+                "val_g_gan": float(g_gan.item()),
+                "val_g_l1": float(g_l1.item()),
+                "val_d_loss": float(d_loss.item()),
+            }
+            for fn in self.val_metrics:
+                extra = fn(fake, y)  # same signature as your current metrics
+                if extra:
+                    logs.update(extra)
+            return logs

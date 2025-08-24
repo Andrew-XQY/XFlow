@@ -38,6 +38,7 @@ CORE_API = {
     "FileProvider": APIItem("data.provider", "FileProvider"),
     # Trainers
     "TorchTrainer": APIItem("trainers.trainer", "TorchTrainer"),
+    "TorchGANTrainer": APIItem("trainers.trainer", "TorchGANTrainer"),
     "BaseTrainer": APIItem("trainers.trainer", "BaseTrainer"),
     "ConfigManager": APIItem("utils.config", "ConfigManager"),
     # ML Models
