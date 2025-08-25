@@ -269,6 +269,9 @@ class TorchTrainer(BaseTrainer):
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         self.model.to(self.device)
+        if hasattr(self, "discriminator") and self.discriminator is not None:
+            self.discriminator.to(self.device)
+            
         train_loader, val_loader = self._resolve_loaders(train_loader, val_loader)
 
         ctx = CallbackContext(
@@ -289,6 +292,8 @@ class TorchTrainer(BaseTrainer):
 
             # -------- train --------
             self.model.train()
+            if hasattr(self, "discriminator") and self.discriminator is not None:
+                self.discriminator.train()
             sum_loss = 0.0
             for i, batch in enumerate(train_loader):
                 ctx.batch_idx = i
@@ -312,6 +317,8 @@ class TorchTrainer(BaseTrainer):
                 ctx.phase, ctx.logs = "val", {}
                 self.cb.call("on_val_epoch_begin", ctx)
                 self.model.eval()
+                if hasattr(self, "discriminator") and self.discriminator is not None:
+                    self.discriminator.eval()
                 acc = collections.defaultdict(float)
                 for j, batch in enumerate(val_loader):
                     ctx.batch_idx = j
