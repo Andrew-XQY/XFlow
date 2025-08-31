@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple, Any, Dict
 
 import yaml
 
@@ -713,6 +713,659 @@ def make_torch_batch_progress_bar(
             print(f"{progress_str:<120}", end="", flush=True)
 
     return TorchBatchProgressBar()
+
+@CallbackRegistry.register("torch_total_training_time")
+def make_torch_training_time_only(save_dir: str):
+    import os, json, time
+
+    class TorchTrainingTimeOnly(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.save_dir = save_dir
+            self._t0 = None
+
+        def on_train_begin(self, **kwargs):
+            self._t0 = time.time()
+
+        def on_train_end(self, **kwargs):
+            elapsed = 0.0 if self._t0 is None else (time.time() - self._t0)
+            os.makedirs(self.save_dir, exist_ok=True)
+            path = os.path.join(self.save_dir, "training_meta.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"framework": "torch", "total_wall_time_sec": round(elapsed, 4)}, f, indent=2)
+            print(f"[torch_training_time_only] Saved {path}")
+
+    return TorchTrainingTimeOnly()
+
+
+
+@CallbackRegistry.register("torch_training_meta_info")
+def make_torch_training_meta_info(
+    save_dir: str,                           # core arg required
+    example_input: Any = None,               # e.g. a torch.Tensor or tuple of tensors
+    input_shape: Optional[Tuple[int, ...]] = None,  # used to synthesize a dummy batch, core arg
+    method: str = "auto",                    # "auto" | "profiler" | "thop"
+    backward_factor: float = 2.0,            # used when fallback to thop forward-only estimate
+    grad_accum_steps: int = 1,
+    model_name: Optional[str] = None,
+):
+    import os, json, time, datetime, traceback
+    """
+    PyTorch callback that records total wall-time and estimates training FLOPs,
+    then writes JSON to <save_dir>/training_meta.json.
+
+    Notes:
+      - If neither example_input nor input_shape is provided (and batch tensors
+        are not passed in kwargs), FLOPs may be null but timing/metadata still saved.
+      - FLOPs estimation is performed once (lazily) using a single train step,
+        then scaled by total steps.
+    """
+
+    class TorchTrainingMetaInfo(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.save_dir = save_dir
+            self.example_input = example_input
+            self.input_shape = input_shape
+            self.method = method
+            self.backward_factor = float(backward_factor)
+            self.grad_accum_steps = max(1, int(grad_accum_steps))
+            self.model_name = model_name
+
+            # time bookkeeping
+            self._train_start_ts = None
+            self._train_end_ts = None
+            self._wall_time_sec = 0.0
+
+            # progress bookkeeping (best-effort; will be inferred if not provided)
+            self.epochs_declared = None
+            self.epochs_seen = 0
+            self.total_batches_declared = None
+            self.batches_seen_this_epoch = 0
+            self.total_batches_seen = 0
+            self.batch_size_seen = None
+
+            # flops bookkeeping
+            self.per_step_flops = None
+            self.per_forward_flops = None
+            self.per_epoch_flops = None
+            self.total_training_flops = None
+            self.flops_method = None
+            self.flops_notes = None
+
+            # model info snapshot
+            self.param_count = None
+            self.device = None
+            self.world_size = None
+            self.local_rank = None
+
+            # lazily profiled?
+            self._did_profile_once = False
+
+        # ------------------- helpers -------------------
+        def _atomic_write_json(self, path: str, payload: Dict):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp_path = path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, path)
+
+        def _now_iso(self):
+            return datetime.datetime.now().isoformat(timespec="seconds")
+
+        def _count_params(self, model):
+            try:
+                import torch
+                return int(sum(p.numel() for p in model.parameters()))
+            except Exception:
+                return None
+
+        def _infer_device(self, model):
+            try:
+                import torch
+                p = next(model.parameters(), None)
+                if p is not None:
+                    return str(p.device)
+            except Exception:
+                pass
+            return None
+
+        def _dist_info(self):
+            try:
+                import torch.distributed as dist
+                if dist.is_available() and dist.is_initialized():
+                    return dist.get_world_size(), dist.get_rank()
+            except Exception:
+                pass
+            return None, None
+
+        def _make_dummy_from_shape(self, shape, device, dtype=None):
+            try:
+                import torch
+                if dtype is None:
+                    dtype = torch.float32
+                return torch.randn(*shape, device=device, dtype=dtype)
+            except Exception:
+                return None
+
+        def _as_tuple(self, x):
+            return x if isinstance(x, (tuple, list)) else (x,)
+
+        def _extract_batch_from_kwargs(self, **kwargs):
+            # Best-effort: look for a tensor or tuple of tensors in common keys
+            candidates = []
+            for key in ["inputs", "batch", "data", "x", "batch_data"]:
+                if key in kwargs:
+                    candidates.append(kwargs[key])
+            for c in candidates:
+                # accept tensor, or (tensor, y) pairs, or dict with 'inputs'
+                try:
+                    import torch
+                    if isinstance(c, torch.Tensor):
+                        return (c,)
+                    if isinstance(c, (tuple, list)) and len(c) > 0:
+                        return self._as_tuple(c[0])  # assume first is input
+                    if isinstance(c, dict) and "inputs" in c:
+                        return self._as_tuple(c["inputs"])
+                except Exception:
+                    pass
+            return None
+
+        def _ensure_example_input(self, model, **kwargs):
+            if self.example_input is not None:
+                return self._as_tuple(self.example_input)
+            # try from kwargs
+            kw_batch = self._extract_batch_from_kwargs(**kwargs)
+            if kw_batch is not None:
+                self._maybe_set_batch_size(kw_batch)
+                return self._as_tuple(kw_batch)
+            # try from input_shape
+            if self.input_shape is not None:
+                dev = self.device or self._infer_device(model) or "cpu"
+                dummy = self._make_dummy_from_shape(self.input_shape, dev)
+                return (dummy,) if dummy is not None else None
+            return None
+
+        def _maybe_set_batch_size(self, inputs_tuple):
+            try:
+                import torch
+                x0 = inputs_tuple[0]
+                if isinstance(x0, torch.Tensor) and x0.dim() >= 1:
+                    b = int(x0.shape[0])
+                    if b > 0:
+                        self.batch_size_seen = b
+            except Exception:
+                pass
+
+        def _profile_one_train_step(self, model, optimizer=None, **kwargs):
+            """
+            Try to measure FLOPs of a full train step (fwd+backward+step) once.
+            Sets per_step_flops and per_forward_flops on success.
+            """
+            if self._did_profile_once:
+                return
+            inputs = self._ensure_example_input(model, **kwargs)
+            if inputs is None:
+                self.flops_notes = "No example input available; FLOPs not estimated."
+                return
+
+            # shallow copy model to avoid altering caller's state
+            m = model
+            per_step = None
+            fwd = None
+            notes = []
+            used_method = None
+
+            # Prefer profiler if available
+            if self.method in ("auto", "profiler"):
+                try:
+                    import torch
+                    import torch.profiler as prof
+
+                    activities = [prof.ProfilerActivity.CPU]
+                    if torch.cuda.is_available():
+                        activities.append(prof.ProfilerActivity.CUDA)
+
+                    m_train = m.train()
+                    for p in m_train.parameters():
+                        p.requires_grad_(True)
+
+                    with torch.enable_grad():
+                        with prof.profile(
+                            activities=activities,
+                            record_shapes=True,
+                            with_flops=True,
+                            profile_memory=False,
+                        ) as p:
+                            out = m_train(*inputs)
+                            # generic scalar loss; if not scalar, sum it
+                            if isinstance(out, (tuple, list)):
+                                out = out[0]
+                            loss = out.sum() if hasattr(out, "sum") else (out if out.ndim == 0 else None)
+                            if loss is None:
+                                raise RuntimeError("Cannot reduce model output to scalar for backward()")
+                            loss.backward()
+                            if optimizer is not None:
+                                optimizer.step()
+                                optimizer.zero_grad(set_to_none=True)
+
+                    ka = p.key_averages()
+                    # sum flops across ops
+                    total_flops = 0
+                    for evt in ka:
+                        # PyTorch profiler exposes flops via .flops (may be None)
+                        val = getattr(evt, "flops", None)
+                        if val is not None:
+                            total_flops += int(val)
+                    if total_flops > 0:
+                        used_method = "torch.profiler"
+                        per_step = int(total_flops)
+                        # We also try a forward-only pass to estimate per-forward if desired
+                        # Fallback: assume forward ≈ per_step / (1 + backward_factor)
+                        fwd = int(round(per_step / max(1.0, 1.0 + self.backward_factor)))
+                    else:
+                        notes.append("Profiler returned zero flops; falling back.")
+                except Exception as e:
+                    notes.append(f"Profiler failed: {e}")
+
+            # Fallback: THOP forward-only
+            if per_step is None and self.method in ("auto", "thop"):
+                try:
+                    import torch
+                    from thop import profile as thop_profile
+
+                    m_eval = m.eval()
+                    with torch.no_grad():
+                        macs, _params = thop_profile(m_eval, inputs=inputs, verbose=False)
+                    fwd = int(macs * 2)  # MACs→FLOPs
+                    used_method = "thop (forward-only)"
+                    per_step = int(round(fwd * (1.0 + self.backward_factor)))
+                except Exception as e:
+                    notes.append(f"THOP failed: {e}")
+
+            if per_step is None:
+                self.flops_notes = " | ".join(notes) if notes else "FLOPs estimation unavailable."
+                return
+
+            self.per_step_flops = per_step
+            self.per_forward_flops = fwd
+            self.flops_method = used_method
+            self.flops_notes = "Estimated from a single train step."
+
+            self._did_profile_once = True
+
+        def _finalize_flops_totals(self):
+            if self.per_step_flops is None:
+                return
+            steps = max(1, self.total_batches_seen // self.grad_accum_steps)
+            self.total_training_flops = int(self.per_step_flops * steps)
+            # Approximate per-epoch if we know per-epoch batches
+            if self.total_batches_declared:
+                epoch_steps = max(1, self.total_batches_declared // self.grad_accum_steps)
+                self.per_epoch_flops = int(self.per_step_flops * epoch_steps)
+
+        def _build_payload(self, torch_module=None):
+            versions = {}
+            try:
+                import torch
+                versions = {
+                    "torch": getattr(torch, "__version__", None),
+                    "cuda": getattr(torch.version, "cuda", None),
+                    "cudnn": getattr(getattr(torch.backends, "cudnn", None), "version", lambda: None)(),
+                }
+            except Exception:
+                pass
+
+            payload = {
+                "framework": "torch",
+                "timestamp": self._now_iso(),
+                "model_name": self.model_name,
+                "device": self.device,
+                "ddp": {"world_size": self.world_size, "local_rank": self.local_rank},
+                "params": self.param_count,
+                "epochs": self.epochs_declared or self.epochs_seen or None,
+                "epochs_seen": self.epochs_seen,
+                "batches_per_epoch": self.total_batches_declared,
+                "total_batches_seen": self.total_batches_seen,
+                "batch_size": self.batch_size_seen,
+                "grad_accum_steps": self.grad_accum_steps,
+                "total_wall_time_sec": round(self._wall_time_sec, 4),
+                "flops": {
+                    "method": self.flops_method,
+                    "per_forward_pass": self.per_forward_flops,
+                    "per_train_step": self.per_step_flops,
+                    "per_epoch": self.per_epoch_flops,
+                    "total_training": self.total_training_flops,
+                    "notes": self.flops_notes,
+                },
+                "versions": versions,
+            }
+            return payload
+
+        # ------------------- lifecycle -------------------
+        def on_train_begin(self, model=None, epochs=None, total_batches=None, **kwargs):
+            self._train_start_ts = time.time()
+            if epochs is not None:
+                self.epochs_declared = int(epochs)
+            if total_batches is not None:
+                self.total_batches_declared = int(total_batches)
+            if model is not None:
+                self.param_count = self._count_params(model)
+                self.device = self._infer_device(model)
+                self.world_size, self.local_rank = self._dist_info()
+
+        def on_epoch_begin(self, epoch, total_batches=None, **kwargs):
+            if total_batches is not None:
+                self.total_batches_declared = int(total_batches)
+            self.batches_seen_this_epoch = 0
+
+        def on_batch_begin(self, batch, **kwargs):
+            # Capture batch size if tensors are provided
+            inputs = self._extract_batch_from_kwargs(**kwargs)
+            if inputs is not None:
+                self._maybe_set_batch_size(inputs)
+
+        def on_batch_end(self, batch, model=None, optimizer=None, **kwargs):
+            self.batches_seen_this_epoch += 1
+            self.total_batches_seen += 1
+            # lazily profile on the very first step if possible
+            if not self._did_profile_once and model is not None:
+                try:
+                    self._profile_one_train_step(model, optimizer=optimizer, **kwargs)
+                except Exception:
+                    # Keep going; timing will still be recorded
+                    pass
+
+        def on_epoch_end(self, epoch, **kwargs):
+            self.epochs_seen = max(self.epochs_seen, epoch + 1)
+
+        def on_train_end(self, model=None, **kwargs):
+            self._train_end_ts = time.time()
+            self._wall_time_sec = float(self._train_end_ts - (self._train_start_ts or self._train_end_ts))
+            # finalize FLOPs totals
+            self._finalize_flops_totals()
+
+            # write JSON
+            target = os.path.join(self.save_dir, "training_meta.json")
+            try:
+                payload = self._build_payload()
+                self._atomic_write_json(target, payload)
+                print(f"[torch_training_meta_info] Saved {target}")
+            except Exception as e:
+                print(f"[torch_training_meta_info] Failed to write meta: {e}")
+                try:
+                    # last resort: dump traceback to a sidecar
+                    side = target + ".error.txt"
+                    with open(side, "w", encoding="utf-8") as f:
+                        f.write("Exception while saving training_meta.json:\n")
+                        traceback.print_exc(file=f)
+                    print(f"[torch_training_meta_info] Error details saved to {side}")
+                except Exception:
+                    pass
+
+    return TorchTrainingMetaInfo()
+
+
+@CallbackRegistry.register("torch_grad_monitor")
+def make_torch_grad_monitor(
+    save_dir: str,
+    track_per_param: bool = False,   # False = per-layer summary only (recommended)
+    log_every_n_batches: int = 1,    # collect every n batches (increase to reduce overhead)
+    clip_large_values_at: float = 0, # 0 = no clipping; else clip abs grads for robust stats
+):
+    """
+    Gradient-flow monitor (safe & robust).
+    - Registers .register_hook() on each requires_grad parameter.
+    - For each batch, gathers:
+        * global_grad_norm (L2)
+        * any_nan / any_inf flags
+        * per-layer {count, l2, l1, max_abs, mean_abs, std, zero_frac, finite_frac}
+      (per-parameter detail can be enabled but increases JSON size)
+    - Saves one JSON per epoch: grads_epoch_{epoch+1}.json
+    """
+    import torch
+    from collections import defaultdict
+    import os, json, math, traceback
+    class TorchGradMonitor(PyTorchCallback):
+        def __init__(self):
+            super().__init__()
+            self.save_dir = save_dir
+            self.track_per_param = bool(track_per_param)
+            self.n = max(1, int(log_every_n_batches))
+            self.clip = float(clip_large_values_at)
+            self._hooks = []
+            self._epoch = -1
+            self._batch = -1
+
+            # per-batch scratch (filled by hooks during backward)
+            self._batch_global_sumsq = 0.0
+            self._batch_any_nan = False
+            self._batch_any_inf = False
+
+            # per-batch per-layer accumulators
+            self._batch_layer = defaultdict(lambda: {
+                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
+                "mean_abs_sum": 0.0, "std_sum": 0.0,
+                "zeros": 0, "numel": 0, "finite": 0
+            })
+            # per-epoch aggregated stats
+            self._epoch_batches = 0
+            self._epoch_global_norms = []  # sample per logged batch
+            self._epoch_any_nan = 0
+            self._epoch_any_inf = 0
+            self._epoch_layer = defaultdict(lambda: {
+                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
+                "mean_abs_sum": 0.0, "std_sum": 0.0,
+                "zeros": 0, "numel": 0, "finite": 0
+            })
+
+        # ----------------- helpers -----------------
+        def _atomic_write_json(self, path: str, payload: Dict[str, Any]):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp, path)
+
+        def _safe_stats(self, g: torch.Tensor):
+            # Work on a view; no grad change
+            t = g.detach()
+            if self.clip > 0:
+                t = t.clamp(min=-self.clip, max=self.clip)
+
+            isfinite = torch.isfinite(t)
+            finite = t[isfinite]
+            numel = t.numel()
+            zeros = (t == 0).sum().item()
+
+            if finite.numel() == 0:
+                return {
+                    "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
+                    "mean_abs": 0.0, "std": 0.0,
+                    "zeros": zeros, "numel": numel, "finite": 0,
+                    "any_nan": True, "any_inf": True
+                }
+
+            absf = finite.abs()
+            l2 = float(torch.linalg.vector_norm(finite, ord=2).item())
+            l1 = float(absf.sum().item())
+            max_abs = float(absf.max().item())
+            mean_abs = float(absf.mean().item())
+            std = float(finite.std(unbiased=False).item()) if finite.numel() > 1 else 0.0
+            any_nan = bool(torch.isnan(t).any().item())
+            any_inf = bool(torch.isinf(t).any().item())
+
+            return {
+                "l2": l2, "l1": l1, "max_abs": max_abs,
+                "mean_abs": mean_abs, "std": std,
+                "zeros": int(zeros), "numel": int(numel),
+                "finite": int(finite.numel()),
+                "any_nan": any_nan, "any_inf": any_inf,
+            }
+
+        def _attach_hooks(self, model):
+            # Remove old hooks if any
+            for h in self._hooks:
+                try:
+                    h.remove()
+                except Exception:
+                    pass
+            self._hooks.clear()
+
+            # Name parameters for per-layer aggregation
+            for name, p in model.named_parameters():
+                if not p.requires_grad:
+                    continue
+
+                def make_hook(pname):
+                    def _hook(grad):
+                        s = self._safe_stats(grad)
+                        # global
+                        self._batch_global_sumsq += (s["l2"] ** 2)
+                        self._batch_any_nan |= s["any_nan"]
+                        self._batch_any_inf |= s["any_inf"]
+                        # per-layer (group by module/param prefix)
+                        layer = pname.rsplit(".", 1)[0] if "." in pname else pname
+                        L = self._batch_layer[layer]
+                        L["count"] += 1
+                        L["l2"] += s["l2"]
+                        L["l1"] += s["l1"]
+                        L["max_abs"] = max(L["max_abs"], s["max_abs"])
+                        L["mean_abs_sum"] += s["mean_abs"]
+                        L["std_sum"] += s["std"]
+                        L["zeros"] += s["zeros"]
+                        L["numel"] += s["numel"]
+                        L["finite"] += s["finite"]
+
+                        if self.track_per_param:
+                            # store minimal per-param details lazily
+                            PP = self._batch_layer.setdefault(f"{layer}::{pname}", {
+                                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
+                                "mean_abs_sum": 0.0, "std_sum": 0.0,
+                                "zeros": 0, "numel": 0, "finite": 0
+                            })
+                            PP["count"] += 1
+                            PP["l2"] += s["l2"]
+                            PP["l1"] += s["l1"]
+                            PP["max_abs"] = max(PP["max_abs"], s["max_abs"])
+                            PP["mean_abs_sum"] += s["mean_abs"]
+                            PP["std_sum"] += s["std"]
+                            PP["zeros"] += s["zeros"]
+                            PP["numel"] += s["numel"]
+                            PP["finite"] += s["finite"]
+                    return _hook
+
+                self._hooks.append(p.register_hook(make_hook(name)))
+
+        def _reset_batch_accum(self):
+            self._batch_global_sumsq = 0.0
+            self._batch_any_nan = False
+            self._batch_any_inf = False
+            self._batch_layer.clear()
+
+        def _merge_batch_into_epoch(self):
+            if self._batch_global_sumsq > 0.0:
+                gnorm = math.sqrt(self._batch_global_sumsq)
+                self._epoch_global_norms.append(gnorm)
+            if self._batch_any_nan:
+                self._epoch_any_nan += 1
+            if self._batch_any_inf:
+                self._epoch_any_inf += 1
+
+            for k, v in self._batch_layer.items():
+                E = self._epoch_layer[k]
+                E["count"] += v["count"]
+                E["l2"] += v["l2"]
+                E["l1"] += v["l1"]
+                E["max_abs"] = max(E["max_abs"], v["max_abs"])
+                E["mean_abs_sum"] += v["mean_abs_sum"]
+                E["std_sum"] += v["std_sum"]
+                E["zeros"] += v["zeros"]
+                E["numel"] += v["numel"]
+                E["finite"] += v["finite"]
+
+        def _epoch_payload(self, epoch_idx: int):
+            # Build per-layer means
+            layer_stats = {}
+            for k, v in self._epoch_layer.items():
+                c = max(1, v["count"])
+                layer_stats[k] = {
+                    "count": v["count"],
+                    "l2_sum": round(v["l2"], 6),
+                    "l1_sum": round(v["l1"], 6),
+                    "max_abs": round(v["max_abs"], 6),
+                    "mean_abs_mean": round(v["mean_abs_sum"] / c, 6),
+                    "std_mean": round(v["std_sum"] / c, 6),
+                    "zero_frac": round((v["zeros"] / v["numel"]) if v["numel"] else 0.0, 6),
+                    "finite_frac": round((v["finite"] / v["numel"]) if v["numel"] else 0.0, 6),
+                }
+
+            return {
+                "epoch": epoch_idx + 1,
+                "batches_logged": self._epoch_batches,
+                "global_grad_norm": {
+                    "num_samples": len(self._epoch_global_norms),
+                    "mean": round(float(sum(self._epoch_global_norms) / max(1, len(self._epoch_global_norms))), 6),
+                    "max": round(float(max(self._epoch_global_norms)) if self._epoch_global_norms else 0.0, 6),
+                    "min": round(float(min(self._epoch_global_norms)) if self._epoch_global_norms else 0.0, 6),
+                },
+                "any_nan_batches": self._epoch_any_nan,
+                "any_inf_batches": self._epoch_any_inf,
+                "layers": layer_stats,
+            }
+
+        # --------------- lifecycle ----------------
+        def on_train_begin(self, model=None, **kwargs):
+            if model is not None:
+                self._attach_hooks(model)
+
+        def on_epoch_begin(self, epoch, **kwargs):
+            self._epoch = epoch
+            self._batch = -1
+            self._epoch_batches = 0
+            self._epoch_any_nan = 0
+            self._epoch_any_inf = 0
+            self._epoch_global_norms.clear()
+            self._epoch_layer.clear()
+
+        def on_batch_begin(self, batch, **kwargs):
+            self._batch = batch
+            self._reset_batch_accum()
+
+        def on_batch_end(self, batch, **kwargs):
+            # Only log every n batches to reduce overhead/size
+            if ((batch + 1) % self.n) == 0:
+                self._merge_batch_into_epoch()
+                self._epoch_batches += 1
+                self._reset_batch_accum()  # reset for next accumulation window
+
+        def on_epoch_end(self, epoch, **kwargs):
+            # Flush any remainder accumulation
+            self._merge_batch_into_epoch()
+            payload = self._epoch_payload(epoch_idx=epoch)
+            try:
+                os.makedirs(self.save_dir, exist_ok=True)
+                path = os.path.join(self.save_dir, f"grads_epoch_{epoch+1:04d}.json")
+                self._atomic_write_json(path, payload)
+                print(f"[torch_grad_monitor] Saved {path}")
+            except Exception as e:
+                print(f"[torch_grad_monitor] Failed to save epoch grads: {e}")
+                try:
+                    with open(os.path.join(self.save_dir, f"grads_epoch_{epoch+1:04d}.error.txt"), "w") as f:
+                        traceback.print_exc(file=f)
+                except Exception:
+                    pass
+
+        def on_train_end(self, **kwargs):
+            # Remove hooks
+            for h in self._hooks:
+                try:
+                    h.remove()
+                except Exception:
+                    pass
+            self._hooks.clear()
+
+    return TorchGradMonitor()
 
 
 # Update the event map to include PyTorch (vanilla) support
