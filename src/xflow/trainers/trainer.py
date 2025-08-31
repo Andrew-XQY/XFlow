@@ -212,6 +212,8 @@ class TorchTrainer(BaseTrainer):
         model_io: Optional[ModelIO] = None,
         config: Optional[Dict[str, Any]] = None,
         val_metrics: Optional[List[Callable[[Any, Any], Dict[str, float]]]] = None,
+        scheduler: Any = None,
+        scheduler_step_per_batch: bool = False,
     ):
         super().__init__(
             model,
@@ -225,6 +227,8 @@ class TorchTrainer(BaseTrainer):
         self.criterion = criterion
         self.device = device
         self.val_metrics = val_metrics or []
+        self.scheduler = scheduler
+        self.scheduler_step_per_batch = scheduler_step_per_batch
 
     # ---- micro-steps (override if needed) ----
     def _to_device(self, batch):
@@ -278,6 +282,7 @@ class TorchTrainer(BaseTrainer):
             trainer=self,
             model=self.model,
             optimizer=self.optimizer,
+            scheduler=self.scheduler,
             device=self.device,
             total_batches=len(train_loader),
             logs={},
@@ -306,6 +311,10 @@ class TorchTrainer(BaseTrainer):
                 ctx.logs = logs
                 ctx.global_step = global_step
                 self.cb.call("on_batch_end", ctx)
+                # ---- scheduler per-batch (except Plateau) ----
+                if self.scheduler and self.scheduler_step_per_batch:
+                    if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        self.scheduler.step()
                 if ctx.request_stop:
                     break
 
@@ -341,6 +350,15 @@ class TorchTrainer(BaseTrainer):
                 self.history[k].append(v)
             ctx.phase, ctx.logs = "train", epoch_logs
             self.cb.call("on_epoch_end", ctx)
+
+            # ---- scheduler per-epoch (handles Plateau) ----
+            if self.scheduler and not self.scheduler_step_per_batch:
+                import torch
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    metric = val_logs_epoch.get("val_loss", avg_train)
+                    self.scheduler.step(metric)
+                else:
+                    self.scheduler.step()
 
             if ctx.request_stop or self.cb.should_stop:
                 break
