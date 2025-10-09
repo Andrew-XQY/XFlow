@@ -1,31 +1,44 @@
 # ====================
-# Conv AutoEncoder fiber image reconstruction configuration file
+# Swin-Transformer fiber image reconstruction configuration file
 # ====================
 
-seed: &seed 500 # 42, 168, 500
-name: &config "CAE.yaml"
+seed: &seed 500                           # 42, 168, 500
+name: &config "SwinT.yaml"
 framework: "pytorch"
 
 paths:
-  output: &output ${paths.output_root}    # comes from shared defaults
+  output:  ${paths.output_root}           # comes from shared defaults
   dataset: ${paths.datasets.mmf}          # picked by machine profile
 
 model:
-  in_channels: 1
-  out_channels: 1
-  kernel_size: 4
-  encoder:          [64,  128, 128, 256, 512, 512]
-  decoder:          [512, 512, 256, 128, 128, 64 ]
-  apply_batchnorm:  [0,   1,   1,   1,   1,   1  ]
-  apply_dropout:    [1,   1,   0,   0,   0,   0  ]
-  final_activation: sigmoid
+  img_size: 256                           # Input image size (assumed square)       
+  window_size: 8                          # 7 for 224, 8 for 256
+  in_chans: 1
+  out_chans: 1
+  embed_dim: 96
+  depths: [2,2,6,2]                       # Option: [2,2,2,2]
+  num_heads: [3,6,12,24]
+  patch_size: 4
 
 training:
+  batch_size: &batch 32                   # Samples per gradient update
   epochs: &epochs 100                     # Number of full passes over training data
-  learning_rate: 1.0e-4                   # Initial learning rate for optimizer
-  batch_size: &batch 32                   # Number of samples per gradient update
+  learning_rate: 3.0e-4                   # Initial learning rate for optimizer
+  w_l1: 1.0
+  w_ssim: 0.3
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  weight_decay: 0.05
+  warmup_ratio: 0.1                       # Number of warmup epochs
 
 callbacks:
+  # - name: "torch_grad_monitor"
+  #   params:
+  #     save_dir: ${paths.output}
+  #     log_every_n_batches: 50
+  - name: "torch_total_training_time"
+    params:
+      save_dir: ${paths.output}
   - name: "torch_batch_progress_bar"
     params:
       only_keys: ["train_loss", "val_loss"]
@@ -35,7 +48,7 @@ callbacks:
       patience: 20                        # Epochs to wait before stopping
   - name: "torch_image_reconstruction_callback"
     params:
-      save_dir: ${paths.output}           # Directory to save results 
+      save_dir: ${paths.output}           # Directory to save results
 
 data:
   subsample_fraction: 1                   # Total fraction of data to use, 1 for full set
@@ -72,4 +85,4 @@ data:
         prefetch_factor: 2                # Number of batches to prefetch
         seed: *seed                       # Random seed for reproducibility
 
-extra_files: ["models/CAE.py"]
+extra_files: ["models/SwinT.py"]
