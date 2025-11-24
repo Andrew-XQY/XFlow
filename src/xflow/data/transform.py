@@ -380,6 +380,56 @@ def tf_split_width(
     return left_half, right_half
 
 
+@TransformRegistry.register("tf_crop_area")
+def tf_crop_area(
+    image: TensorLike,
+    points: Sequence[Tuple[int, int]]
+) -> TensorLike:
+    """Crop a rectangular area from image tensor defined by two corner points.
+    
+    Args:
+        image: Input tensor with shape (H, W, C) or (H, W) (TensorFlow format)
+        points: Two corner points as [(x1, y1), (x2, y2)] or ((x1, y1), (x2, y2))
+                where x is column index, y is row index. Can be any iterable of two points.
+    
+    Returns:
+        Cropped tensor preserving the original format
+        
+    Examples:
+        >>> # Crop region from (10, 20) to (100, 150) from HWC tensor
+        >>> image = tf.random.normal([224, 224, 3])
+        >>> cropped = tf_crop_area(image, [(10, 20), (100, 150)])
+        >>> # Result shape: (130, 90, 3) - preserves C dimension
+        
+        >>> # Works with grayscale too
+        >>> image = tf.random.normal([224, 224, 1])
+        >>> cropped = tf_crop_area(image, [[50, 50], [150, 150]])
+        >>> # Result shape: (100, 100, 1)
+    """
+    import tensorflow as tf
+    
+    point1, point2 = points
+    x1, y1 = point1
+    x2, y2 = point2
+    
+    # Ensure coordinates are in correct order (top-left to bottom-right)
+    x_min, x_max = min(x1, x2), max(x1, x2)
+    y_min, y_max = min(y1, y2), max(y1, y2)
+    
+    # TensorFlow uses (H, W, C) format
+    # Slicing: image[y_start:y_end, x_start:x_end, :]
+    rank = tf.rank(image)
+    
+    # Handle 2D (H, W) or 3D (H, W, C)
+    cropped = tf.cond(
+        tf.equal(rank, 2),
+        lambda: image[y_min:y_max, x_min:x_max],
+        lambda: image[y_min:y_max, x_min:x_max, :]
+    )
+    
+    return cropped
+
+
 @TransformRegistry.register("tf_expand_dims")
 def tf_expand_dims(image: TensorLike, axis: int = -1) -> TensorLike:
     """Add dimension to tensor."""
@@ -567,6 +617,27 @@ def split_text(text: str, separator: str = None, maxsplit: int = -1) -> List[str
 def join_text(text_list: List[str], separator: str = "") -> str:
     """Join list of strings into single string."""
     return separator.join(text_list)
+
+
+@TransformRegistry.register("add_parent_dir")
+def add_parent_dir(path: PathLikeStr, parent_dir: PathLikeStr) -> str:
+    """Prepend parent directory to file path using pathlib for cross-platform safety.
+    
+    Args:
+        path: Relative or absolute file path
+        parent_dir: Parent directory to prepend
+        
+    Returns:
+        Full path as string
+        
+    Examples:
+        >>> add_parent_dir("image.jpg", "/data/images")
+        '/data/images/image.jpg'
+        
+        >>> add_parent_dir("train/img.jpg", "C:\\\\data")
+        'C:\\\\data\\\\train\\\\img.jpg'  # Windows
+    """
+    return str(Path(parent_dir) / path)
 
 
 # TensorFlow native text transforms
@@ -818,6 +889,61 @@ def torch_random_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
         return transform(tensor)
     except ImportError:
         raise RuntimeError("torchvision not available")
+
+
+@TransformRegistry.register("torch_crop_area")
+def torch_crop_area(
+    tensor: TensorLike, 
+    points: Sequence[Tuple[int, int]]
+) -> TensorLike:
+    """Crop a rectangular area from tensor defined by two corner points.
+    
+    Args:
+        tensor: Input tensor with shape (..., C, H, W) or (H, W, C) or (H, W)
+        points: Two corner points as [(x1, y1), (x2, y2)] or ((x1, y1), (x2, y2))
+                where x is column index, y is row index. Can be any iterable of two points.
+    
+    Returns:
+        Cropped tensor preserving the original format
+        
+    Examples:
+        >>> # Crop region from (10, 20) to (100, 150) from CHW tensor
+        >>> tensor = torch.randn(3, 224, 224)
+        >>> cropped = torch_crop_area(tensor, [(10, 20), (100, 150)])
+        >>> # Result shape: (3, 130, 90) - preserves C dimension
+        
+        >>> # Works with batched tensors too
+        >>> tensor = torch.randn(32, 3, 224, 224)
+        >>> cropped = torch_crop_area(tensor, ((50, 50), (150, 150)))
+        >>> # Result shape: (32, 3, 100, 100)
+    """
+    try:
+        import torch
+        
+        point1, point2 = points
+        x1, y1 = point1
+        x2, y2 = point2
+        
+        # Ensure coordinates are in correct order (top-left to bottom-right)
+        x_min, x_max = min(x1, x2), max(x1, x2)
+        y_min, y_max = min(y1, y2), max(y1, y2)
+        
+        # Handle different tensor formats
+        if tensor.dim() == 2:
+            # (H, W) format
+            return tensor[y_min:y_max, x_min:x_max]
+        elif tensor.dim() == 3:
+            # Could be (C, H, W) or (H, W, C)
+            # Assume (C, H, W) format (PyTorch standard)
+            return tensor[:, y_min:y_max, x_min:x_max]
+        elif tensor.dim() >= 4:
+            # Batched: (..., C, H, W)
+            return tensor[..., :, y_min:y_max, x_min:x_max]
+        else:
+            raise ValueError(f"Unexpected tensor dimension: {tensor.dim()}")
+            
+    except ImportError:
+        raise RuntimeError("PyTorch not available")
 
 
 @TransformRegistry.register("torch_horizontal_flip")
