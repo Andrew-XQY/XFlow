@@ -1,8 +1,9 @@
 """Accelerator physics-specific transform utilities for specialized data preprocessing."""
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 from ...data.transform import TransformRegistry
+from ...evaluation.metrics import get_centroid
 from ...utils.typing import TensorLike
 from .beam import extract_beam_parameters
 
@@ -70,6 +71,58 @@ def split_width_with_analysis(
         return right_half, parameters  # input, label
 
 
+@TransformRegistry.register("check_centroid")
+def check_centroid(
+    tensor, rect: Sequence[Tuple[int, int]], method: str = "first_moment"
+) -> Optional[object]:
+    """Check if the centroid of an image falls within a specified rectangular region.
+
+    Args:
+        tensor: Input tensor/array (grayscale image recommended).
+                Can be PyTorch tensor, TensorFlow tensor, or NumPy array.
+        rect: Rectangular region defined by two corner points as [(x1, y1), (x2, y2)]
+              or ((x1, y1), (x2, y2)) where (x1, y1) is top-left and (x2, y2) is bottom-right.
+              Can be any iterable of two points.
+        method: Either "first_moment" (weighted average) or "gaussian_mean" (fit Gaussian to projection)
+
+    Returns:
+        The original unchanged tensor if centroid is within the rectangle, None otherwise.
+
+    Examples:
+        >>> # Check if centroid is within region (50, 50) to (200, 200)
+        >>> image = torch.randn(256, 256)
+        >>> result = check_centroid(image, [(50, 50), (200, 200)])
+        >>> if result is not None:
+        ...     print("Centroid is within region")
+
+        >>> # Works with any tensor type
+        >>> image = np.random.randn(256, 256)
+        >>> result = check_centroid(image, ((100, 100), (150, 150)))
+    """
+    import numpy as np
+
+    # Get centroid coordinates
+    cx, cy = get_centroid(tensor, method=method)
+
+    # Handle NaN case (empty image)
+    if np.isnan(cx) or np.isnan(cy):
+        return None
+
+    # Extract rectangle corners
+    point1, point2 = rect
+    x1, y1 = point1
+    x2, y2 = point2
+
+    # Ensure coordinates are in correct order (top-left to bottom-right)
+    x_min, x_max = min(x1, x2), max(x1, x2)
+    y_min, y_max = min(y1, y2), max(y1, y2)
+
+    # Check if centroid is within rectangle
+    if x_min <= cx <= x_max and y_min <= cy <= y_max:
+        return tensor
+    else:
+        return None
+
 
 @TransformRegistry.register("torch_split_width_with_analysis")
 def torch_split_width_with_analysis(
@@ -89,7 +142,7 @@ def torch_split_width_with_analysis(
         right_half = torch.split(tensor, mid_point, dim=width_dim)[1]
 
         parameters = extract_beam_parameters(left_half, method=method)
-        
+
         if parameters is None:
             return None
         if not return_all:
@@ -97,11 +150,9 @@ def torch_split_width_with_analysis(
         if swap:
             return right_half, parameters, left_half
         return left_half, parameters, right_half
-    
+
     except ImportError:
         raise RuntimeError("Split or beam parameter extraction failed")
-
-
 
 
 @TransformRegistry.register("tf_split_width_with_analysis")

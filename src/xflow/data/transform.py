@@ -381,52 +381,49 @@ def tf_split_width(
 
 
 @TransformRegistry.register("tf_crop_area")
-def tf_crop_area(
-    image: TensorLike,
-    points: Sequence[Tuple[int, int]]
-) -> TensorLike:
+def tf_crop_area(image: TensorLike, points: Sequence[Tuple[int, int]]) -> TensorLike:
     """Crop a rectangular area from image tensor defined by two corner points.
-    
+
     Args:
         image: Input tensor with shape (H, W, C) or (H, W) (TensorFlow format)
         points: Two corner points as [(x1, y1), (x2, y2)] or ((x1, y1), (x2, y2))
                 where x is column index, y is row index. Can be any iterable of two points.
-    
+
     Returns:
         Cropped tensor preserving the original format
-        
+
     Examples:
         >>> # Crop region from (10, 20) to (100, 150) from HWC tensor
         >>> image = tf.random.normal([224, 224, 3])
         >>> cropped = tf_crop_area(image, [(10, 20), (100, 150)])
         >>> # Result shape: (130, 90, 3) - preserves C dimension
-        
+
         >>> # Works with grayscale too
         >>> image = tf.random.normal([224, 224, 1])
         >>> cropped = tf_crop_area(image, [[50, 50], [150, 150]])
         >>> # Result shape: (100, 100, 1)
     """
     import tensorflow as tf
-    
+
     point1, point2 = points
     x1, y1 = point1
     x2, y2 = point2
-    
+
     # Ensure coordinates are in correct order (top-left to bottom-right)
     x_min, x_max = min(x1, x2), max(x1, x2)
     y_min, y_max = min(y1, y2), max(y1, y2)
-    
+
     # TensorFlow uses (H, W, C) format
     # Slicing: image[y_start:y_end, x_start:x_end, :]
     rank = tf.rank(image)
-    
+
     # Handle 2D (H, W) or 3D (H, W, C)
     cropped = tf.cond(
         tf.equal(rank, 2),
         lambda: image[y_min:y_max, x_min:x_max],
-        lambda: image[y_min:y_max, x_min:x_max, :]
+        lambda: image[y_min:y_max, x_min:x_max, :],
     )
-    
+
     return cropped
 
 
@@ -458,18 +455,20 @@ def build_transforms_from_config(
             )
         name = transform_config[name_key]
         params = transform_config.get(params_key, {})
-        
+
         # Check if params has 'transforms' list (multi-branch pattern)
         if "transforms" in params and isinstance(params["transforms"], list):
             processed_params = params.copy()
             nested_transforms = []
-            
+
             for nested_config in params["transforms"]:
                 if nested_config is None:
                     nested_transforms.append(None)
                 else:
-                    nested_transforms.append(build_transform_closure(nested_config, name_key, params_key))
-            
+                    nested_transforms.append(
+                        build_transform_closure(nested_config, name_key, params_key)
+                    )
+
             processed_params["transforms"] = nested_transforms
             transform_fn = partial(TransformRegistry.get(name), **processed_params)
         else:
@@ -477,7 +476,7 @@ def build_transforms_from_config(
             transform_fn = TransformRegistry.get(name)
             if params:
                 transform_fn = partial(transform_fn, **params)
-        
+
         transforms.append(transform_fn)
     return transforms
 
@@ -622,18 +621,18 @@ def join_text(text_list: List[str], separator: str = "") -> str:
 @TransformRegistry.register("add_parent_dir")
 def add_parent_dir(path: PathLikeStr, parent_dir: PathLikeStr) -> str:
     """Prepend parent directory to file path using pathlib for cross-platform safety.
-    
+
     Args:
         path: Relative or absolute file path
         parent_dir: Parent directory to prepend
-        
+
     Returns:
         Full path as string
-        
+
     Examples:
         >>> add_parent_dir("image.jpg", "/data/images")
         '/data/images/image.jpg'
-        
+
         >>> add_parent_dir("train/img.jpg", "C:\\\\data")
         'C:\\\\data\\\\train\\\\img.jpg'  # Windows
     """
@@ -732,7 +731,7 @@ def torch_load_image(path: PathLikeStr) -> TensorLike:
 
         return torchvision.io.read_image(str(path))
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_to_tensor")
@@ -752,7 +751,7 @@ def torch_to_tensor(image: ImageLike) -> TensorLike:
         else:
             raise ValueError(f"Cannot convert {type(image)} to PyTorch tensor")
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_to_pil")
@@ -763,64 +762,64 @@ def torch_to_pil(tensor: TensorLike) -> Image.Image:
 
         return F.to_pil_image(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_flatten")
 def torch_flatten(
-    tensor: TensorLike, 
-    start_dim: int = 1, 
+    tensor: TensorLike,
+    start_dim: int = 1,
     end_dim: int = -1,
-    make_contiguous: bool = True
+    make_contiguous: bool = True,
 ) -> TensorLike:
     """Flatten tensor dimensions for vectorization (e.g., image serialization).
-    
+
     This is the standard PyTorch approach for converting multi-dimensional tensors
     into vectors while preserving batch dimensions or other specified dimensions.
     Commonly used for:
     - Image vectorization: (B, C, H, W) -> (B, C*H*W)
-    - Feature flattening: (B, H, W, C) -> (B, H*W*C) 
+    - Feature flattening: (B, H, W, C) -> (B, H*W*C)
     - Complete flattening: (H, W, C) -> (H*W*C,)
-    
+
     Args:
         tensor: Input PyTorch tensor to flatten
         start_dim: First dimension to flatten (inclusive). Default: 1 (preserve batch)
         end_dim: Last dimension to flatten (inclusive). Default: -1 (last dimension)
         make_contiguous: Whether to ensure output is contiguous in memory for better performance
-    
+
     Returns:
         Flattened tensor with dimensions from start_dim to end_dim collapsed into a single dimension
-    
+
     Examples:
         >>> # Image vectorization preserving batch: (32, 3, 224, 224) -> (32, 150528)
         >>> images = torch.randn(32, 3, 224, 224)
         >>> flattened = torch_flatten(images)  # start_dim=1 by default
-        
+
         >>> # Complete flattening: (3, 224, 224) -> (150528,)
-        >>> image = torch.randn(3, 224, 224) 
+        >>> image = torch.randn(3, 224, 224)
         >>> vector = torch_flatten(image, start_dim=0)
-        
+
         >>> # Flatten spatial dimensions only: (32, 256, 7, 7) -> (32, 256, 49)
         >>> features = torch.randn(32, 256, 7, 7)
         >>> spatial_flat = torch_flatten(features, start_dim=2)
-        
+
         >>> # Flatten everything except last dim: (32, 256, 7, 7) -> (114688, 7)
         >>> flattened = torch_flatten(features, start_dim=0, end_dim=2)
     """
     try:
         import torch
-        
+
         # Use torch.flatten which is the standard and most efficient approach
         flattened = torch.flatten(tensor, start_dim=start_dim, end_dim=end_dim)
-        
+
         # Ensure contiguous memory layout for better performance if requested
         if make_contiguous and not flattened.is_contiguous():
             flattened = flattened.contiguous()
-            
+
         return flattened
-        
+
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_remap_range")
@@ -843,7 +842,7 @@ def torch_remap_range(
         remapped = normalized * (target_max - target_min) + target_min
         return remapped
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_resize")
@@ -865,7 +864,7 @@ def torch_resize(
         interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
         return F.resize(tensor, size, interpolation=interp_mode)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_center_crop")
@@ -876,7 +875,7 @@ def torch_center_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
 
         return F.center_crop(tensor, size)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_random_crop")
@@ -888,30 +887,29 @@ def torch_random_crop(tensor: TensorLike, size: List[int]) -> TensorLike:
         transform = T.RandomCrop(size)
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_crop_area")
 def torch_crop_area(
-    tensor: TensorLike, 
-    points: Sequence[Tuple[int, int]]
+    tensor: TensorLike, points: Sequence[Tuple[int, int]]
 ) -> TensorLike:
     """Crop a rectangular area from tensor defined by two corner points.
-    
+
     Args:
         tensor: Input tensor with shape (..., C, H, W) or (H, W, C) or (H, W)
         points: Two corner points as [(x1, y1), (x2, y2)] or ((x1, y1), (x2, y2))
                 where x is column index, y is row index. Can be any iterable of two points.
-    
+
     Returns:
         Cropped tensor preserving the original format
-        
+
     Examples:
         >>> # Crop region from (10, 20) to (100, 150) from CHW tensor
         >>> tensor = torch.randn(3, 224, 224)
         >>> cropped = torch_crop_area(tensor, [(10, 20), (100, 150)])
         >>> # Result shape: (3, 130, 90) - preserves C dimension
-        
+
         >>> # Works with batched tensors too
         >>> tensor = torch.randn(32, 3, 224, 224)
         >>> cropped = torch_crop_area(tensor, ((50, 50), (150, 150)))
@@ -919,15 +917,15 @@ def torch_crop_area(
     """
     try:
         import torch
-        
+
         point1, point2 = points
         x1, y1 = point1
         x2, y2 = point2
-        
+
         # Ensure coordinates are in correct order (top-left to bottom-right)
         x_min, x_max = min(x1, x2), max(x1, x2)
         y_min, y_max = min(y1, y2), max(y1, y2)
-        
+
         # Handle different tensor formats
         if tensor.dim() == 2:
             # (H, W) format
@@ -941,9 +939,9 @@ def torch_crop_area(
             return tensor[..., :, y_min:y_max, x_min:x_max]
         else:
             raise ValueError(f"Unexpected tensor dimension: {tensor.dim()}")
-            
+
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_horizontal_flip")
@@ -954,7 +952,7 @@ def torch_horizontal_flip(tensor: TensorLike) -> TensorLike:
 
         return F.hflip(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_vertical_flip")
@@ -965,7 +963,7 @@ def torch_vertical_flip(tensor: TensorLike) -> TensorLike:
 
         return F.vflip(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_random_horizontal_flip")
@@ -977,7 +975,7 @@ def torch_random_horizontal_flip(tensor: TensorLike, p: float = 0.5) -> TensorLi
         transform = T.RandomHorizontalFlip(p=p)
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_random_vertical_flip")
@@ -989,7 +987,7 @@ def torch_random_vertical_flip(tensor: TensorLike, p: float = 0.5) -> TensorLike
         transform = T.RandomVerticalFlip(p=p)
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_rotation")
@@ -1010,7 +1008,7 @@ def torch_rotation(
         interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
         return F.rotate(tensor, angle, interpolation=interp_mode)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_random_rotation")
@@ -1022,7 +1020,7 @@ def torch_random_rotation(tensor: TensorLike, degrees: List[float]) -> TensorLik
         transform = T.RandomRotation(degrees)
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_to_grayscale")
@@ -1090,7 +1088,7 @@ def torch_split_width(
             return right_half, left_half
         return left_half, right_half
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_adjust_brightness")
@@ -1101,7 +1099,7 @@ def torch_adjust_brightness(tensor: TensorLike, brightness_factor: float) -> Ten
 
         return F.adjust_brightness(tensor, brightness_factor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_adjust_contrast")
@@ -1112,7 +1110,7 @@ def torch_adjust_contrast(tensor: TensorLike, contrast_factor: float) -> TensorL
 
         return F.adjust_contrast(tensor, contrast_factor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_adjust_saturation")
@@ -1123,7 +1121,7 @@ def torch_adjust_saturation(tensor: TensorLike, saturation_factor: float) -> Ten
 
         return F.adjust_saturation(tensor, saturation_factor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_adjust_hue")
@@ -1134,7 +1132,7 @@ def torch_adjust_hue(tensor: TensorLike, hue_factor: float) -> TensorLike:
 
         return F.adjust_hue(tensor, hue_factor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_gaussian_blur")
@@ -1147,7 +1145,7 @@ def torch_gaussian_blur(
 
         return F.gaussian_blur(tensor, kernel_size, sigma)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_pad")
@@ -1163,7 +1161,7 @@ def torch_pad(
 
         return F.pad(tensor, padding, fill=fill, padding_mode=padding_mode)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_random_crop_resize")
@@ -1180,7 +1178,7 @@ def torch_random_crop_resize(
         transform = T.RandomResizedCrop(size, scale=scale, ratio=ratio)
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_color_jitter")
@@ -1200,7 +1198,7 @@ def torch_color_jitter(
         )
         return transform(tensor)
     except ImportError:
-        raise RuntimeError("torchvision not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_permute")
@@ -1248,37 +1246,37 @@ def torch_permute(
 @TransformRegistry.register("torch_squeeze")
 def torch_squeeze(tensor: TensorLike, dim: Optional[int] = None) -> TensorLike:
     """Remove dimensions of size 1 from PyTorch tensor.
-    
-    This is the PyTorch equivalent of the numpy squeeze function, designed to 
+
+    This is the PyTorch equivalent of the numpy squeeze function, designed to
     handle image channel squeezing operations like:
     - (256, 256, 1) -> (256, 256)  # Remove trailing single channel
     - (1, 256, 256) -> (256, 256)  # Remove leading single channel
     - (1, 1, 256, 256) -> (256, 256)  # Remove multiple single dimensions
-    
+
     Args:
         tensor: Input PyTorch tensor
         dim: If given, only removes dimensions of size 1 at the specified dimension.
              If None, removes all dimensions of size 1.
-    
+
     Returns:
         Squeezed tensor with single-size dimensions removed
-    
+
     Examples:
         >>> # Remove trailing channel dimension: (H, W, 1) -> (H, W)
         >>> tensor = torch.randn(256, 256, 1)
         >>> squeezed = torch_squeeze(tensor, dim=2)  # or dim=-1
-        
+
         >>> # Remove leading batch/channel dimension: (1, H, W) -> (H, W)
         >>> tensor = torch.randn(1, 256, 256)
         >>> squeezed = torch_squeeze(tensor, dim=0)
-        
+
         >>> # Remove all single dimensions automatically
         >>> tensor = torch.randn(1, 256, 256, 1)
         >>> squeezed = torch_squeeze(tensor)  # -> (256, 256)
     """
     try:
         import torch
-        
+
         if dim is not None:
             # Only squeeze the specified dimension if it has size 1
             if tensor.size(dim) == 1:
@@ -1289,88 +1287,88 @@ def torch_squeeze(tensor: TensorLike, dim: Optional[int] = None) -> TensorLike:
             # Squeeze all dimensions of size 1
             return torch.squeeze(tensor)
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_unsqueeze")
 def torch_unsqueeze(tensor: TensorLike, dim: int) -> TensorLike:
     """Add dimension to PyTorch tensor at specified position.
-    
+
     This is the PyTorch equivalent of numpy's expand_dims function, useful for:
     - Adding batch dimension: (H, W, C) -> (1, H, W, C)
     - Adding channel dimension: (H, W) -> (H, W, 1)
     - Preparing tensors for operations that require specific dimensionality
-    
+
     Args:
         tensor: Input PyTorch tensor
         dim: Position where the new axis is placed
-    
+
     Returns:
         Tensor with an additional dimension of size 1 inserted at the specified position
-    
+
     Examples:
         >>> # Add batch dimension at the beginning: (H, W, C) -> (1, H, W, C)
         >>> tensor = torch.randn(256, 256, 3)
         >>> batched = torch_unsqueeze(tensor, dim=0)
-        
+
         >>> # Add channel dimension at the end: (H, W) -> (H, W, 1)
         >>> tensor = torch.randn(256, 256)
         >>> with_channel = torch_unsqueeze(tensor, dim=-1)
-        
+
         >>> # Add dimension for broadcasting: (N,) -> (N, 1)
         >>> tensor = torch.randn(256, 256)
         >>> batched = torch_unsqueeze(tensor, dim=0)
     """
     try:
         import torch
-        
+
         return torch.unsqueeze(tensor, dim=dim)
     except ImportError:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
 
 
 @TransformRegistry.register("torch_debug_shape")
 def torch_debug_shape(
-    tensor: TensorLike, 
-    label: str = "tensor", 
+    tensor: TensorLike,
+    label: str = "tensor",
     show_stats: bool = False,
-    blocking: bool = False
+    blocking: bool = False,
 ) -> TensorLike:
     """Debug utility that prints tensor shape and passes data through unchanged.
-    
+
     Useful for inspecting data flow in transform pipelines without modifying the data.
     Can be inserted anywhere in a pipeline to understand tensor dimensions.
-    
+
     Args:
         tensor: Input PyTorch tensor (passed through unchanged)
         label: Descriptive label for the tensor (default: "tensor")
         show_stats: Whether to show additional statistics (mean, std, min, max)
         blocking: If True, waits for user input before continuing (useful for step-by-step debugging)
-    
+
     Returns:
         The input tensor unchanged
-    
+
     Examples:
         >>> # Basic shape debugging
         >>> x = torch.randn(32, 3, 224, 224)
         >>> x = torch_debug_shape(x, "after_loading")
         # Prints: "[DEBUG] after_loading: torch.Size([32, 3, 224, 224]) | dtype: float32"
-        
+
         >>> # With statistics and blocking
         >>> x = torch_debug_shape(x, "normalized", show_stats=True, blocking=True)
         # Prints: "[DEBUG] normalized: torch.Size([32, 3, 224, 224]) | dtype: float32 | μ=0.02 σ=1.0 [min=-2.1, max=2.3]"
         # Waits: "Press Enter to continue..."
-        
+
         >>> # Step-by-step pipeline debugging
         >>> x = torch_debug_shape(x, "critical_point", blocking=True)
         # Pauses execution to examine this specific step
     """
     try:
         import torch
-        
+
         # Basic info
         shape_str = f"[DEBUG] {label}: {tensor.shape} | dtype: {tensor.dtype}"
-        
+
         if show_stats and tensor.numel() > 0:
             if tensor.is_floating_point():
                 mean_val = tensor.mean().item()
@@ -1382,16 +1380,16 @@ def torch_debug_shape(
                 min_val = tensor.min().item()
                 max_val = tensor.max().item()
                 shape_str += f" | range=[{min_val}, {max_val}]"
-        
+
         print(shape_str)
-        
+
         if blocking:
             input("Press Enter to continue...")
-        
+
         return tensor
-        
+
     except ImportError:
-        print(f"[DEBUG] {label}: <torch not available>")
+        print(f"[DEBUG] {label}: <transform failed, please check the source code>")
         if blocking:
             input("Press Enter to continue...")
         return tensor
@@ -1400,33 +1398,38 @@ def torch_debug_shape(
 @TransformRegistry.register("torch_shape")
 def torch_shape(tensor: TensorLike, label: str = "") -> TensorLike:
     """Minimal shape debug utility - just prints shape and passes through.
-    
-    Ultra-simple version for quick debugging. Just prints the shape with 
+
+    Ultra-simple version for quick debugging. Just prints the shape with
     optional label and returns the tensor unchanged.
-    
+
     Args:
         tensor: Input tensor (unchanged)
         label: Optional prefix label
-    
+
     Returns:
         Input tensor unchanged
-        
+
     Examples:
         >>> x = torch_shape(torch.randn(3, 224, 224), "input")
         # Prints: "input: (3, 224, 224)"
-        
+
         >>> x = torch_shape(x)  # No label
         # Prints: "(3, 224, 224)"
     """
     try:
         import torch
+
         if label:
             print(f"{label}: {tuple(tensor.shape)}")
         else:
             print(f"{tuple(tensor.shape)}")
         return tensor
     except ImportError:
-        print(f"{label}: <torch unavailable>" if label else "<torch unavailable>")
+        print(
+            f"{label}: <transform failed, please check the source code>"
+            if label
+            else "<transform failed, please check the source code>"
+        )
         return tensor
 
 
@@ -1443,11 +1446,11 @@ def torch_batch(
     pin_memory_device: str = "",
     worker_init_fn=None,
     prefetch_factor: Optional[int] = None,
-    seed: Optional[int] = None,   # <--- new
+    seed: Optional[int] = None,  # <--- new
 ):
     """Wrap a dataset in a PyTorch DataLoader for batching with optional seed."""
-    from torch.utils.data import DataLoader
     import torch
+    from torch.utils.data import DataLoader
 
     generator = None
     if seed is not None:
@@ -1455,10 +1458,12 @@ def torch_batch(
         generator.manual_seed(int(seed))
 
         if worker_init_fn is None and num_workers > 0:
+
             def seed_worker(worker_id):
                 worker_seed = torch.initial_seed() % 2**32
                 np.random.seed(worker_seed)
                 random.seed(worker_seed)
+
             worker_init_fn = seed_worker
 
     return DataLoader(
@@ -1473,7 +1478,7 @@ def torch_batch(
         collate_fn=collate_fn,
         worker_init_fn=worker_init_fn,
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
-        generator=generator,   # <--- key for deterministic shuffle
+        generator=generator,  # <--- key for deterministic shuffle
     )
 
 
@@ -1483,7 +1488,7 @@ def torch_subset(dataset: "_TorchDataset", indices: List[int]):
     try:
         from torch.utils.data import Subset  # lazy import
     except Exception:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
     return Subset(dataset, indices)
 
 
@@ -1493,7 +1498,7 @@ def torch_concat(datasets: List["_TorchDataset"]):
     try:
         from torch.utils.data import ConcatDataset  # lazy import
     except Exception:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
     return ConcatDataset(datasets)
 
 
@@ -1505,64 +1510,71 @@ def torch_random_split(
     try:
         from torch.utils.data import random_split  # lazy import
     except Exception:
-        raise RuntimeError("PyTorch not available")
+        raise RuntimeError("Transform failed, please check the source code")
     return random_split(dataset, lengths, generator=generator)
 
 
 @TransformRegistry.register("multi_transform")
 def multi_transform(inputs, transforms):
     """Apply different transforms to multiple inputs.
-    
+
     Args:
         inputs: tuple/list of inputs (e.g., from split operations)
         transforms: list of transform functions, one per input
-        
+
     Returns:
         tuple of transformed outputs
     """
     if not isinstance(inputs, (tuple, list)):
         raise ValueError("inputs must be tuple or list")
-    
+
     if len(inputs) != len(transforms):
-        raise ValueError(f"Number of inputs ({len(inputs)}) must match transforms ({len(transforms)})")
-    
+        raise ValueError(
+            f"Number of inputs ({len(inputs)}) must match transforms ({len(transforms)})"
+        )
+
     results = []
     for inp, transform in zip(inputs, transforms):
         if transform is not None:  # Allow None to mean "no transform"
             results.append(transform(inp))
         else:
             results.append(inp)
-    
+
     return tuple(results)
+
 
 def build_transform_closure(transform_config, name_key="name", params_key="params"):
     """Build a single transform function with preset parameters.
-    
+
     Args:
         transform_config: dict with transform name and params
-        
+
     Returns:
         Callable transform function with parameters bound
     """
     if isinstance(transform_config, str):
         # Simple case: just transform name, no params
         return TransformRegistry.get(transform_config)
-    
+
     if name_key not in transform_config:
-        raise ValueError(f"Transform config missing '{name_key}' key: {transform_config}")
-    
+        raise ValueError(
+            f"Transform config missing '{name_key}' key: {transform_config}"
+        )
+
     name = transform_config[name_key]
     params = transform_config.get(params_key, {})
     transform_fn = TransformRegistry.get(name)
-    
+
     if params:
         return partial(transform_fn, **params)
     return transform_fn
+
 
 @TransformRegistry.register("tuple_select")
 def tuple_select(inputs, index=0):
     """Select specific item from tuple/list (useful after multi_transform)."""
     return inputs[index]
+
 
 class TorchDataset(_TorchDataset):
     """Map-style Dataset wrapper for an indexable pipeline."""
