@@ -48,6 +48,9 @@ def _copy_pipeline_attributes(target: "BasePipeline", source: BasePipeline) -> N
     target.logger = source.logger
     target.skip_errors = source.skip_errors
     target.error_count = source.error_count
+    target.discarded_count = source.discarded_count
+    target.enable_validation = source.enable_validation
+    target._sample_checker = source._sample_checker
 
 
 @with_progress
@@ -57,16 +60,33 @@ def apply_transforms_to_dataset(
     *,
     logger: Optional[logging.Logger] = None,
     skip_errors: bool = True,
-) -> Tuple[List[Any], int]:
+    should_keep: Optional[Callable[[Any], Tuple[bool, str]]] = None,
+    on_discard: Optional[Callable[[Any, str], None]] = None,
+) -> Tuple[List[Any], int, int]:
     """Apply sequential transforms to dataset items."""
     logger = logger or logging.getLogger(__name__)
     processed_items = []
     error_count = 0
+    discard_count = 0
 
     for item in data:
         try:
             for transform in transforms:
                 item = transform(item)
+            if should_keep is not None:
+                keep, reason = should_keep(item)
+            else:
+                keep = item is not None
+                reason = "result_is_none" if not keep else ""
+
+            if not keep:
+                if reason == "result_is_none":
+                    error_count += 1
+                discard_count += 1
+                if on_discard is not None:
+                    on_discard(item, reason)
+                continue
+
             processed_items.append(item)
         except Exception as e:
             error_count += 1
@@ -74,7 +94,7 @@ def apply_transforms_to_dataset(
             if not skip_errors:
                 raise
 
-    return processed_items, error_count
+    return processed_items, error_count, discard_count
 
 
 class ShufflePipeline(BasePipeline):
@@ -108,7 +128,10 @@ class ShufflePipeline(BasePipeline):
     def reset_error_count(self) -> None:
         """Reset the error count to zero."""
         self.error_count = 0
+        self.discarded_count = 0
         self.base.reset_error_count()
+        if hasattr(self.base, "reset_discard_count"):
+            self.base.reset_discard_count()
 
     def to_framework_dataset(self) -> Any:
         return self.base.to_framework_dataset().shuffle(self.buffer_size)
@@ -140,7 +163,10 @@ class BatchPipeline(BasePipeline):
     def reset_error_count(self) -> None:
         """Reset the error count to zero."""
         self.error_count = 0
+        self.discarded_count = 0
         self.base.reset_error_count()
+        if hasattr(self.base, "reset_discard_count"):
+            self.base.reset_discard_count()
 
     def unbatch(self) -> BasePipeline:
         """Return the underlying pipeline yielding individual items (no batch dimension)."""
@@ -1431,6 +1457,19 @@ def torch_shape(tensor: TensorLike, label: str = "") -> TensorLike:
             else "<transform failed, please check the source code>"
         )
         return tensor
+
+
+@TransformRegistry.register("identity")
+def identity(x):
+    """Identity transform - passes input through unchanged.
+
+    Args:
+        x: Any input (tensor, image, text, tuple, etc.)
+
+    Returns:
+        The input unchanged
+    """
+    return x
 
 
 # PyTorch dataset operations
