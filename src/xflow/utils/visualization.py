@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
-from pathlib import Path
 from PIL import Image
 
 from .typing import ImageLike
@@ -12,6 +13,7 @@ def to_numpy_image(img: ImageLike) -> np.ndarray:
     Works for CPU/GPU PyTorch tensors, TF eager tensors, PIL, and numpy arrays.
     """
     import torch
+
     if isinstance(img, torch.Tensor):  # PyTorch tensor
         arr = img.detach().cpu().numpy()
     elif hasattr(img, "numpy"):  # TF tensor
@@ -24,17 +26,23 @@ def to_numpy_image(img: ImageLike) -> np.ndarray:
         arr = np.array(img)
 
     # Normalize shape for display
-    if arr.ndim == 4:               # (B, C, H, W) or (B, H, W, C) → take first
+    if arr.ndim == 4:  # (B, C, H, W) or (B, H, W, C) → take first
         arr = arr[0]
     if arr.ndim == 3 and arr.shape[0] in (1, 3):  # channel-first → channel-last
         arr = np.transpose(arr, (1, 2, 0))
-    if arr.ndim == 3 and arr.shape[-1] == 1:      # single channel → squeeze
+    if arr.ndim == 3 and arr.shape[-1] == 1:  # single channel → squeeze
         arr = arr[..., 0]
     return arr
 
 
 def plot_image(
-    img: ImageLike, cmap: str = None, title: str = None, figsize: tuple = None
+    img: ImageLike,
+    cmap: str = None,
+    title: str = None,
+    figsize: tuple = None,
+    vmin: float = None,
+    vmax: float = None,
+    colorbar: bool = True,
 ) -> None:
     """
     Plot an image using matplotlib.
@@ -44,16 +52,20 @@ def plot_image(
         cmap: Colormap to use (auto-detected if None)
         title: Plot title
         figsize: Figure size tuple
+        vmin: Minimum pixel value for color scaling (auto if None)
+        vmax: Maximum pixel value for color scaling (auto if None)
+        colorbar: Whether to show the colorbar (default True)
     """
     arr = to_numpy_image(img)
     if cmap is None:
         cmap = "gray" if arr.ndim == 2 else None
     if figsize:
         plt.figure(figsize=figsize)
-    plt.imshow(arr, cmap=cmap)
+    plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
     plt.xlabel("X (pixel index)")
     plt.ylabel("Y (pixel index)")
-    plt.colorbar(label="Pixel value")
+    if colorbar:
+        plt.colorbar(label="Pixel value")
     if title:
         plt.title(title)
     plt.tight_layout()
