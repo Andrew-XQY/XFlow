@@ -3,23 +3,8 @@
 import itertools
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Iterable as IterableABC
-from collections.abc import Iterator as IteratorABC
-from collections.abc import Mapping as MappingABC
-from collections.abc import Sequence as SequenceABC
-from collections.abc import Set as SetABC
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Union
 
 from ..utils.decorator import with_progress
 from .provider import DataProvider
@@ -42,47 +27,6 @@ class Transform:
         return self.name
 
 
-def _contains_none(value: Any) -> bool:
-    """Return True when value or any nested element is None."""
-
-    if value is None:
-        return True
-
-    # Avoid inspecting strings/bytes to prevent per-character checks
-    if isinstance(value, (str, bytes)):
-        return False
-
-    # Prefer fast-path checks for numpy arrays and torch tensors when available
-    try:  # pragma: no cover - optional dependency
-        import numpy as np
-
-        if isinstance(value, np.ndarray):
-            if value.dtype == object:
-                return bool(np.any(value == None))  # noqa: E711 - explicit None check
-            return False
-    except Exception:  # pragma: no cover - import guard
-        pass
-
-    try:  # pragma: no cover - optional dependency
-        import torch
-
-        if isinstance(value, torch.Tensor):
-            return False  # Torch tensors cannot contain Python None
-    except Exception:  # pragma: no cover - import guard
-        pass
-
-    if isinstance(value, MappingABC):
-        return any(_contains_none(v) for v in value.values())
-
-    if isinstance(value, (SequenceABC, SetABC)):
-        return any(_contains_none(v) for v in value)
-
-    if isinstance(value, IterableABC) and not isinstance(value, IteratorABC):
-        return any(_contains_none(v) for v in value)
-
-    return False
-
-
 class BasePipeline(ABC):
     """Base class for data pipelines in scientific machine learning.
 
@@ -94,8 +38,6 @@ class BasePipeline(ABC):
         transforms: List of functions (Transform-wrapped or named) applied sequentially.
         logger: Optional logger for debugging and error tracking.
         skip_errors: Whether to skip items that fail preprocessing vs. raise errors.
-        enable_validation: Enable post-transform validation for each sample.
-        sample_checker: Optional callable used to validate each processed sample.
 
     Example:
         >>> # Using Transform wrapper for clear metadata
@@ -121,8 +63,6 @@ class BasePipeline(ABC):
         *,
         logger: Optional[logging.Logger] = None,
         skip_errors: bool = True,
-        enable_validation: bool = False,
-        sample_checker: Optional[Callable[[Any], bool]] = None,
     ) -> None:
         self.data_provider = data_provider
         self.transforms = [
@@ -136,9 +76,6 @@ class BasePipeline(ABC):
         self.logger = logger or logging.getLogger(__name__)
         self.skip_errors = skip_errors
         self.error_count = 0
-        self.discarded_count = 0
-        self.enable_validation = enable_validation or sample_checker is not None
-        self._sample_checker = sample_checker
 
     def __iter__(self) -> Iterator[Any]:
         """Iterate over preprocessed items."""
@@ -147,13 +84,11 @@ class BasePipeline(ABC):
                 item = raw_item
                 for fn in self.transforms:
                     item = fn(item)
-                keep, reason = self._evaluate_item(item)
-                if keep:
+                if item is not None:
                     yield item
                 else:
-                    if reason == "result_is_none":
-                        self.error_count += 1
-                    self._record_discard(item, reason)
+                    self.error_count += 1
+                    self.logger.warning("Preprocessed item is None, skipping.")
             except Exception as e:
                 self.error_count += 1
                 self.logger.warning(f"Failed to preprocess item: {e}")
@@ -188,24 +123,6 @@ class BasePipeline(ABC):
         """Reset the error count to zero."""
         self.error_count = 0
 
-    def reset_discard_count(self) -> None:
-        """Reset the discarded sample counter."""
-        self.discarded_count = 0
-
-    def enable_sample_validation(self, enabled: bool = True) -> None:
-        """Toggle post-transform validation for pipeline samples."""
-        self.enable_validation = enabled
-
-    def set_sample_checker(self, checker: Optional[Callable[[Any], bool]]) -> None:
-        """Inject a custom sample checker callable."""
-        self._sample_checker = checker
-        if checker is not None:
-            self.enable_sample_validation(True)
-
-    def get_discarded_count(self) -> int:
-        """Return total number of discarded samples."""
-        return self.discarded_count
-
     @abstractmethod
     def to_framework_dataset(self) -> Any:
         """Convert pipeline to framework-native dataset."""
@@ -237,55 +154,6 @@ class BasePipeline(ABC):
             return tuple(np.stack(c) for c in zip(*items))
         return np.stack(items)
 
-    def _evaluate_item(self, item: Any) -> Tuple[bool, str]:
-        if item is None:
-            return False, "result_is_none"
-
-        if not self.enable_validation:
-            return True, ""
-
-        checker = self._sample_checker or self._default_sample_checker
-
-        try:
-            is_valid = bool(checker(item))
-        except Exception as exc:  # pragma: no cover - defensive guard
-            self.logger.warning("Sample checker raised %s; discarding sample.", exc)
-            return False, "checker_error"
-
-        if is_valid:
-            return True, ""
-        return False, "checker_rejected"
-
-    @staticmethod
-    def _default_sample_checker(item: Any) -> bool:
-        return not _contains_none(item)
-
-    def _record_discard(self, item: Any, reason: str) -> None:
-        del item  # Avoid keeping references to potentially large samples
-        self.discarded_count += 1
-
-        if reason == "result_is_none":
-            self.logger.debug(
-                "Discarded sample because transform result is None. total=%d",
-                self.discarded_count,
-            )
-        elif reason == "checker_rejected":
-            self.logger.debug(
-                "Discarded sample rejected by sample checker. total=%d",
-                self.discarded_count,
-            )
-        elif reason == "checker_error":
-            self.logger.warning(
-                "Discarded sample due to checker error. total=%d",
-                self.discarded_count,
-            )
-        else:
-            self.logger.debug(
-                "Discarded sample for reason '%s'. total=%d",
-                reason,
-                self.discarded_count,
-            )
-
 
 class DataPipeline(BasePipeline):
     """Simple pipeline that processes data lazily without storing in memory."""
@@ -308,33 +176,19 @@ class InMemoryPipeline(BasePipeline):
         *,
         logger: Optional[logging.Logger] = None,
         skip_errors: bool = True,
-        enable_validation: bool = False,
-        sample_checker: Optional[Callable[[Any], bool]] = None,
     ) -> None:
         super().__init__(
-            data_provider,
-            transforms,
-            logger=logger,
-            skip_errors=skip_errors,
-            enable_validation=enable_validation,
-            sample_checker=sample_checker,
+            data_provider, transforms, logger=logger, skip_errors=skip_errors
         )
 
         from .transform import apply_transforms_to_dataset
 
-        self.reset_discard_count()
-        dataset, errors, discards = apply_transforms_to_dataset(
+        self.dataset, self.error_count = apply_transforms_to_dataset(
             self.data_provider(),
             self.transforms,
             logger=self.logger,
             skip_errors=self.skip_errors,
-            should_keep=self._evaluate_item,
-            on_discard=self._record_discard,
         )
-
-        self.dataset = dataset
-        self.error_count = errors
-        self.discarded_count = discards
 
     def __iter__(self) -> Iterator[Any]:
         return iter(self.dataset)

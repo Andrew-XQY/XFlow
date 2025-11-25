@@ -73,7 +73,10 @@ def split_width_with_analysis(
 
 @TransformRegistry.register("check_centroid")
 def check_centroid(
-    tensor, rect: Sequence[Tuple[int, int]], method: str = "first_moment"
+    tensor,
+    rect: Sequence[Tuple[int, int]],
+    method: str = "first_moment",
+    on_fail: str = "return",
 ) -> Optional[object]:
     """Check if the centroid of an image falls within a specified rectangular region.
 
@@ -84,9 +87,13 @@ def check_centroid(
               or ((x1, y1), (x2, y2)) where (x1, y1) is top-left and (x2, y2) is bottom-right.
               Can be any iterable of two points.
         method: Either "first_moment" (weighted average) or "gaussian_mean" (fit Gaussian to projection)
+        on_fail: "return" to return None when centroid lies outside the region (default),
+            "raise" to raise a ValueError instead of returning None.
 
     Returns:
-        The original unchanged tensor if centroid is within the rectangle, None otherwise.
+        The original unchanged tensor if centroid is within the rectangle.
+        When on_fail="return", None is returned if the centroid is outside the rectangle
+        or cannot be computed. When on_fail="raise", a ValueError is raised instead.
 
     Examples:
         >>> # Check if centroid is within region (50, 50) to (200, 200)
@@ -101,11 +108,17 @@ def check_centroid(
     """
     import numpy as np
 
+    normalized_on_fail = on_fail.lower()
+    if normalized_on_fail not in {"return", "raise"}:
+        raise ValueError("on_fail must be either 'return' or 'raise'")
+
     # Get centroid coordinates
     cx, cy = get_centroid(tensor, method=method)
 
     # Handle NaN case (empty image)
     if np.isnan(cx) or np.isnan(cy):
+        if normalized_on_fail == "raise":
+            raise ValueError("Centroid could not be computed (NaN values)")
         return None
 
     # Extract rectangle corners
@@ -121,6 +134,8 @@ def check_centroid(
     if x_min <= cx <= x_max and y_min <= cy <= y_max:
         return tensor
     else:
+        if normalized_on_fail == "raise":
+            raise ValueError(f"Centroid ({cx}, {cy}) outside rectangle bounds")
         return None
 
 
