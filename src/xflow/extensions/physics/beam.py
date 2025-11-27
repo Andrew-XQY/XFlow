@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 
 # General NumPy implementation for beam parameter extraction
 def extract_beam_parameters(
-    image: TensorLike, method: str = "gaussian", as_array: bool = True
+    image: TensorLike,
+    method: str = "gaussian",
+    as_array: bool = True,
+    normalize: bool = True,
 ) -> Optional[Dict[str, float]]:
     """Extract normalized transverse beam parameters from beam distribution image.
 
@@ -65,16 +68,29 @@ def extract_beam_parameters(
         image_shape = image_np.shape
         normalized_params = normalize_beam_parameters(raw_params, image_shape)
 
+        # Maintain existing invalid-sample behavior: if normalization failed or
+        # the normalized parameters are not reasonable, return None.
         if normalized_params is None or not is_reasonable_beam_sample(
             normalized_params
         ):
             return None
 
+        # If caller requested normalized output (default), preserve existing behavior
+        if normalize:
+            if as_array:
+                keys = ["h_centroid", "v_centroid", "h_width", "v_width"]
+                return [normalized_params[k] for k in keys]
+            else:
+                return normalized_params
+
+        # If normalize==False, return the raw (pixel-unit) parameters but still
+        # validated using normalized values above. Preserve the same ordering
+        # used by `as_array` for backward compatibility.
         if as_array:
             keys = ["h_centroid", "v_centroid", "h_width", "v_width"]
-            return [normalized_params[k] for k in keys]
+            return [raw_params[k] for k in keys]
         else:
-            return normalized_params
+            return raw_params
 
     except Exception as e:
         import traceback
@@ -92,7 +108,7 @@ if TF_AVAILABLE:
 
     @tf.function
     def extract_beam_parameters_tf(
-        image: TensorLike, method: str = "gaussian"
+        image: TensorLike, method: str = "gaussian", normalize: bool = True
     ) -> tf.Tensor:
         """Extract normalized transverse beam parameters (TF native version).
 
@@ -126,7 +142,15 @@ if TF_AVAILABLE:
         h_width_norm = h_width / width
         v_width_norm = v_width / height
 
-        return tf.stack([h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm])
+        # Preserve existing behavior by default: return normalized tensor.
+        if normalize:
+            return tf.stack(
+                [h_centroid_norm, h_width_norm, v_centroid_norm, v_width_norm]
+            )
+
+        # If normalize==False return raw (pixel) values in the same ordering
+        # as the normalized output (h_centroid, h_width, v_centroid, v_width).
+        return tf.stack([h_centroid, h_width, v_centroid, v_width])
 
     @tf.function
     def calculate_beam_moments_1d_tf(

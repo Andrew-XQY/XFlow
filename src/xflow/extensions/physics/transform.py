@@ -73,7 +73,7 @@ def split_width_with_analysis(
 
 @TransformRegistry.register("check_centroid")
 def check_centroid(
-    tensor,
+    tensor: TensorLike,
     rect: Sequence[Tuple[int, int]],
     method: str = "first_moment",
     on_fail: str = "return",
@@ -86,7 +86,11 @@ def check_centroid(
         rect: Rectangular region defined by two corner points as [(x1, y1), (x2, y2)]
               or ((x1, y1), (x2, y2)) where (x1, y1) is top-left and (x2, y2) is bottom-right.
               Can be any iterable of two points.
-        method: Either "first_moment" (weighted average) or "gaussian_mean" (fit Gaussian to projection)
+        method: One of:
+            - "first_moment": compute centroid via intensity-weighted first moment
+            - "gaussian_mean": fit Gaussian to projections and use the mean
+            - "beam_params": use extract_beam_parameters() to get
+              [h_centroid, v_centroid, h_width, v_width]
         on_fail: "return" to return None when centroid lies outside the region (default),
             "raise" to raise a ValueError instead of returning None.
 
@@ -112,16 +116,40 @@ def check_centroid(
     if normalized_on_fail not in {"return", "raise"}:
         raise ValueError("on_fail must be either 'return' or 'raise'")
 
+    # ------------------------------------------------------------------
     # Get centroid coordinates
-    cx, cy = get_centroid(tensor, method=method)
+    # ------------------------------------------------------------------
+    if method == "beam_params":
+        # Expected signature:
+        #   extract_beam_parameters(tensor) -> [h_centroid, v_centroid, h_width, v_width]
+        # or None if the image is considered invalid.
+        params = extract_beam_parameters(tensor, normalize=False)
 
-    # Handle NaN case (empty image)
+        # As requested: if the extractor returns None, immediately raise.
+        if params is None:
+            raise ValueError("extract_beam_parameters returned None (invalid image)")
+
+        if len(params) != 4:
+            raise ValueError(
+                "extract_beam_parameters must return a sequence of four values: "
+                "[h_centroid, v_centroid, h_width, v_width]"
+            )
+
+        h_centroid, v_centroid, h_width, v_width = params
+        cx, cy = float(h_centroid), float(v_centroid)
+    else:
+        # Fallback to the original centroid logic.
+        cx, cy = get_centroid(tensor, method=method)
+
+    # Handle NaN case (empty or invalid centroid)
     if np.isnan(cx) or np.isnan(cy):
         if normalized_on_fail == "raise":
             raise ValueError("Centroid could not be computed (NaN values)")
         return None
 
-    # Extract rectangle corners
+    # ------------------------------------------------------------------
+    # Rectangle bounds check (only uses h_centroid, v_centroid)
+    # ------------------------------------------------------------------
     point1, point2 = rect
     x1, y1 = point1
     x2, y2 = point2

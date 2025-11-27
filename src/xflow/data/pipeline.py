@@ -76,6 +76,7 @@ class BasePipeline(ABC):
         self.logger = logger or logging.getLogger(__name__)
         self.skip_errors = skip_errors
         self.error_count = 0
+        self.in_memory_sample_count: Optional[int] = None
 
     def __iter__(self) -> Iterator[Any]:
         """Iterate over preprocessed items."""
@@ -189,6 +190,7 @@ class InMemoryPipeline(BasePipeline):
             logger=self.logger,
             skip_errors=self.skip_errors,
         )
+        self.in_memory_sample_count = len(self.dataset)
 
     def __iter__(self) -> Iterator[Any]:
         return iter(self.dataset)
@@ -371,6 +373,8 @@ class PyTorchPipeline(BasePipeline):
 
             if not processed_data:
                 raise ValueError("No data was processed from the pipeline")
+
+            self.in_memory_sample_count = len(processed_data)
 
             # Handle the case where each item is a tuple/list (multiple tensors)
             first_item = processed_data[0]
