@@ -25,7 +25,7 @@ from PIL import Image
 from ..utils.decorator import with_progress
 from ..utils.typing import ImageLike, PathLikeStr, TensorLike
 from ..utils.visualization import to_numpy_image
-from .pipeline import BasePipeline
+from .pipeline import BasePipeline, Transform
 
 # Only for type checkers; won't import torch at runtime
 if TYPE_CHECKING:
@@ -285,6 +285,43 @@ def split_width(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return image[:, :mid_point], image[:, mid_point:]
 
 
+@TransformRegistry.register("join_image")
+def join_image(images: Iterable[ImageLike], layout: Tuple[int, int]) -> ImageLike:
+    """Tile images using (rows, cols) layout and return merged image."""
+
+    img_list = list(images)
+    if not img_list:
+        raise ValueError("join_image expects at least one image")
+
+    rows, cols = layout
+    if rows <= 0 or cols <= 0:
+        raise ValueError("Layout values must be positive")
+    if rows * cols != len(img_list):
+        raise ValueError(
+            f"Layout {layout} must match number of images ({len(img_list)})"
+        )
+
+    np_imgs = [to_numpy_image(img) for img in img_list]
+    first_shape = np_imgs[0].shape
+    if any(img.shape != first_shape for img in np_imgs[1:]):
+        raise ValueError("All images must share the same shape")
+
+    row_blocks = []
+    for r in range(rows):
+        start = r * cols
+        row_blocks.append(np.concatenate(np_imgs[start : start + cols], axis=1))
+    mosaic = np.concatenate(row_blocks, axis=0)
+
+    first = img_list[0]
+    if isinstance(first, Image.Image):
+        if mosaic.dtype != np.uint8:
+            mosaic = np.clip(mosaic, 0, 255).astype(np.uint8)
+        return Image.fromarray(mosaic)
+    if isinstance(first, np.ndarray):
+        return mosaic
+    return mosaic
+
+
 # TensorFlow transforms
 @TransformRegistry.register("tf_read_file")
 def tf_read_file(file_path: str) -> TensorLike:
@@ -479,7 +516,7 @@ def build_transforms_from_config(
             if params:
                 transform_fn = partial(transform_fn, **params)
 
-        transforms.append(transform_fn)
+        transforms.append(_wrap_transform_callable(transform_fn, name))
     return transforms
 
 
@@ -1581,8 +1618,16 @@ def build_transform_closure(transform_config, name_key="name", params_key="param
     transform_fn = TransformRegistry.get(name)
 
     if params:
-        return partial(transform_fn, **params)
-    return transform_fn
+        transform_fn = partial(transform_fn, **params)
+    return _wrap_transform_callable(transform_fn, name)
+
+
+def _wrap_transform_callable(fn: Callable, name: str) -> Transform:
+    """Ensure callable has Transform wrapper so pipeline can report names."""
+    if isinstance(fn, Transform):
+        return fn
+    wrapped = Transform(fn, name)
+    return wrapped
 
 
 @TransformRegistry.register("tuple_select")
@@ -1630,10 +1675,15 @@ def save_image(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / filename
 
-    fig, ax = plt.subplots()
+    height, width = array.shape[:2]
+    dpi = config.get("dpi", 100)
+
+    # Fix the canvas size so the rasterized output matches the tensor dimensions.
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    ax = fig.add_axes([0, 0, 1, 1])
     ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax)
     ax.axis("off")
-    fig.savefig(output_path, bbox_inches="tight", pad_inches=0)
+    fig.savefig(output_path, dpi=dpi)
     plt.close(fig)
 
     return tensor, str(output_path)

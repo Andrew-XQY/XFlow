@@ -81,9 +81,11 @@ class BasePipeline(ABC):
     def __iter__(self) -> Iterator[Any]:
         """Iterate over preprocessed items."""
         for raw_item in self.data_provider():
+            current_transform: Optional[Transform] = None
             try:
                 item = raw_item
                 for fn in self.transforms:
+                    current_transform = fn
                     item = fn(item)
                 if item is not None:
                     yield item
@@ -92,7 +94,17 @@ class BasePipeline(ABC):
                     self.logger.warning("Preprocessed item is None, skipping.")
             except Exception as e:
                 self.error_count += 1
-                self.logger.warning(f"Failed to preprocess item: {e}")
+                if current_transform is not None:
+                    transform_name = getattr(
+                        current_transform, "name", getattr(current_transform, "__name__", repr(current_transform))
+                    )
+                    self.logger.warning(
+                        "Failed to preprocess item in transform '%s': %s",
+                        transform_name,
+                        e,
+                    )
+                else:
+                    self.logger.warning(f"Failed to preprocess item: {e}")
                 if not self.skip_errors:
                     raise
 
@@ -340,10 +352,34 @@ class PyTorchPipeline(BasePipeline):
         try:
             import torch
             from IPython.display import clear_output
-            from torch.utils.data import TensorDataset
+            from torch.utils.data import Dataset as TorchDataset, TensorDataset
             from tqdm.auto import tqdm
 
             from .transform import apply_dataset_operations_from_config
+
+            class _MemoryListDataset(TorchDataset):
+                """Fallback dataset that returns preprocessed samples without stacking."""
+
+                def __init__(self, data: List[Any]) -> None:
+                    self._data = data
+
+                def __len__(self) -> int:
+                    return len(self._data)
+
+                def __getitem__(self, idx: int) -> Any:
+                    return self._data[idx]
+
+            def _to_tensor_or_keep(value: Any) -> Any:
+                """Convert value to tensor when possible, otherwise leave unchanged."""
+
+                if isinstance(value, torch.Tensor):
+                    return value
+                if isinstance(value, (str, bytes)):
+                    return value
+                try:
+                    return torch.as_tensor(value)
+                except (TypeError, ValueError):
+                    return value
 
             # Process all data through pipeline and collect results
             processed_data = []
@@ -360,12 +396,9 @@ class PyTorchPipeline(BasePipeline):
                 if not isinstance(item, torch.Tensor):
                     if isinstance(item, (tuple, list)):
                         # Handle multiple outputs (e.g., features, labels)
-                        item = tuple(
-                            torch.tensor(x) if not isinstance(x, torch.Tensor) else x
-                            for x in item
-                        )
+                        item = tuple(_to_tensor_or_keep(x) for x in item)
                     else:
-                        item = torch.tensor(item)
+                        item = _to_tensor_or_keep(item)
                 processed_data.append(item)
 
             pbar.close()
@@ -378,18 +411,27 @@ class PyTorchPipeline(BasePipeline):
 
             # Handle the case where each item is a tuple/list (multiple tensors)
             first_item = processed_data[0]
-            if isinstance(first_item, (tuple, list)):
-                # Stack each component separately
-                tensors = []
-                for i in range(len(first_item)):
-                    component_tensors = [item[i] for item in processed_data]
-                    stacked = torch.stack(component_tensors)
-                    tensors.append(stacked)
-                dataset = TensorDataset(*tensors)
-            else:
-                # Single tensor per item
-                stacked_tensor = torch.stack(processed_data)
-                dataset = TensorDataset(stacked_tensor)
+            dataset: TorchDataset
+            try:
+                if isinstance(first_item, (tuple, list)):
+                    tensors = []
+                    for i in range(len(first_item)):
+                        component_values = [item[i] for item in processed_data]
+                        if not all(isinstance(x, torch.Tensor) for x in component_values):
+                            raise TypeError("Non-tensor component detected")
+                        tensors.append(torch.stack(component_values))
+                    dataset = TensorDataset(*tensors)
+                else:
+                    if not all(isinstance(x, torch.Tensor) for x in processed_data):
+                        raise TypeError("Non-tensor samples detected")
+                    stacked_tensor = torch.stack(processed_data)
+                    dataset = TensorDataset(stacked_tensor)
+            except (TypeError, ValueError) as err:
+                self.logger.warning(
+                    "Falling back to list dataset because tensors could not be stacked: %s",
+                    err,
+                )
+                dataset = _MemoryListDataset(processed_data)
 
             # Apply any additional dataset operations
             if dataset_ops:
