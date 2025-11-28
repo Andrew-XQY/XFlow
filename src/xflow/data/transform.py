@@ -3,6 +3,7 @@
 import itertools
 import logging
 import random
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import (
@@ -23,6 +24,7 @@ from PIL import Image
 
 from ..utils.decorator import with_progress
 from ..utils.typing import ImageLike, PathLikeStr, TensorLike
+from ..utils.visualization import to_numpy_image
 from .pipeline import BasePipeline
 
 # Only for type checkers; won't import torch at runtime
@@ -1602,3 +1604,36 @@ class TorchDataset(_TorchDataset):
     def __getitem__(self, idx):
         """Return a single sample by index."""
         return self.pipeline[idx]
+
+
+@TransformRegistry.register("save_image")
+def save_image(
+    tensor: TensorLike,
+    directory: str,
+    filename: Optional[str] = None,
+    plot_conf: Optional[Dict[str, object]] = None,
+) -> Tuple[TensorLike, str]:
+    """Save a tensor image to disk using matplotlib and return the original tensor plus path."""
+
+    import matplotlib.pyplot as plt
+
+    array = to_numpy_image(tensor)
+    config = dict(plot_conf) if plot_conf else {}
+    cmap = config.get("cmap", "viridis")
+    vmin = config.get("vmin", float(array.min()))
+    vmax = config.get("vmax", float(array.max()))
+
+    if filename is None:
+        filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}.png"
+
+    output_dir = Path(directory)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+
+    fig, ax = plt.subplots()
+    ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.axis("off")
+    fig.savefig(output_path, bbox_inches="tight", pad_inches=0)
+    plt.close(fig)
+
+    return tensor, str(output_path)
