@@ -33,6 +33,10 @@ CORE_API = {
     "PyTorchPipeline": APIItem("data.pipeline", "PyTorchPipeline"),
     "ShufflePipeline": APIItem("data.transform", "ShufflePipeline"),
     "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
+    # Core transform primitives
+    "pipe": APIItem("data.core", "pipe"),
+    "pipe_each": APIItem("data.core", "pipe_each"),
+    "compose": APIItem("data.core", "compose"),
     # Data source providers
     "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
@@ -64,6 +68,10 @@ PACKAGE_API = {
         "build_transforms_from_config": APIItem(
             "transform", "build_transforms_from_config"
         ),
+        # Core transform primitives
+        "pipe": APIItem("core", "pipe"),
+        "pipe_each": APIItem("core", "pipe_each"),
+        "compose": APIItem("core", "compose"),
     },
     "models": {
         "BaseModel": APIItem("base", "BaseModel"),
