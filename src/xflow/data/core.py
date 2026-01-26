@@ -20,12 +20,31 @@ def pipe(sample: T, *transforms: Callable[[Any], Any]) -> Any:
     return result
 
 
-def pipe_each(samples: Iterable[T], *transforms: Callable[[Any], Any]) -> Iterator[Any]:
+def pipe_each(
+    samples: Iterable[T],
+    *transforms: Callable[[Any], Any],
+    progress: bool = False,
+    desc: str = "Processing",
+) -> Iterator[Any]:
     """Apply transforms to each sample in an iterable (lazy).
+
+    Args:
+        samples: Iterable of input samples.
+        *transforms: Functions to apply sequentially.
+        progress: If True, show progress bar (requires tqdm).
+        desc: Progress bar description.
 
     >>> list(pipe_each([1, 2, 3], lambda x: x * 2))
     [2, 4, 6]
     """
+    if progress:
+        try:
+            from tqdm import tqdm
+
+            samples = tqdm(samples, desc=desc)
+        except ImportError:
+            pass  # silently skip if tqdm not installed
+
     for sample in samples:
         yield pipe(sample, *transforms)
 
