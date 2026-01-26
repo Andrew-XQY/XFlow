@@ -16,7 +16,7 @@ from .data.pipeline import (
     TensorFlowPipeline,
 )
 from .data.provider import FileProvider, SqlProvider
-from .data.transform import BatchPipeline, ShufflePipeline
+from .data.transform import BatchPipeline, ShufflePipeline, TransformRegistry
 from .models.base import BaseModel
 from .models.utils import show_model_info
 from .trainers.callback import CallbackRegistry
@@ -42,6 +42,7 @@ __all__ = [
     "TensorFlowPipeline",
     "TorchGANTrainer",
     "TorchTrainer",
+    "TransformRegistry",
     "compose",
     "pipe",
     "pipe_each",

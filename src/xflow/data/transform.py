@@ -1687,3 +1687,23 @@ def save_image(
     plt.close(fig)
 
     return tensor, str(output_path)
+
+
+@TransformRegistry.register("apply")
+def apply(data: Any, fn: Callable[[Any], Any]) -> Any:
+    """Apply an arbitrary function to the data.
+
+    Useful for quick custom transformations without registration.
+
+    Args:
+        data: Input data
+        fn: Function to apply
+
+    Returns:
+        Result of fn(data)
+
+    Examples:
+        >>> # In config (with a lambda reference or registered function)
+        >>> apply(tensor, lambda x: x * 2)
+    """
+    return fn(data)

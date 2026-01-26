@@ -37,6 +37,7 @@ CORE_API = {
     "pipe": APIItem("data.core", "pipe"),
     "pipe_each": APIItem("data.core", "pipe_each"),
     "compose": APIItem("data.core", "compose"),
+    "TransformRegistry": APIItem("data.transform", "TransformRegistry"),
     # Data source providers
     "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
