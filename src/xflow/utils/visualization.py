@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -103,3 +104,32 @@ def save_image(
     fig.tight_layout()
     fig.savefig(path, dpi=dpi)
     plt.close(fig)
+
+
+def stack_log_remap(images: Iterable[ImageLike], eps: float = 1e-12) -> np.ndarray:
+    """
+    Pixel-wise sum (no clipping), then log1p + min-max remap to uint8 [0,255].
+    Returns a single 2D uint8 image.
+    """
+    # optional progress bar
+    try:
+        from tqdm import tqdm
+
+        it = tqdm(images)
+    except Exception:
+        it = images
+
+    stack = None
+    for img in it:
+        im = to_numpy_image(img).astype(np.float64, copy=False)
+        if stack is None:
+            stack = np.zeros_like(im, dtype=np.float64)
+        stack += im
+
+    if stack is None:
+        raise ValueError("Empty images iterable.")
+
+    log_img = np.log1p(stack)
+    denom = (log_img.max() - log_img.min()) + eps
+    out = (log_img - log_img.min()) / denom
+    return (out * 255).astype(np.uint8)

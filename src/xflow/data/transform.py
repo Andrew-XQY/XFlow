@@ -1787,3 +1787,33 @@ def discard(data: Any) -> None:
         >>> collect((None, b))  # -> b
     """
     return None
+
+
+@TransformRegistry.register("raise_if_none")
+def raise_if_none(data: Any, message: str = "Discarded sample") -> Any:
+    """Raise exception if data is None, allowing pipeline to skip it.
+
+    Use with skip_errors=True in pipe_each to filter out None samples.
+
+    Args:
+        data: Input data
+        message: Error message for logging
+
+    Returns:
+        data unchanged if not None
+
+    Raises:
+        ValueError: If data is None
+
+    Examples:
+        >>> # In pipeline with skip_errors=True
+        >>> results = list(pipe_each(
+        ...     items,
+        ...     some_transform,  # might return None
+        ...     T.get("raise_if_none"),  # converts None to skip
+        ...     skip_errors=True,
+        ... ))
+    """
+    if data is None:
+        raise ValueError(message)
+    return data
