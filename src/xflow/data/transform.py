@@ -1707,3 +1707,83 @@ def apply(data: Any, fn: Callable[[Any], Any]) -> Any:
         >>> apply(tensor, lambda x: x * 2)
     """
     return fn(data)
+
+
+@TransformRegistry.register("flatten_nested")
+def flatten_nested(data: Any) -> List[Any]:
+    """Recursively flatten nested lists/tuples into a single flat list.
+
+    Args:
+        data: Input data (can be nested lists/tuples or single item)
+
+    Returns:
+        Flat list of all leaf elements
+
+    Examples:
+        >>> flatten_nested(((a, b), (c, d)))  # -> [a, b, c, d]
+        >>> flatten_nested([a, [b, [c]]])     # -> [a, b, c]
+        >>> flatten_nested(tensor)            # -> [tensor]
+    """
+    if not isinstance(data, (list, tuple)):
+        return [data]
+
+    result = []
+    for item in data:
+        if isinstance(item, (list, tuple)):
+            result.extend(flatten_nested(item))
+        else:
+            result.append(item)
+    return result
+
+
+@TransformRegistry.register("collect")
+def collect(data: Any, remove_none: bool = True, unwrap_single: bool = True) -> Any:
+    """Collect results, optionally removing None values and unwrapping single items.
+
+    Args:
+        data: Input data (can be single item, tuple, or list)
+        remove_none: If True, filter out None values
+        unwrap_single: If True, return single item directly instead of list
+
+    Returns:
+        - None if all values are None (after filtering)
+        - Single item if only one non-None value remains and unwrap_single=True
+        - List of items otherwise
+
+    Examples:
+        >>> collect((tensor1, None, tensor2))  # -> [tensor1, tensor2]
+        >>> collect((None, tensor1, None))     # -> tensor1
+        >>> collect((None, None))              # -> None
+        >>> collect(tensor)                    # -> tensor (passthrough)
+    """
+    # Handle non-iterable inputs
+    if not isinstance(data, (list, tuple)):
+        return None if (remove_none and data is None) else data
+
+    items = list(data)
+
+    # Remove None values if requested
+    if remove_none:
+        items = [x for x in items if x is not None]
+
+    # Return based on result count
+    if len(items) == 0:
+        return None
+    elif len(items) == 1 and unwrap_single:
+        return items[0]
+    else:
+        return items
+
+
+@TransformRegistry.register("discard")
+def discard(data: Any) -> None:
+    """Discard input and return None.
+
+    Shorthand for constant(data, value=None). Use with collect() to remove.
+
+    Examples:
+        >>> # Discard first branch, keep second
+        >>> multi_transform((a, b), [discard, identity])  # -> (None, b)
+        >>> collect((None, b))  # -> b
+    """
+    return None
