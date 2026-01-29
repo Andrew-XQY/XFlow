@@ -133,3 +133,34 @@ def stack_log_remap(images: Iterable[ImageLike], eps: float = 1e-12) -> np.ndarr
     denom = (log_img.max() - log_img.min()) + eps
     out = (log_img - log_img.min()) / denom
     return (out * 255).astype(np.uint8)
+
+
+def stack_linear_clip(images: Iterable[ImageLike], max_val: int = 255) -> np.ndarray:
+    """
+    Pixel-wise sum, then clip to max_val. Returns a single 2D uint8 image.
+
+    Args:
+        images: Iterable of images to stack
+        max_val: Maximum value to clip to (default 255)
+
+    Returns:
+        Stacked image as uint8 array clipped to [0, max_val]
+    """
+    try:
+        from tqdm import tqdm
+
+        it = tqdm(images)
+    except Exception:
+        it = images
+
+    stack = None
+    for img in it:
+        im = to_numpy_image(img).astype(np.float64, copy=False)
+        if stack is None:
+            stack = np.zeros_like(im, dtype=np.float64)
+        stack += im
+
+    if stack is None:
+        raise ValueError("Empty images iterable.")
+
+    return np.clip(stack, 0, max_val).astype(np.uint8)

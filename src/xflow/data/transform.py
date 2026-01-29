@@ -773,6 +773,28 @@ def torch_load_image(path: PathLikeStr) -> TensorLike:
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("torch_load_image_with_meta")
+def torch_load_image_with_meta(
+    path: PathLikeStr,
+    meta_fn: Optional[Callable[[PathLikeStr], Dict[str, Any]]] = None,
+) -> Tuple[TensorLike, Dict[str, Any]]:
+    """Load image and return (image, metadata) tuple."""
+    try:
+        import torchvision.io as io
+
+        p = Path(path)
+        image = io.read_image(str(p))
+
+        if meta_fn is not None:
+            meta = meta_fn(path)
+        else:
+            meta = {"path": str(p), "filename": p.stem}
+
+        return (image, meta)
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
 @TransformRegistry.register("torch_to_tensor")
 def torch_to_tensor(image: ImageLike) -> TensorLike:
     """Convert image to PyTorch tensor."""
@@ -1656,17 +1678,24 @@ def save_image(
     tensor: TensorLike,
     directory: str,
     filename: Optional[str] = None,
+    use_plt: bool = False,
     plot_conf: Optional[Dict[str, object]] = None,
 ) -> Tuple[TensorLike, str]:
-    """Save a tensor image to disk using matplotlib and return the original tensor plus path."""
+    """Save tensor/array as image file.
 
+    Args:
+        tensor: Input tensor or array
+        directory: Output directory
+        filename: Output filename (auto-generated if None)
+        use_plt: If True, use matplotlib (for colormaps). If False, save raw pixels.
+        plot_conf: Matplotlib config (cmap, vmin, vmax, dpi) - only used if use_plt=True
+
+    Returns:
+        Tuple of (original_tensor, saved_path)
+    """
     import matplotlib.pyplot as plt
 
     array = to_numpy_image(tensor)
-    config = dict(plot_conf) if plot_conf else {}
-    cmap = config.get("cmap", "viridis")
-    vmin = config.get("vmin", float(array.min()))
-    vmax = config.get("vmax", float(array.max()))
 
     if filename is None:
         filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}.png"
@@ -1675,18 +1704,51 @@ def save_image(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / filename
 
-    height, width = array.shape[:2]
-    dpi = config.get("dpi", 100)
+    if use_plt:
+        # Use matplotlib (applies colormap, may change resolution)
+        config = dict(plot_conf) if plot_conf else {}
+        cmap = config.get("cmap", "viridis")
+        vmin = config.get("vmin", float(array.min()))
+        vmax = config.get("vmax", float(array.max()))
+        dpi = config.get("dpi", 100)
 
-    # Fix the canvas size so the rasterized output matches the tensor dimensions.
-    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax)
-    ax.axis("off")
-    fig.savefig(output_path, dpi=dpi)
-    plt.close(fig)
+        height, width = array.shape[:2]
+        fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.axis("off")
+        fig.savefig(output_path, dpi=dpi)
+        plt.close(fig)
+    else:
+        # Direct save - preserves original resolution exactly
+        if array.dtype == np.float32 or array.dtype == np.float64:
+            array = (np.clip(array, 0, 1) * 255).astype(np.uint8)
+        elif array.max() <= 1.0 and array.dtype != np.uint8:
+            array = (array * 255).astype(np.uint8)
+
+        Image.fromarray(array).save(output_path)
 
     return tensor, str(output_path)
+
+
+@TransformRegistry.register("save_image_from_meta")
+def save_image_from_meta(
+    data: Tuple[TensorLike, Dict[str, Any]],
+    directory: str,
+    suffix: str = "",
+    use_plt: bool = False,
+    plot_conf: Optional[Dict[str, object]] = None,
+) -> Tuple[TensorLike, str]:
+    """Save image using filename from metadata."""
+    image, meta = data
+    filename = f"{meta['filename']}{suffix}.png"
+    return save_image(
+        image,
+        directory=directory,
+        filename=filename,
+        use_plt=use_plt,
+        plot_conf=plot_conf,
+    )
 
 
 @TransformRegistry.register("apply")
@@ -1816,4 +1878,14 @@ def raise_if_none(data: Any, message: str = "Discarded sample") -> Any:
     """
     if data is None:
         raise ValueError(message)
+    return data
+
+
+@TransformRegistry.register("debug_print")
+def debug_print(data: Any, label: str = "") -> Any:
+    """Print data and pass through unchanged."""
+    if label:
+        print(f"{label}: {data}")
+    else:
+        print(data)
     return data
