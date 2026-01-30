@@ -1680,7 +1680,7 @@ def save_image(
     filename: Optional[str] = None,
     use_plt: bool = False,
     plot_conf: Optional[Dict[str, object]] = None,
-) -> Tuple[TensorLike, str]:
+) -> TensorLike:
     """Save tensor/array as image file.
 
     Args:
@@ -1728,7 +1728,7 @@ def save_image(
 
         Image.fromarray(array).save(output_path)
 
-    return tensor, str(output_path)
+    return tensor
 
 
 @TransformRegistry.register("save_image_from_meta")
@@ -1738,7 +1738,7 @@ def save_image_from_meta(
     suffix: str = "",
     use_plt: bool = False,
     plot_conf: Optional[Dict[str, object]] = None,
-) -> Tuple[TensorLike, str]:
+) -> TensorLike:
     """Save image using filename from metadata."""
     image, meta = data
     filename = f"{meta['filename']}{suffix}.png"
