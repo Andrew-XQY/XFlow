@@ -1,6 +1,8 @@
 import sqlite3
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
@@ -404,3 +406,100 @@ def create_database_instance(db_type: str, connection: str) -> "Database":
     else:
         # Future database types
         raise NotImplementedError(f"Database type {db_type} not yet implemented")
+
+
+def save_df_to_sqlite(
+    df: pd.DataFrame, output_path: str, table_name: str = "data"
+) -> str:
+    """
+    Save a DataFrame to a SQLite .db file.
+
+    Args:
+        df: DataFrame to save.
+        output_path: Full path to the .db file.
+        table_name: Table name in the database. Defaults to "data".
+
+    Returns:
+        Path to the saved .db file.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(output_path)
+    df.to_sql(table_name, conn, index=False, if_exists="replace")
+    conn.close()
+
+    return output_path
+
+
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    """Check if a table exists in a SQLite database."""
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    )
+    return cursor.fetchone() is not None
+
+
+def union_sqlite_db_tables(db_paths: List[str], table_names: List[str]) -> pd.DataFrame:
+    """
+    Union multiple SQLite databases with the same structure.
+
+    Args:
+        db_paths: List of paths to .db files.
+        table_names: List of table names to read. Skips if table doesn't exist.
+
+    Returns:
+        Combined DataFrame from all databases and tables.
+    """
+    dfs = []
+    for path in db_paths:
+        conn = sqlite3.connect(path)
+        for table in table_names:
+            if table_exists(conn, table):
+                df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+                dfs.append(df)
+        conn.close()
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+
+def merge_sqlite_dbs(db_paths: List[str], output_path: str) -> str:
+    """
+    Merge multiple SQLite databases with identical structure into one.
+
+    Assumes all databases have the same tables and schema.
+    Reads structure from the first database.
+
+    Args:
+        db_paths: List of paths to .db files.
+        output_path: Path for the merged .db file.
+
+    Returns:
+        Path to the merged database.
+    """
+    if not db_paths:
+        raise ValueError("No database paths provided")
+
+    # Get table names from first db (exclude internal sqlite tables)
+    conn = sqlite3.connect(db_paths[0])
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    )
+    table_names = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    # Merge each table
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    out_conn = sqlite3.connect(output_path)
+
+    for table in table_names:
+        dfs = []
+        for path in db_paths:
+            conn = sqlite3.connect(path)
+            df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+            dfs.append(df)
+            conn.close()
+
+        merged_df = pd.concat(dfs, ignore_index=True)
+        merged_df.to_sql(table, out_conn, index=False, if_exists="replace")
+
+    out_conn.close()
+    return output_path
