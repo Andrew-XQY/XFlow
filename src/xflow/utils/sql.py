@@ -439,13 +439,16 @@ def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def union_sqlite_db_tables(db_paths: List[str], table_names: List[str]) -> pd.DataFrame:
+def union_sqlite_db_tables(
+    db_paths: List[str], table_names: List[str], source_column: Optional[str] = None
+) -> pd.DataFrame:
     """
     Union multiple SQLite databases with the same structure.
 
     Args:
         db_paths: List of paths to .db files.
         table_names: List of table names to read. Skips if table doesn't exist.
+        source_column: If provided, adds a column with the source filename.
 
     Returns:
         Combined DataFrame from all databases and tables.
@@ -456,12 +459,16 @@ def union_sqlite_db_tables(db_paths: List[str], table_names: List[str]) -> pd.Da
         for table in table_names:
             if table_exists(conn, table):
                 df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+                if source_column:
+                    df[source_column] = path
                 dfs.append(df)
         conn.close()
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 
-def merge_sqlite_dbs(db_paths: List[str], output_path: str) -> str:
+def merge_sqlite_dbs(
+    db_paths: List[str], output_path: str, source_column: Optional[str] = None
+) -> str:
     """
     Merge multiple SQLite databases with identical structure into one.
 
@@ -471,6 +478,7 @@ def merge_sqlite_dbs(db_paths: List[str], output_path: str) -> str:
     Args:
         db_paths: List of paths to .db files.
         output_path: Path for the merged .db file.
+        source_column: If provided, adds a column with the source filename.
 
     Returns:
         Path to the merged database.
@@ -495,6 +503,8 @@ def merge_sqlite_dbs(db_paths: List[str], output_path: str) -> str:
         for path in db_paths:
             conn = sqlite3.connect(path)
             df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+            if source_column:
+                df[source_column] = path
             dfs.append(df)
             conn.close()
 
