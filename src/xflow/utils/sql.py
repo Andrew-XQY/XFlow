@@ -460,7 +460,7 @@ def union_sqlite_db_tables(
             if table_exists(conn, table):
                 df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
                 if source_column:
-                    df[source_column] = path
+                    df[source_column] = Path(path).as_posix()
                 dfs.append(df)
         conn.close()
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
@@ -504,7 +504,7 @@ def merge_sqlite_dbs(
             conn = sqlite3.connect(path)
             df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
             if source_column:
-                df[source_column] = path
+                df[source_column] = Path(path).as_posix()
             dfs.append(df)
             conn.close()
 
@@ -513,3 +513,38 @@ def merge_sqlite_dbs(
 
     out_conn.close()
     return output_path
+
+
+def add_composite_key(
+    db_path: str,
+    table_name: str,
+    key_columns: List[str],
+    key_name: str = "id",
+    separator: str = "_",
+) -> None:
+    """
+    Add a composite key column to an existing SQLite table.
+
+    Args:
+        db_path: Path to .db file.
+        table_name: Table to modify.
+        key_columns: Columns to combine (order matters).
+        key_name: Name for the new key column.
+        separator: Separator between column values.
+    """
+    conn = sqlite3.connect(db_path)
+
+    # Build concatenation expression
+    concat_expr = " || '{}' || ".format(separator).join(
+        f"COALESCE(CAST({col} AS TEXT), '')" for col in key_columns
+    )
+
+    # Add column if not exists, then update
+    try:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {key_name} TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    conn.execute(f"UPDATE {table_name} SET {key_name} = {concat_expr}")
+    conn.commit()
+    conn.close()

@@ -1889,3 +1889,86 @@ def debug_print(data: Any, label: str = "") -> Any:
     else:
         print(data)
     return data
+
+
+@TransformRegistry.register("extract_filename")
+def extract_filename(path: PathLikeStr, with_extension: bool = True) -> str:
+    """Extract filename from a file path.
+
+    Args:
+        path: File path (string or Path object)
+        with_extension: If True, include extension. If False, return stem only.
+
+    Returns:
+        Filename string
+
+    Examples:
+        >>> extract_filename("/data/images/photo.jpg")
+        'photo.jpg'
+
+        >>> extract_filename("/data/images/photo.jpg", with_extension=False)
+        'photo'
+
+        >>> extract_filename("C:\\\\Users\\\\data\\\\image.png")
+        'image.png'
+    """
+    p = Path(path)
+    return p.name if with_extension else p.stem
+
+
+@TransformRegistry.register("extract_stem")
+def extract_stem(path: PathLikeStr) -> str:
+    """Extract filename without extension from a file path.
+
+    Shorthand for extract_filename(path, with_extension=False).
+
+    Args:
+        path: File path
+
+    Returns:
+        Filename without extension
+
+    Examples:
+        >>> extract_stem("/data/images/photo.jpg")
+        'photo'
+    """
+    return Path(path).stem
+
+
+@TransformRegistry.register("extract_parent")
+def extract_parent(path: PathLikeStr) -> str:
+    """Extract parent directory from a file path.
+
+    Args:
+        path: File path
+
+    Returns:
+        Parent directory as string
+
+    Examples:
+        >>> extract_parent("/data/images/photo.jpg")
+        '/data/images'
+    """
+    return str(Path(path).parent)
+
+
+@TransformRegistry.register("extract_extension")
+def extract_extension(path: PathLikeStr, include_dot: bool = True) -> str:
+    """Extract file extension from a file path.
+
+    Args:
+        path: File path
+        include_dot: If True, include the dot (e.g., '.jpg'). If False, just 'jpg'.
+
+    Returns:
+        File extension
+
+    Examples:
+        >>> extract_extension("/data/photo.jpg")
+        '.jpg'
+
+        >>> extract_extension("/data/photo.jpg", include_dot=False)
+        'jpg'
+    """
+    ext = Path(path).suffix
+    return ext if include_dot else ext.lstrip(".")
