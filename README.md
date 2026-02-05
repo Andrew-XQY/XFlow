@@ -33,7 +33,11 @@ Originally created for physics research, it's now evolving toward generic scient
 
 ---
 
-## Core Data Processing Pipeline (Computational Map)
+## Core Data Processing Pipeline (Computational Map example)
+`flow` is a step-based computation map for data processing.
+
+Inputs (possibly different data types) move through discrete steps. At each step, a sample either passes through unchanged (identity) or is transformed by a node. Nodes can be multi-input and multi-output, so the map can split and merge data streams. Optional meta nodes (debug, checks, routing) can log, validate, stop, or redirect the pipeline without changing the core step structure.
+
 ```mermaid
 flowchart TD
   classDef src fill:#0b1220,stroke:#334155,stroke-width:1px,color:#e2e8f0;
