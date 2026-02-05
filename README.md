@@ -39,6 +39,7 @@ Originally created for physics research, it's now evolving toward generic scient
 Inputs (possibly different data types) move through discrete steps. At each step, a sample either passes through unchanged (identity) or is transformed by a node. Nodes can be multi-input and multi-output, so the map can split and merge data streams. Optional meta nodes (debug, checks, routing) can log, validate, stop, or redirect the pipeline without changing the core step structure.
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "13px"}, "flowchart": {"htmlLabels": true}}}%%
 flowchart TD
   classDef src fill:#0b1220,stroke:#334155,stroke-width:1px,color:#e2e8f0;
   classDef op fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0;
@@ -47,54 +48,54 @@ flowchart TD
   classDef stop fill:#2a0f12,stroke:#fb7185,stroke-width:2px,color:#fecdd3;
 
   subgraph Inputs["Inputs"]
-    DIR["dir: str  /data/run_042"]:::src
-    CFG["config: str  YAML/JSON"]:::src
-    A1["sensor A: array<float>"]:::src
-    A2["sensor B: array<float>"]:::src
+    DIR["dir: str<br/>/data/run_042"]:::src
+    CFG["config: str<br/>YAML or JSON"]:::src
+    A1["sensor A:<br/>array&lt;float&gt;"]:::src
+    A2["sensor B:<br/>array&lt;float&gt;"]:::src
   end
 
-  READ["ReadImages (dir -> images)"]:::op
-  PARSE["ParseConfig (str -> dict)"]:::op
+  READ["ReadImages<br/>(dir -> images)"]:::op
+  PARSE["ParseConfig<br/>(str -> dict)"]:::op
 
   DIR --> READ
   CFG --> PARSE
 
-  IMGS["images: tensor[H,W,C,N]"]:::io
-  CONF["config: dict"]:::io
+  IMGS["images:<br/>tensor[H,W,C,N]"]:::io
+  CONF["config:<br/>dict"]:::io
 
   READ --> IMGS
   PARSE --> CONF
 
-  LOG["LogConfig (print/save)"]:::op
+  LOG["LogConfig<br/>(print or save)"]:::op
   CONF --> LOG
 
-  JOIN["AlignAndEnrich (images -> 2 outputs)"]:::op
+  JOIN["AlignAndEnrich<br/>(images -> 2 outputs)"]:::op
   IMGS --> JOIN
 
-  ALN["aligned_images: tensor[...]"]:::io
-  REP["report: md/json"]:::io
+  ALN["aligned_images:<br/>tensor[...]"]:::io
+  REP["report:<br/>md or json"]:::io
 
   JOIN --> ALN
   JOIN --> REP
 
-  FUSE["FuseSensors (2 signals -> 1 feature vector)"]:::op
+  FUSE["FuseSensors<br/>(2 signals -> 1 feature vector)"]:::op
   A1 --> FUSE
   A2 --> FUSE
 
-  FEAT["features: vector<float>"]:::io
+  FEAT["features:<br/>vector&lt;float&gt;"]:::io
   FUSE --> FEAT
 
-  GATE{"QualityGate (meets requirements?)"}:::gate
+  GATE{"QualityGate<br/>(meets requirements?)"}:::gate
   ALN --> GATE
 
-  FIX["Remediate (cleanup / re-run / notify)"]:::op
-  STOP["STOP (fail fast)"]:::stop
+  FIX["Remediate<br/>(cleanup, re-run, notify)"]:::op
+  STOP["STOP<br/>(fail fast)"]:::stop
 
   GATE -->|fail| FIX
   FIX --> STOP
 
   subgraph Outputs["Outputs"]
-    OUT["artifacts (aligned_images + features + report)"]:::io
+    OUT["artifacts:<br/>aligned_images + features + report"]:::io
   end
 
   ALN --> OUT
