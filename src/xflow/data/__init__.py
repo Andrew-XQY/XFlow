@@ -2,7 +2,7 @@
 
 # This file is auto-generated. Do not edit manually.
 
-from .core import compose, pipe, pipe_each
+from .core import compose, flow, pipe
 from .pipeline import (
     BasePipeline,
     DataPipeline,
@@ -28,6 +28,6 @@ __all__ = [
     "TensorFlowPipeline",
     "build_transforms_from_config",
     "compose",
+    "flow",
     "pipe",
-    "pipe_each",
 ]

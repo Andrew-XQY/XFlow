@@ -35,7 +35,7 @@ CORE_API = {
     "BatchPipeline": APIItem("data.transform", "BatchPipeline"),
     # Core transform primitives
     "pipe": APIItem("data.core", "pipe"),
-    "pipe_each": APIItem("data.core", "pipe_each"),
+    "flow": APIItem("data.core", "flow"),
     "compose": APIItem("data.core", "compose"),
     "consume": APIItem("data.core", "consume"),
     "TransformRegistry": APIItem("data.transform", "TransformRegistry"),
@@ -72,7 +72,7 @@ PACKAGE_API = {
         ),
         # Core transform primitives
         "pipe": APIItem("core", "pipe"),
-        "pipe_each": APIItem("core", "pipe_each"),
+        "flow": APIItem("core", "flow"),
         "compose": APIItem("core", "compose"),
     },
     "models": {

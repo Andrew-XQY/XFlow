@@ -229,7 +229,7 @@ def pipe(
     return result
 
 
-def pipe_each(
+def flow(
     samples: Iterable[T],
     *transforms: Union[Callable, Sequence[Union[Callable, _Consume, _Rest, None]]],
     progress: bool = False,
