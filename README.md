@@ -1,16 +1,17 @@
-<p align="center">
+<div align="center">
   <a href="https://andrew-xqy.github.io/XFlow/">
     <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/9feba3930f468ca95b35401232a6febd66f2432c/images/logo.png"
-     alt="XFlow Logo" width="128" height="128">
+         alt="XFlow Logo" width="128" height="128">
   </a>
-  <p align="center">
+
+  <p>
     <a href="https://andrew-xqy.github.io/XFlow/"><b>Documentation</b></a>
     ·
     <a href="https://github.com/Andrew-XQY/XFlow/issues">Report Bug</a>
     ·
     <a href="https://github.com/Andrew-XQY/XFlow/issues">Request Feature</a>
   </p>
-</p>
+</div>
 
 ![Downloads](https://img.shields.io/github/downloads/Andrew-XQY/XFlow/total)
 ![Contributors](https://img.shields.io/github/contributors/Andrew-XQY/XFlow?color=dark-green)
@@ -26,11 +27,78 @@
 Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/ab43da1ef082e09a683d1da21f82e9cef54d4033/images/Xflow.png" 
+  <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/ab43da1ef082e09a683d1da21f82e9cef54d4033/images/Xflow.png"
        alt="XFlow Conceptual Design" width="800">
 </p>
 
 ---
+
+## Core Data Processing Pipeline (Computational Map)
+```mermaid
+flowchart TD
+  classDef src fill:#0b1220,stroke:#334155,stroke-width:1px,color:#e2e8f0;
+  classDef op fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0;
+  classDef io fill:#111827,stroke:#94a3b8,stroke-width:1px,color:#e5e7eb;
+  classDef gate fill:#1f2937,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+  classDef stop fill:#2a0f12,stroke:#fb7185,stroke-width:2px,color:#fecdd3;
+
+  subgraph Inputs["Inputs"]
+    DIR["dir: str  /data/run_042"]:::src
+    CFG["config: str  YAML/JSON"]:::src
+    A1["sensor A: array<float>"]:::src
+    A2["sensor B: array<float>"]:::src
+  end
+
+  READ["ReadImages (dir -> images)"]:::op
+  PARSE["ParseConfig (str -> dict)"]:::op
+
+  DIR --> READ
+  CFG --> PARSE
+
+  IMGS["images: tensor[H,W,C,N]"]:::io
+  CONF["config: dict"]:::io
+
+  READ --> IMGS
+  PARSE --> CONF
+
+  LOG["LogConfig (print/save)"]:::op
+  CONF --> LOG
+
+  JOIN["AlignAndEnrich (images -> 2 outputs)"]:::op
+  IMGS --> JOIN
+
+  ALN["aligned_images: tensor[...]"]:::io
+  REP["report: md/json"]:::io
+
+  JOIN --> ALN
+  JOIN --> REP
+
+  FUSE["FuseSensors (2 signals -> 1 feature vector)"]:::op
+  A1 --> FUSE
+  A2 --> FUSE
+
+  FEAT["features: vector<float>"]:::io
+  FUSE --> FEAT
+
+  GATE{"QualityGate (meets requirements?)"}:::gate
+  ALN --> GATE
+
+  FIX["Remediate (cleanup / re-run / notify)"]:::op
+  STOP["STOP (fail fast)"]:::stop
+
+  GATE -->|fail| FIX
+  FIX --> STOP
+
+  subgraph Outputs["Outputs"]
+    OUT["artifacts (aligned_images + features + report)"]:::io
+  end
+
+  ALN --> OUT
+  FEAT --> OUT
+  REP --> OUT
+
+  GATE -->|pass| OUT
+```
 
 ## Getting Started
 
