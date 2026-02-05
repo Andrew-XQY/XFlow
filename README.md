@@ -39,7 +39,7 @@ Originally created for physics research, it's now evolving toward generic scient
 Inputs (possibly different data types) move through discrete steps. At each step, a sample either passes through unchanged (identity) or is transformed by a node. Nodes can be multi-input and multi-output, so the map can split and merge data streams. Optional meta nodes (debug, checks, routing) can log, validate, stop, or redirect the pipeline without changing the core step structure.
 
 ```mermaid
-%%{init: {"themeVariables": {"fontSize": "13px"}, "flowchart": {"htmlLabels": true}}}%%
+%%{init: {"themeVariables": {"fontSize": "15px"}, "flowchart": {"htmlLabels": true}}}%%
 flowchart TD
   classDef src fill:#0b1220,stroke:#334155,stroke-width:1px,color:#e2e8f0;
   classDef op fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0;
@@ -54,8 +54,8 @@ flowchart TD
     A2["sensor B:<br/>int"]:::src
   end
 
-  READ["ReadImages<br/>(dir -> images)"]:::op
-  PARSE["ParseConfig<br/>(str -> dict)"]:::op
+  READ["<b>ReadImages</b><br/>(dir -> images)"]:::op
+  PARSE["<b>ParseConfig</b><br/>(str -> dict)"]:::op
 
   DIR --> READ
   CFG --> PARSE
@@ -66,10 +66,10 @@ flowchart TD
   READ --> IMGS
   PARSE --> CONF
 
-  LOG["LogConfig<br/>(print or save)"]:::op
+  LOG["<b>LogConfig</b><br/>(print or save)"]:::op
   CONF --> LOG
 
-  JOIN["AlignAndEnrich<br/>(images -> 2 outputs)"]:::op
+  JOIN["<b>AlignAndEnrich</b><br/>(images -> 2 outputs)"]:::op
   IMGS --> JOIN
 
   subgraph JOIN_OUT[" "]
@@ -82,17 +82,17 @@ flowchart TD
   JOIN --> ALN
   JOIN --> REP
 
-  FUSE["FuseSensors<br/>(2 signals -> 1 feature vector)"]:::op
+  FUSE["<b>FuseSensors</b><br/>(2 signals -> 1 feature vector)"]:::op
   A1 --> FUSE
   A2 --> FUSE
 
   FEAT["features:<br/>vector&lt;float&gt;"]:::io
   FUSE --> FEAT
 
-  GATE{"QualityGate<br/>(meets requirements?)"}:::gate
+  GATE{"<b>QualityGate</b><br/>(meets requirements?)"}:::gate
   ALN --> GATE
 
-  FIX["Remediate<br/>(cleanup, re-run, notify)"]:::op
+  FIX["<b>Remediate</b><br/>(cleanup, re-run, notify)"]:::op
   STOP["STOP<br/>(fail fast)"]:::stop
 
   GATE -->|fail| FIX
