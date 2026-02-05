@@ -93,3 +93,86 @@ def scan_files(
                         file_paths.append(file_path)
 
     return sorted(file_paths)
+
+
+def resolve_save_path(
+    directory: Optional[str] = None,
+    filename: Optional[str] = None,
+    extension: Optional[str] = None,
+    auto_timestamp: bool = True,
+) -> Path:
+    """Resolve output path from various input combinations.
+
+    Priority:
+    1. directory contains full path with extension -> use directly
+    2. directory + filename (with extension) -> combine
+    3. directory + filename + extension -> combine all
+    4. directory only (no filename) -> auto-generate with timestamp
+
+    Args:
+        directory: Output directory, OR full file path if contains extension
+        filename: Output filename (optional, with or without extension)
+        extension: File extension (e.g., '.png' or 'png')
+        auto_timestamp: If True, auto-generate filename when not provided
+
+    Returns:
+        Resolved Path object
+
+    Raises:
+        ValueError: If path cannot be resolved
+
+    Examples:
+        >>> resolve_save_path(directory="/output/result.png")
+        Path('/output/result.png')
+
+        >>> resolve_save_path(directory="/output", filename="result.png")
+        Path('/output/result.png')
+
+        >>> resolve_save_path(directory="/output", filename="result", extension=".png")
+        Path('/output/result.png')
+
+        >>> resolve_save_path(directory="/output")  # auto timestamp
+        Path('/output/20250205_123456_789012.png')
+    """
+    from datetime import datetime
+
+    # Normalize extension
+    if extension and not extension.startswith("."):
+        extension = f".{extension}"
+
+    # Case 1: directory is full path with extension
+    if directory:
+        dir_path = Path(directory)
+        if dir_path.suffix:
+            return dir_path
+
+    # Need directory from here
+    if not directory:
+        raise ValueError("Cannot resolve save path: 'directory' is required.")
+
+    base_dir = Path(directory)
+
+    # Case 2/3: directory + filename
+    if filename:
+        file_path = Path(filename)
+        if file_path.suffix:
+            return base_dir / filename
+        elif extension:
+            return base_dir / f"{filename}{extension}"
+        else:
+            raise ValueError(
+                f"Cannot resolve path: filename '{filename}' has no extension "
+                f"and no 'extension' parameter provided."
+            )
+
+    # Case 4: auto-generate filename
+    if auto_timestamp:
+        from datetime import timezone
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        ext = extension or ".png"
+        return base_dir / f"{timestamp}{ext}"
+    else:
+        raise ValueError(
+            "Cannot resolve path: no filename provided and auto_timestamp=False."
+        )

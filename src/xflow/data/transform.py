@@ -23,6 +23,7 @@ import numpy as np
 from PIL import Image
 
 from ..utils.decorator import with_progress
+from ..utils.io import resolve_save_path
 from ..utils.typing import ImageLike, PathLikeStr, TensorLike
 from ..utils.visualization import to_numpy_image
 from .pipeline import BasePipeline, Transform
@@ -1675,80 +1676,63 @@ class TorchDataset(_TorchDataset):
 
 @TransformRegistry.register("save_image")
 def save_image(
-    tensor: TensorLike,
-    directory: str,
+    data: TensorLike,
+    directory: Optional[str] = None,
     filename: Optional[str] = None,
-    use_plt: bool = False,
-    plot_conf: Optional[Dict[str, object]] = None,
+    extension: Optional[str] = None,
 ) -> TensorLike:
-    """Save tensor/array as image file.
+    """Save tensor/array as image file with flexible path resolution.
+
+    Supports multiple input patterns:
+    - Full path: save_image(img, directory="/output/result.png")
+    - Dir + filename: save_image(img, directory="/output", filename="result.png")
+    - Dir + filename + ext: save_image(img, directory="/output", filename="result", extension=".png")
+    - Tuple input: save_image((img, "/output/result.png"))  # for pipeline use
+
+    Creates output directory (recursively) if it doesn't exist.
+    Uses file extension to determine format (png, tiff, jpg, etc.).
 
     Args:
-        tensor: Input tensor or array
-        directory: Output directory
-        filename: Output filename (auto-generated if None)
-        use_plt: If True, use matplotlib (for colormaps). If False, save raw pixels.
-        plot_conf: Matplotlib config (cmap, vmin, vmax, dpi) - only used if use_plt=True
+        data: Image tensor/array, OR tuple of (tensor, full_path) for pipeline
+        directory: Output directory, OR full file path if contains extension
+        filename: Output filename (optional, with or without extension)
+        extension: File extension if filename lacks one (e.g., '.png' or 'png')
 
     Returns:
-        Tuple of (original_tensor, saved_path)
+        Original input unchanged (tensor or tuple)
+
+    Raises:
+        ValueError: If path cannot be resolved
+
+    Examples:
+        >>> save_image(tensor, directory="/output/result.png")
+        >>> save_image(tensor, directory="/output", filename="result.png")
+        >>> save_image((tensor, "/output/result.png"))  # tuple input for pipeline
     """
-    import matplotlib.pyplot as plt
+    original_data = data
+
+    # Handle tuple input: (tensor, full_path)
+    if isinstance(data, (tuple, list)) and len(data) == 2:
+        tensor, path_from_tuple = data
+        if directory is None:
+            directory = str(path_from_tuple)
+    else:
+        tensor = data
+
+    output_path = resolve_save_path(directory, filename, extension)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     array = to_numpy_image(tensor)
 
-    if filename is None:
-        filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}.png"
+    # Normalize dtype for saving
+    if array.dtype in (np.float32, np.float64):
+        array = (np.clip(array, 0, 1) * 255).astype(np.uint8)
+    elif array.max() <= 1.0 and array.dtype != np.uint8:
+        array = (array * 255).astype(np.uint8)
 
-    output_dir = Path(directory)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / filename
+    Image.fromarray(array).save(output_path)
 
-    if use_plt:
-        # Use matplotlib (applies colormap, may change resolution)
-        config = dict(plot_conf) if plot_conf else {}
-        cmap = config.get("cmap", "viridis")
-        vmin = config.get("vmin", float(array.min()))
-        vmax = config.get("vmax", float(array.max()))
-        dpi = config.get("dpi", 100)
-
-        height, width = array.shape[:2]
-        fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax)
-        ax.axis("off")
-        fig.savefig(output_path, dpi=dpi)
-        plt.close(fig)
-    else:
-        # Direct save - preserves original resolution exactly
-        if array.dtype == np.float32 or array.dtype == np.float64:
-            array = (np.clip(array, 0, 1) * 255).astype(np.uint8)
-        elif array.max() <= 1.0 and array.dtype != np.uint8:
-            array = (array * 255).astype(np.uint8)
-
-        Image.fromarray(array).save(output_path)
-
-    return tensor
-
-
-@TransformRegistry.register("save_image_from_meta")
-def save_image_from_meta(
-    data: Tuple[TensorLike, Dict[str, Any]],
-    directory: str,
-    suffix: str = "",
-    use_plt: bool = False,
-    plot_conf: Optional[Dict[str, object]] = None,
-) -> TensorLike:
-    """Save image using filename from metadata."""
-    image, meta = data
-    filename = f"{meta['filename']}{suffix}.png"
-    return save_image(
-        image,
-        directory=directory,
-        filename=filename,
-        use_plt=use_plt,
-        plot_conf=plot_conf,
-    )
+    return original_data
 
 
 @TransformRegistry.register("apply")
@@ -1972,3 +1956,89 @@ def extract_extension(path: PathLikeStr, include_dot: bool = True) -> str:
     """
     ext = Path(path).suffix
     return ext if include_dot else ext.lstrip(".")
+
+
+@TransformRegistry.register("reorder")
+def reorder(data: Tuple[Any, ...], order: Sequence[int]) -> Tuple[Any, ...]:
+    """Reorder elements in a tuple by index.
+
+    General-purpose transform for changing element order in broadcast pipelines.
+
+    Args:
+        data: Input tuple
+        order: New order as indices (e.g., [1, 0, 2] swaps first two)
+
+    Returns:
+        Reordered tuple
+
+    Raises:
+        IndexError: If any index is out of range
+        ValueError: If order length doesn't match data length
+
+    Examples:
+        >>> reorder((a, b, c), [2, 0, 1])
+        (c, a, b)
+
+        >>> reorder((img1, img2, meta), [1, 0, 2])  # Swap images, keep meta
+        (img2, img1, meta)
+
+        >>> # In pipeline before join_image
+        >>> pipe(
+        ...     (left, right, meta),
+        ...     [consume(2, partial(reorder, order=[1, 0])), None],  # Swap images
+        ...     [consume(2, lambda x: join_image(x, layout=(1,2))), None],
+        ... )
+    """
+    if not isinstance(data, (tuple, list)):
+        raise TypeError(f"reorder expects tuple/list, got {type(data)}")
+
+    if len(order) != len(data):
+        raise ValueError(
+            f"order length ({len(order)}) must match data length ({len(data)})"
+        )
+
+    return tuple(data[i] for i in order)
+
+
+@TransformRegistry.register("swap")
+def swap(data: Tuple[Any, Any]) -> Tuple[Any, Any]:
+    """Swap two elements in a pair. Shorthand for reorder(data, [1, 0]).
+
+    Args:
+        data: Tuple of exactly 2 elements
+
+    Returns:
+        Swapped tuple (b, a)
+
+    Examples:
+        >>> swap((left, right))
+        (right, left)
+
+        >>> # In pipeline
+        >>> pipe((img1, img2), swap)
+        (img2, img1)
+    """
+    if not isinstance(data, (tuple, list)) or len(data) != 2:
+        raise ValueError(f"swap expects pair (2 elements), got {len(data)} elements")
+
+    return (data[1], data[0])
+
+
+@TransformRegistry.register("reverse")
+def reverse(data: Tuple[Any, ...]) -> Tuple[Any, ...]:
+    """Reverse order of all elements in tuple.
+
+    Args:
+        data: Input tuple
+
+    Returns:
+        Reversed tuple
+
+    Examples:
+        >>> reverse((a, b, c))
+        (c, b, a)
+    """
+    if not isinstance(data, (tuple, list)):
+        raise TypeError(f"reverse expects tuple/list, got {type(data)}")
+
+    return tuple(reversed(data))
