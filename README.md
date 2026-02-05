@@ -51,7 +51,7 @@ flowchart TD
     DIR["dir: str<br/>/data/run_042"]:::src
     CFG["config: str<br/>YAML or JSON"]:::src
     A1["sensor A:<br/>array&lt;float&gt;"]:::src
-    A2["sensor B:<br/>array&lt;float&gt;"]:::src
+    A2["sensor B:<br/>int"]:::src
   end
 
   READ["ReadImages<br/>(dir -> images)"]:::op
@@ -72,8 +72,12 @@ flowchart TD
   JOIN["AlignAndEnrich<br/>(images -> 2 outputs)"]:::op
   IMGS --> JOIN
 
-  ALN["aligned_images:<br/>tensor[...]"]:::io
-  REP["report:<br/>md or json"]:::io
+  subgraph JOIN_OUT[" "]
+    direction LR
+    ALN["aligned_images:<br/>tensor[...]"]:::io
+    REP["report:<br/>md or json"]:::io
+  end
+  style JOIN_OUT fill:transparent,stroke:transparent
 
   JOIN --> ALN
   JOIN --> REP
