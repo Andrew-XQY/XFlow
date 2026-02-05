@@ -7,7 +7,7 @@ try:
 except Exception:
     __version__ = "0.0.0"
 
-from .data.core import compose, pipe, pipe_each
+from .data.core import compose, consume, pipe, pipe_each
 from .data.pipeline import (
     BasePipeline,
     DataPipeline,
@@ -44,6 +44,7 @@ __all__ = [
     "TorchTrainer",
     "TransformRegistry",
     "compose",
+    "consume",
     "pipe",
     "pipe_each",
     "show_model_info",
