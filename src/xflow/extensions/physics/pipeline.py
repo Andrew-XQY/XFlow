@@ -36,6 +36,14 @@ class BasisMetadata:
     extra: Dict[str, Any] = field(default_factory=dict)  # User-defined metadata
 
 
+@dataclass
+class CombinationRecord:
+    """Records which basis items were combined (for debugging)."""
+
+    indices: List[int]  # Basis indices used
+    coefficients: List[float]  # Coefficients applied
+
+
 class BasisAccessor:
     """Interface for combinators to request basis items by index."""
 
@@ -61,9 +69,19 @@ class Combinator(ABC):
     Abstract base for defining how to combine basis items into output samples.
 
     Receives:
-        - metadata: BasisMetadata with IDs, shapes, counts
         - accessor: BasisAccessor to fetch basis items by index or ID
+        - rng: numpy random generator
+
+    After each __call__, `last_record` holds the indices/coefficients used.
     """
+
+    def __init__(self):
+        self._last_record: Optional[CombinationRecord] = None
+
+    @property
+    def last_record(self) -> Optional[CombinationRecord]:
+        """Get the last combination's indices and coefficients."""
+        return self._last_record
 
     @abstractmethod
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
@@ -91,6 +109,7 @@ class CachedBasisPipeline(BasePipeline):
         num_samples: Samples per epoch; default: len(basis).
         id_extractor: Optional function to extract ID from raw item.
                       If None and data_provider yields tuples, first element is ID.
+        eager: If True, load basis immediately during __init__.
     """
 
     def __init__(
@@ -102,6 +121,7 @@ class CachedBasisPipeline(BasePipeline):
         seed: Optional[int] = None,
         num_samples: Optional[int] = None,
         id_extractor: Optional[Callable[[Any], Any]] = None,
+        eager: bool = False,
         **base_kwargs,
     ):
         super().__init__(data_provider, transforms=transforms, **base_kwargs)
@@ -114,6 +134,9 @@ class CachedBasisPipeline(BasePipeline):
         self._basis: Optional[List[Any]] = None
         self._ids: Optional[List[Any]] = None
         self._metadata: Optional[BasisMetadata] = None
+
+        if eager:
+            self._load_basis()
 
     def _load_basis(self):
         """Load, transform, and cache all basis items."""
@@ -188,6 +211,23 @@ class CachedBasisPipeline(BasePipeline):
         self._load_basis()
         return BasisAccessor(self._basis, self._ids)
 
+    @property
+    def basis(self) -> List[Any]:
+        """Direct read-only access to cached basis list."""
+        self._load_basis()
+        return self._basis
+
+    def get_basis(self, idx: int) -> Any:
+        """Get cached basis item by index."""
+        self._load_basis()
+        return self._basis[idx]
+
+    def get_basis_by_id(self, item_id: Any) -> Any:
+        """Get cached basis item by original ID."""
+        self._load_basis()
+        idx = self._ids.index(item_id)
+        return self._basis[idx]
+
     def __len__(self) -> int:
         self._load_basis()
         return self._num_samples or len(self._basis)
@@ -249,6 +289,7 @@ class LinearCombinator(Combinator):
         coef_sampler: Callable[[np.random.Generator], float] = None,
         clip_range: Tuple[float, float] = (0.0, 1.0),
     ):
+        super().__init__()
         self.k_sampler = k_sampler or (lambda rng, n: min(2, n))
         self.coef_sampler = coef_sampler or (lambda rng: 1.0)
         self.clip_range = clip_range
@@ -256,7 +297,8 @@ class LinearCombinator(Combinator):
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
         n = len(accessor)
         k = self.k_sampler(rng, n)
-        indices = rng.choice(n, size=k, replace=False)
+        indices = rng.choice(n, size=k, replace=False).tolist()
+        coefficients = []
 
         lo, hi = self.clip_range
         sample = accessor[0]
@@ -266,24 +308,32 @@ class LinearCombinator(Combinator):
             result = [None] * len(sample)
             for idx in indices:
                 coef = self.coef_sampler(rng)
+                coefficients.append(coef)
                 for c, arr in enumerate(accessor[idx]):
                     scaled = arr.astype(np.float32) * coef
                     result[c] = scaled if result[c] is None else (result[c] + scaled)
-            return tuple(np.clip(r, lo, hi) for r in result)
+            output = tuple(np.clip(r, lo, hi) for r in result)
         else:
             result = None
             for idx in indices:
                 coef = self.coef_sampler(rng)
+                coefficients.append(coef)
                 scaled = accessor[idx].astype(np.float32) * coef
                 result = scaled if result is None else (result + scaled)
-            return np.clip(result, lo, hi)
+            output = np.clip(result, lo, hi)
+
+        self._last_record = CombinationRecord(
+            indices=indices, coefficients=coefficients
+        )
+        return output
 
 
 class IdentityCombinator(Combinator):
     """Pass through single basis items unchanged."""
 
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
-        idx = rng.integers(0, len(accessor))
+        idx = int(rng.integers(0, len(accessor)))
+        self._last_record = CombinationRecord(indices=[idx], coefficients=[1.0])
         return accessor[idx]
 
 

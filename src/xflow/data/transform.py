@@ -2042,3 +2042,77 @@ def reverse(data: Tuple[Any, ...]) -> Tuple[Any, ...]:
         raise TypeError(f"reverse expects tuple/list, got {type(data)}")
 
     return tuple(reversed(data))
+
+
+@TransformRegistry.register("l2_normalize")
+def l2_normalize(
+    image: np.ndarray,
+    eps: float = 1e-12,
+    axis: Optional[Tuple[int, ...]] = None,
+    keep_dtype: bool = False,
+) -> np.ndarray:
+    """L2-normalize an image/array by its own energy.
+
+    This is the standard "make this basis component unit-norm" operation:
+        x_hat = x / (||x||_2 + eps)
+
+    Args:
+        image: Input array. Typically (H, W) or (H, W, C) or batched.
+        eps: Small constant to avoid division by zero.
+        axis: Axes to reduce over when computing the norm.
+              - None: normalize over all elements (typical for a basis image)
+              - For (H, W, C): use axis=(0, 1) to normalize each channel separately
+              - For (B, H, W): use axis=(1, 2) to normalize each sample in the batch
+        keep_dtype: If True, cast back to original dtype. Otherwise returns float32.
+
+    Returns:
+        L2-normalized array (float32 by default).
+    """
+    x = np.asarray(image)
+    x_float = x.astype(np.float32, copy=False)
+
+    # Default: normalize over all elements
+    reduce_axis = axis
+
+    # Compute L2 norm with stable eps guard
+    sq = np.square(x_float)
+    denom = np.sqrt(np.sum(sq, axis=reduce_axis, keepdims=True))
+    denom = np.maximum(denom, eps)
+
+    y = x_float / denom
+    return y.astype(x.dtype, copy=False) if keep_dtype else y
+
+
+@TransformRegistry.register("torch_l2_normalize")
+def torch_l2_normalize(
+    tensor: TensorLike,
+    eps: float = 1e-12,
+    dims: Optional[Tuple[int, ...]] = None,
+) -> TensorLike:
+    """L2-normalize a tensor by its own energy.
+
+    Typical for a basis image:
+      - CHW: dims=(0,1,2)
+      - HW:  dims=(0,1)
+
+    For batched BCHW:
+      - per-sample normalize: dims=(1,2,3)
+
+    Args:
+        tensor: Input torch tensor.
+        eps: Small constant to avoid division by zero.
+        dims: Dimensions to reduce over. If None, reduce over all dims.
+
+    Returns:
+        Float32 normalized tensor.
+    """
+    try:
+        import torch
+
+        x = tensor.float()
+        if dims is None:
+            dims = tuple(range(x.dim()))
+        denom = torch.sqrt(torch.sum(x * x, dim=dims, keepdim=True)).clamp_min(eps)
+        return x / denom
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
