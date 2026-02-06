@@ -337,6 +337,206 @@ class IdentityCombinator(Combinator):
         return accessor[idx]
 
 
+class PatternDecompositionCombinator(Combinator):
+    """
+    Decomposes a target pattern into basis coefficients and reconstructs.
+
+    For CachedBasisPipeline with (left, right) image pairs:
+      - Uses RIGHT images from basis for decomposition
+      - Applies coefficients to BOTH left and right for output
+
+    Args:
+        pattern_provider: Callable that returns a pattern (2D np.ndarray) each call.
+                          Signature: (rng: np.random.Generator) -> np.ndarray
+        decomposition_method: How to compute coefficients:
+                              - 'projection': Dot product (fastest, assumes orthonormal basis)
+                              - 'nnls': Non-negative least squares
+                              - 'lstsq': Standard least squares
+                              - 'omp': Orthogonal Matching Pursuit (sparse)
+        max_basis_items: Max number of basis items to use (None = all).
+        regularization: Regularization strength for 'lstsq' method.
+        normalize_pattern: Whether to normalize pattern before decomposition.
+        clip_coefficients: Clip coefficients to this range (None = no clipping).
+        clip_output: Clip output to this range.
+    """
+
+    def __init__(
+        self,
+        pattern_provider,
+        decomposition_method: str = "projection",
+        max_basis_items: Optional[int] = None,
+        regularization: float = 0.0,
+        normalize_pattern: bool = False,
+        clip_coefficients: Optional[Tuple[float, float]] = None,
+        clip_output: Tuple[float, float] = (0.0, 1.0),
+    ):
+        super().__init__()
+        # Allow pattern_provider to be either a callable or a generator object
+        if hasattr(pattern_provider, "__next__"):
+            self._pattern_stream = pattern_provider
+            self.pattern_provider = lambda rng: next(self._pattern_stream)
+        else:
+            self.pattern_provider = pattern_provider
+        self.decomposition_method = decomposition_method
+        self.max_basis_items = max_basis_items
+        self.regularization = regularization
+        self.normalize_pattern = normalize_pattern
+        self.clip_coefficients = clip_coefficients
+        self.clip_output = clip_output
+
+        # Cache for basis matrix (built on first call)
+        self._basis_matrix: Optional[np.ndarray] = None
+        self._basis_shape: Optional[Tuple[int, ...]] = None
+
+    def _build_basis_matrix(self, accessor: BasisAccessor) -> np.ndarray:
+        """
+        Build matrix where each column is a flattened RIGHT image from basis.
+        Shape: (num_pixels, num_basis_items)
+        """
+        n = len(accessor)
+        if self.max_basis_items:
+            n = min(n, self.max_basis_items)
+
+        # Get first sample to determine shape
+        sample = accessor[0]
+        if not isinstance(sample, tuple) or len(sample) < 2:
+            raise ValueError(
+                "PatternDecompositionCombinator expects (left, right) tuple basis items"
+            )
+
+        right_img = sample[1]  # Use RIGHT image
+        right_img = np.squeeze(right_img)
+        self._basis_shape = right_img.shape
+        num_pixels = right_img.size
+
+        # Build matrix: each column is a flattened basis right image
+        basis_matrix = np.zeros((num_pixels, n), dtype=np.float32)
+        for i in range(n):
+            right = accessor[i][1]  # RIGHT image
+            right = np.squeeze(right)
+            basis_matrix[:, i] = right.flatten().astype(np.float32)
+
+        return basis_matrix
+
+    def _decompose(
+        self, pattern: np.ndarray, basis_matrix: np.ndarray
+    ) -> Tuple[np.ndarray, List[int]]:
+        """
+        Decompose pattern into basis coefficients.
+
+        Returns:
+            coefficients: Array of coefficients
+            indices: Indices of basis items used
+        """
+        # Flatten and optionally normalize pattern
+        target = pattern.flatten().astype(np.float32)
+        if self.normalize_pattern:
+            norm = np.linalg.norm(target)
+            if norm > 1e-8:
+                target = target / norm
+
+        n_basis = basis_matrix.shape[1]
+        indices = list(range(n_basis))
+
+        if self.decomposition_method == "projection":
+            # Dot product projection (assumes orthonormal basis)
+            # coefficient_i = <pattern, basis_i>
+            coefficients = np.dot(basis_matrix.T, target)
+
+        elif self.decomposition_method == "nnls":
+            # Non-negative least squares
+            from scipy.optimize import nnls
+
+            coefficients, _ = nnls(basis_matrix, target)
+
+        elif self.decomposition_method == "lstsq":
+            # Standard least squares (can have negative coeffs)
+            if self.regularization > 0:
+                # Ridge regression
+                A = basis_matrix.T @ basis_matrix
+                A += self.regularization * np.eye(n_basis)
+                b = basis_matrix.T @ target
+                coefficients = np.linalg.solve(A, b)
+            else:
+                coefficients, _, _, _ = np.linalg.lstsq(
+                    basis_matrix, target, rcond=None
+                )
+
+        elif self.decomposition_method == "omp":
+            # Orthogonal Matching Pursuit (sparse)
+            from sklearn.linear_model import OrthogonalMatchingPursuit
+
+            n_nonzero = self.max_basis_items or max(1, n_basis // 4)
+            omp = OrthogonalMatchingPursuit(n_nonzero_coefs=n_nonzero)
+            omp.fit(basis_matrix, target)
+            coefficients = omp.coef_
+
+        else:
+            raise ValueError(
+                f"Unknown decomposition method: {self.decomposition_method}"
+            )
+
+        # Clip coefficients if specified
+        if self.clip_coefficients:
+            lo, hi = self.clip_coefficients
+            coefficients = np.clip(coefficients, lo, hi)
+
+        return coefficients, indices
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        # Build basis matrix on first call (or if accessor changed)
+        if self._basis_matrix is None:
+            self._basis_matrix = self._build_basis_matrix(accessor)
+
+        # Get pattern from provider
+        pattern = self.pattern_provider(rng)
+        pattern = np.squeeze(pattern)
+
+        # Resize pattern if needed to match basis shape
+        if pattern.shape != self._basis_shape:
+            from scipy.ndimage import zoom
+
+            zoom_factors = tuple(
+                b / p for b, p in zip(self._basis_shape, pattern.shape)
+            )
+            pattern = zoom(pattern, zoom_factors, order=1)
+
+        # Decompose pattern into coefficients
+        coefficients, indices = self._decompose(pattern, self._basis_matrix)
+
+        # Build output by linear combination
+        sample = accessor[0]
+        left_result = np.zeros_like(sample[0], dtype=np.float32)
+        right_result = np.zeros_like(sample[1], dtype=np.float32)
+
+        used_indices = []
+        used_coefficients = []
+
+        for idx, coef in zip(indices, coefficients):
+            if abs(coef) > 1e-8:  # Skip near-zero coefficients
+                left, right = accessor[idx]
+                left_result += coef * left.astype(np.float32)
+                right_result += coef * right.astype(np.float32)
+                used_indices.append(idx)
+                used_coefficients.append(float(coef))
+
+        # Clip output
+        lo, hi = self.clip_output
+        left_result = np.clip(left_result, lo, hi)
+        right_result = np.clip(right_result, lo, hi)
+
+        self._last_record = CombinationRecord(
+            indices=used_indices, coefficients=used_coefficients
+        )
+
+        return (left_result, right_result)
+
+    def reset_cache(self):
+        """Reset cached basis matrix (call if basis changes)."""
+        self._basis_matrix = None
+        self._basis_shape = None
+
+
 # ============================================================
 # K-samplers (reusable)
 # ============================================================
