@@ -1,13 +1,297 @@
 """Accelerator physics-specific pipeline utilities for specialized data processing workflows."""
 
-from typing import Any, Callable, Iterator, List, Optional, Tuple
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from ...data.pipeline import BasePipeline
 
 
-# samplers
+def _to_numpy(arr) -> np.ndarray:
+    """Convert tensor or array to numpy."""
+    if hasattr(arr, "numpy"):
+        return arr.detach().cpu().numpy()
+    if hasattr(arr, "np"):
+        return arr.numpy()
+    return np.asarray(arr)
+
+
+# ============================================================
+# Contracts
+# ============================================================
+
+
+@dataclass
+class BasisMetadata:
+    """Metadata about the cached basis set."""
+
+    ids: List[Any]  # Original IDs from data_provider
+    count: int
+    shapes: Dict[str, Tuple[int, ...]] = field(
+        default_factory=dict
+    )  # e.g., {"image": (H,W), "label": (N,)}
+    extra: Dict[str, Any] = field(default_factory=dict)  # User-defined metadata
+
+
+class BasisAccessor:
+    """Interface for combinators to request basis items by index."""
+
+    def __init__(self, basis: List[Any], ids: List[Any]):
+        self._basis = basis
+        self._ids = ids
+
+    def __getitem__(self, idx: int) -> Any:
+        """Get basis item by index."""
+        return self._basis[idx]
+
+    def get_by_id(self, item_id: Any) -> Any:
+        """Get basis item by original ID."""
+        idx = self._ids.index(item_id)
+        return self._basis[idx]
+
+    def __len__(self) -> int:
+        return len(self._basis)
+
+
+class Combinator(ABC):
+    """
+    Abstract base for defining how to combine basis items into output samples.
+
+    Receives:
+        - metadata: BasisMetadata with IDs, shapes, counts
+        - accessor: BasisAccessor to fetch basis items by index or ID
+    """
+
+    @abstractmethod
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        """Produce one output sample from the basis."""
+        pass
+
+
+# ============================================================
+# Pipeline
+# ============================================================
+
+
+class CachedBasisPipeline(BasePipeline):
+    """
+    Pipeline that:
+      1. Loads items from data_provider (each item has an ID)
+      2. Applies transforms and caches results as basis
+      3. Uses a Combinator to yield output samples
+
+    Args:
+        data_provider: Yields (id, raw_item) tuples or just raw_items (auto-indexed).
+        combinator: Combinator instance defining how to produce output samples.
+        transforms: Applied to each raw item during caching.
+        seed: RNG seed.
+        num_samples: Samples per epoch; default: len(basis).
+        id_extractor: Optional function to extract ID from raw item.
+                      If None and data_provider yields tuples, first element is ID.
+    """
+
+    def __init__(
+        self,
+        data_provider,
+        combinator: Combinator,
+        *,
+        transforms: Optional[List[Callable]] = None,
+        seed: Optional[int] = None,
+        num_samples: Optional[int] = None,
+        id_extractor: Optional[Callable[[Any], Any]] = None,
+        **base_kwargs,
+    ):
+        super().__init__(data_provider, transforms=transforms, **base_kwargs)
+        self.combinator = combinator
+        self.rng = np.random.default_rng(seed)
+        self._num_samples = num_samples
+        self._id_extractor = id_extractor
+
+        # Cached state
+        self._basis: Optional[List[Any]] = None
+        self._ids: Optional[List[Any]] = None
+        self._metadata: Optional[BasisMetadata] = None
+
+    def _load_basis(self):
+        """Load, transform, and cache all basis items."""
+        if self._basis is not None:
+            return
+
+        basis = []
+        ids = []
+        raw_items = list(self.data_provider())
+
+        pbar = tqdm(raw_items, desc="Caching basis", leave=False)
+        for i, raw in enumerate(pbar):
+            # Extract ID
+            if self._id_extractor:
+                item_id = self._id_extractor(raw)
+                item = raw
+            elif isinstance(raw, tuple) and len(raw) == 2:
+                item_id, item = raw
+            else:
+                item_id = i
+                item = raw
+
+            try:
+                # Apply transforms
+                for fn in self.transforms:
+                    item = fn(item)
+
+                if item is not None:
+                    item = (
+                        _to_numpy(item)
+                        if not isinstance(item, tuple)
+                        else tuple(_to_numpy(x) for x in item)
+                    )
+                    basis.append(item)
+                    ids.append(item_id)
+                else:
+                    self.error_count += 1
+            except Exception as e:
+                self.error_count += 1
+                self.logger.warning(f"Transform failed for ID={item_id}: {e}")
+                if not self.skip_errors:
+                    raise
+        pbar.close()
+
+        if not basis:
+            raise ValueError("Empty basis after transforms.")
+
+        self._basis = basis
+        self._ids = ids
+        self._metadata = BasisMetadata(
+            ids=ids,
+            count=len(basis),
+            shapes=self._infer_shapes(basis[0]),
+        )
+        self.in_memory_sample_count = len(basis)
+
+    def _infer_shapes(self, sample: Any) -> Dict[str, Tuple[int, ...]]:
+        """Infer shapes from a sample."""
+        if isinstance(sample, tuple):
+            return {f"component_{i}": s.shape for i, s in enumerate(sample)}
+        return {"data": sample.shape}
+
+    @property
+    def metadata(self) -> BasisMetadata:
+        """Access metadata (loads basis if needed)."""
+        self._load_basis()
+        return self._metadata
+
+    @property
+    def accessor(self) -> BasisAccessor:
+        """Access basis items (loads basis if needed)."""
+        self._load_basis()
+        return BasisAccessor(self._basis, self._ids)
+
+    def __len__(self) -> int:
+        self._load_basis()
+        return self._num_samples or len(self._basis)
+
+    def __iter__(self) -> Iterator[Any]:
+        self._load_basis()
+        accessor = BasisAccessor(self._basis, self._ids)
+        for _ in range(len(self)):
+            yield self.combinator(accessor, self.rng)
+
+    def to_framework_dataset(self, framework: str = "pytorch", **kwargs):
+        """Convert to framework-specific dataset."""
+        self._load_basis()
+
+        if framework.lower() == "pytorch":
+            import torch
+            from torch.utils.data import Dataset
+
+            class _CombinatorDataset(Dataset):
+                def __init__(inner_self, pipeline: CachedBasisPipeline):
+                    inner_self.pipeline = pipeline
+                    inner_self.accessor = pipeline.accessor
+
+                def __len__(inner_self):
+                    return len(inner_self.pipeline)
+
+                def __getitem__(inner_self, idx):
+                    sample = inner_self.pipeline.combinator(
+                        inner_self.accessor, inner_self.pipeline.rng
+                    )
+                    # Convert to tensors
+                    if isinstance(sample, tuple):
+                        return tuple(torch.from_numpy(s) for s in sample)
+                    return torch.from_numpy(sample)
+
+            return _CombinatorDataset(self)
+        else:
+            raise ValueError(f"Unsupported framework: {framework}")
+
+
+# ============================================================
+# Built-in Combinators
+# ============================================================
+
+
+class LinearCombinator(Combinator):
+    """
+    Linear combination: Σ c_i * basis[i]
+
+    Args:
+        k_sampler: (rng, n) -> number of items to combine
+        coef_sampler: (rng) -> coefficient for each item
+        clip_range: Output clipping bounds
+    """
+
+    def __init__(
+        self,
+        k_sampler: Callable[[np.random.Generator, int], int] = None,
+        coef_sampler: Callable[[np.random.Generator], float] = None,
+        clip_range: Tuple[float, float] = (0.0, 1.0),
+    ):
+        self.k_sampler = k_sampler or (lambda rng, n: min(2, n))
+        self.coef_sampler = coef_sampler or (lambda rng: 1.0)
+        self.clip_range = clip_range
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        n = len(accessor)
+        k = self.k_sampler(rng, n)
+        indices = rng.choice(n, size=k, replace=False)
+
+        lo, hi = self.clip_range
+        sample = accessor[0]
+        is_tuple = isinstance(sample, tuple)
+
+        if is_tuple:
+            result = [None] * len(sample)
+            for idx in indices:
+                coef = self.coef_sampler(rng)
+                for c, arr in enumerate(accessor[idx]):
+                    scaled = arr.astype(np.float32) * coef
+                    result[c] = scaled if result[c] is None else (result[c] + scaled)
+            return tuple(np.clip(r, lo, hi) for r in result)
+        else:
+            result = None
+            for idx in indices:
+                coef = self.coef_sampler(rng)
+                scaled = accessor[idx].astype(np.float32) * coef
+                result = scaled if result is None else (result + scaled)
+            return np.clip(result, lo, hi)
+
+
+class IdentityCombinator(Combinator):
+    """Pass through single basis items unchanged."""
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        idx = rng.integers(0, len(accessor))
+        return accessor[idx]
+
+
+# ============================================================
+# K-samplers (reusable)
+# ============================================================
+
+
 def uniform_k(min_k: int = 1, max_k: int = 4):
     """Uniform over [min_k, max_k]."""
 
@@ -19,224 +303,12 @@ def uniform_k(min_k: int = 1, max_k: int = 4):
     return _sampler
 
 
-def poisson_k(lam: float = 2.0, min_k: int = 1, max_k: int | None = None):
+def poisson_k(lam: float = 2.0, min_k: int = 1, max_k: int = None):
     """Poisson(λ) clipped to [min_k, max_k or n]."""
 
     def _sampler(rng: np.random.Generator, n: int) -> int:
         k = int(rng.poisson(lam))
-        if max_k is None:
-            hi = n
-        else:
-            hi = min(max_k, n)
-        k = max(min_k, min(k, hi))
-        return k
+        hi = n if max_k is None else min(max_k, n)
+        return max(min_k, min(k, hi))
 
     return _sampler
-
-
-# Physics-specific pipeline implementations will extend BasePipeline:
-# class PhysicsPipeline(BasePipeline):
-
-
-class StackMixPipeline(BasePipeline):
-    """
-    Synthetic stacking pipeline:
-      - For each output sample: draw k ~ sampler(n_items), sample k distinct items,
-        extract image arrays, sum, clip, yield.
-      - Yields *single* stacked images; use your existing `.batch(batch_size)` for batching.
-
-    Args:
-        data_provider: yields raw items (np arrays, or rows/records)
-        sampler: Callable[[np.random.Generator, int], int] -> k
-                 (given RNG and dataset size, returns k ∈ [1, n])
-        extract_fn: maps a raw item -> np.ndarray image (H,W[,C]); default: identity
-        seed: RNG seed for reproducibility; default: None
-        dtype: force output dtype; default: inferred from first sample
-        max_outputs_per_epoch: how many stacked samples to emit per epoch (default: len(dataset))
-                               (An “epoch” here is just one full pass of len(dataset) outputs.)
-    """
-
-    def __init__(
-        self,
-        data_provider,
-        sampler: Callable[[np.random.Generator, int], int],
-        extract_fn: Optional[Callable[[Any], np.ndarray]] = None,
-        *,
-        seed: Optional[int] = None,
-        dtype: Optional[np.dtype] = None,
-        max_outputs_per_epoch: Optional[int] = None,
-        **base_kwargs,
-    ):
-        # no transforms here; keep it minimal and fast
-        super().__init__(data_provider, transforms=None, **base_kwargs)
-        self.sampler = sampler
-        self.extract_fn = extract_fn or (lambda x: x)
-        self.rng = np.random.default_rng(seed)
-        self._cache = None  # lazy materialization of images
-        self._dtype = dtype
-        self._max_out = max_outputs_per_epoch
-
-    def _load_cache(self):
-        if self._cache is not None:
-            return
-        # materialize all items and extract images once
-        imgs = []
-        for raw in self.data_provider():
-            arr = self.extract_fn(raw)
-            if not isinstance(arr, np.ndarray):
-                arr = np.asarray(arr)
-            imgs.append(arr)
-        if not imgs:
-            raise ValueError("StackMixPipeline: empty dataset from data_provider().")
-        # basic shape check
-        first_shape = imgs[0].shape
-        for i, a in enumerate(imgs):
-            if a.shape != first_shape:
-                raise ValueError(
-                    f"All images must share the same shape. "
-                    f"Got {a.shape} at index {i}, expected {first_shape}."
-                )
-        # remember dtype & clip max
-        if self._dtype is None:
-            self._dtype = imgs[0].dtype
-        # decide clip bounds from dtype
-        if np.issubdtype(self._dtype, np.integer):
-            self._clip_min, self._clip_max = (
-                0,
-                np.iinfo(self._dtype).max,
-            )  # e.g., 255 for uint8
-        else:
-            # assume normalized floats
-            self._clip_min, self._clip_max = 0.0, 1.0
-        self._cache = imgs
-
-    def __len__(self) -> int:
-        # define an epoch as len(dataset) synthetic samples unless overridden
-        self._load_cache()
-        return self._max_out or len(self._cache)
-
-    def __iter__(self) -> Iterator[np.ndarray]:
-        self._load_cache()
-        n = len(self._cache)
-        out_count = self._max_out or n
-
-        for _ in range(out_count):
-            # 1) draw k
-            k = int(self.sampler(self.rng, n))
-            if k < 1:
-                k = 1
-            if k > n:
-                k = n
-            # 2) choose k distinct indices
-            idx = self.rng.choice(n, size=k, replace=False)
-            # 3) sum and clip
-            s = None
-            for i in idx:
-                a = self._cache[i].astype(np.float32, copy=False)
-                s = a if s is None else (s + a)
-            s = np.clip(s, self._clip_min, self._clip_max)
-
-            # 4) cast to target dtype (if integer, round)
-            if np.issubdtype(self._dtype, np.integer):
-                yield s.round().astype(self._dtype, copy=False)
-            else:
-                yield s.astype(self._dtype, copy=False)
-
-
-class LinearBasisPipeline(BasePipeline):
-    """
-    Generates samples as linear combinations of basis items (shared coefficients across components).
-
-    If basis yields (x, y, z) tuples, output is (Σc_i*x_i, Σc_i*y_i, Σc_i*z_i).
-    If basis yields single arrays, output is Σc_i*arr_i.
-
-    Args:
-        data_provider: Yields basis items (array or tuple of arrays).
-        combo_generator: (rng, n) -> [(idx, coef), ...] defines the linear combination.
-        extract_fn: Raw item -> array or tuple; default: identity.
-        seed: RNG seed.
-        num_samples: Samples per epoch; default: len(basis).
-    """
-
-    def __init__(
-        self,
-        data_provider,
-        combo_generator: Callable[[np.random.Generator, int], List[Tuple[int, float]]],
-        extract_fn: Optional[Callable[[Any], Any]] = None,
-        *,
-        seed: Optional[int] = None,
-        num_samples: Optional[int] = None,
-        clip_range: Tuple[float, float] = (0.0, 1.0),
-        **base_kwargs,
-    ):
-        super().__init__(data_provider, transforms=None, **base_kwargs)
-        self.combo_generator = combo_generator
-        self.extract_fn = extract_fn or (lambda x: x)
-        self.rng = np.random.default_rng(seed)
-        self._basis: Optional[List[Any]] = None
-        self._is_tuple: bool = False
-        self._num_samples = num_samples
-        self._clip_range = clip_range
-
-    def _load_basis(self):
-        if self._basis is not None:
-            return
-        self._basis = [self.extract_fn(raw) for raw in self.data_provider()]
-        if not self._basis:
-            raise ValueError("Empty basis set")
-        self._is_tuple = isinstance(self._basis[0], (tuple, list))
-
-    def _apply_combo(self, terms: List[Tuple[int, float]]) -> Any:
-        """Apply same linear combination to all components."""
-        lo, hi = self._clip_range
-
-        if self._is_tuple:
-            n_comp = len(self._basis[0])
-            result = [None] * n_comp
-            for idx, coef in terms:
-                for c in range(n_comp):
-                    arr = self._basis[idx][c].astype(np.float32) * coef
-                    result[c] = arr if result[c] is None else (result[c] + arr)
-            return tuple(np.clip(r, lo, hi) for r in result)
-        else:
-            result = None
-            for idx, coef in terms:
-                arr = self._basis[idx].astype(np.float32) * coef
-                result = arr if result is None else (result + arr)
-            return np.clip(result, lo, hi)
-
-    def __len__(self) -> int:
-        self._load_basis()
-        return self._num_samples or len(self._basis)
-
-    def __iter__(self) -> Iterator[Any]:
-        self._load_basis()
-        for _ in range(len(self)):
-            terms = self.combo_generator(self.rng, len(self._basis))
-            yield self._apply_combo(terms)
-
-    def to_framework_dataset(self) -> Any:
-        raise NotImplementedError("Use iteration or .to_numpy()")
-
-
-# Combo generators
-def random_sum(k_sampler=None, coef_sampler=None):
-    """Random sum with optional coefficient scaling."""
-    k_sampler = k_sampler or uniform_k(1, 3)
-    coef_sampler = coef_sampler or (lambda rng: 1.0)
-
-    def _combo(rng: np.random.Generator, n: int) -> List[Tuple[int, float]]:
-        k = k_sampler(rng, n)
-        indices = rng.choice(n, size=k, replace=False)
-        return [(int(i), coef_sampler(rng)) for i in indices]
-
-    return _combo
-
-
-def identity_combo():
-    """Single basis item with coef=1 (pass-through real samples)."""
-
-    def _combo(rng: np.random.Generator, n: int) -> List[Tuple[int, float]]:
-        return [(int(rng.integers(0, n)), 1.0)]
-
-    return _combo
