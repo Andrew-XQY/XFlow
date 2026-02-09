@@ -34,13 +34,25 @@ def copy_file(
 def create_directory(path: PathLikeStr) -> Path:
     """Create directory if it doesn't exist.
 
+    If path appears to be a file (has an extension), creates parent directories.
+    If path appears to be a directory, creates the directory itself.
+
     Args:
-        path: Directory path to create
+        path: Directory or file path
 
     Returns:
-        Path to the created directory
+        Path to the created directory (parent if file, itself if directory)
     """
-    dir_path = Path(path)
+    path_obj = Path(path)
+
+    # Check if path has a file extension (likely a file)
+    if path_obj.suffix:
+        # It's a file path, create parent directories
+        dir_path = path_obj.parent
+    else:
+        # It's a directory path, create it directly
+        dir_path = path_obj
+
     dir_path.mkdir(parents=True, exist_ok=True)
     return dir_path
 

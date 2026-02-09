@@ -909,24 +909,119 @@ def torch_remap_range(
 
 @TransformRegistry.register("torch_resize")
 def torch_resize(
-    tensor: TensorLike, size: List[int], interpolation: str = "bilinear"
+    tensor: TensorLike,
+    size: List[int],
+    interpolation: str = "bilinear",
 ) -> TensorLike:
-    """Resize tensor using torchvision."""
+    """
+    Resize tensor (H, W dimensions only).
+
+    Supports tensor shapes: (H, W) or (C, H, W)
+
+    Interpolation modes (ranked by scientific quality for sensor data):
+      1. "area": Area averaging with anti-aliasing (RECOMMENDED for arbitrary sizes, prevents aliasing)
+      2. "bicubic": Smooth high-quality interpolation using 4×4 neighborhood
+      3. "bin_sum": Block-reduce by summing (preserves photon counts, requires exact integer ratios)
+      4. "bin_mean" / "binning" / "bin": Block-reduce by averaging (requires exact integer ratios)
+      5. "bilinear": Fast, good quality (default)
+      6. "nearest": Nearest-neighbor (no interpolation)
+      7. "lanczos": High-quality with sharpening
+
+    For scientific sensor data compression:
+      - Use "area" or "bicubic" for arbitrary sizes (e.g., 732×732 → 256×256)
+      - Use "bin_sum" for exact ratios where preserving total signal matters (e.g., 768×768 → 256×256)
+    """
     try:
+        import torch
         import torchvision.transforms.functional as F
         from torchvision.transforms import InterpolationMode
+    except ImportError as e:
+        raise ImportError(f"torch_resize requires torch and torchvision: {e}") from e
 
-        interp_map = {
-            "nearest": InterpolationMode.NEAREST,
-            "bilinear": InterpolationMode.BILINEAR,
-            "bicubic": InterpolationMode.BICUBIC,
-            "lanczos": InterpolationMode.LANCZOS,
-        }
+    if len(size) != 2:
+        raise ValueError("size must be [H_out, W_out]")
 
-        interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
-        return F.resize(tensor, size, interpolation=interp_mode)
-    except ImportError:
-        raise RuntimeError("Transform failed, please check the source code")
+    H_out, W_out = int(size[0]), int(size[1])
+
+    if H_out <= 0 or W_out <= 0:
+        raise ValueError(f"Target size must be positive, got ({H_out}, {W_out})")
+
+    # -------------------------
+    # Binning (block reduce) - requires exact integer ratios
+    # -------------------------
+    interp = (interpolation or "").lower()
+    if interp in ("binning", "bin", "bin_mean", "bin_sum"):
+        # Normalize to (C, H, W)
+        is_2d = tensor.dim() == 2
+        if is_2d:
+            x = tensor.unsqueeze(0)  # (H, W) → (1, H, W)
+        elif tensor.dim() == 3:
+            x = tensor  # Already (C, H, W)
+        else:
+            raise ValueError(
+                f"Binning only supports 2D (H, W) or 3D (C, H, W) tensors, "
+                f"got {tensor.dim()}D tensor with shape {tensor.shape}"
+            )
+
+        C, H, W = x.shape
+
+        # Validate dimensions for binning
+        if H_out > H or W_out > W:
+            raise ValueError(
+                f"Binning is for downsampling only. "
+                f"Target size ({H_out}, {W_out}) must be <= input size ({H}, {W}). "
+                f"For upsampling, use interpolation='bilinear' or 'bicubic'."
+            )
+
+        # Check if exact integer binning is possible
+        if (H % H_out) != 0 or (W % W_out) != 0:
+            # Calculate what would work
+            suggest_h = H_out * (H // H_out) if H // H_out > 0 else H_out
+            suggest_w = W_out * (W // W_out) if W // W_out > 0 else W_out
+            bin_factor_h = H // H_out if H // H_out > 0 else "N/A"
+            bin_factor_w = W // W_out if W // W_out > 0 else "N/A"
+
+            raise ValueError(
+                f"Binning requires exact integer downsampling factors.\n"
+                f"  Input size:  ({H}, {W})\n"
+                f"  Target size: ({H_out}, {W_out})\n"
+                f"  Bin factors: ({bin_factor_h}×, {bin_factor_w}×) - not exact integers!\n"
+                f"\n"
+                f"Solutions:\n"
+                f"  1. Crop input to ({suggest_h}, {suggest_w}) first, then bin to ({H_out}, {W_out})\n"
+                f"  2. Use interpolation='area' (recommended for arbitrary sizes)\n"
+                f"  3. Use interpolation='bicubic' (smooth high-quality resize)"
+            )
+
+        fh = H // H_out
+        fw = W // W_out
+
+        # Reshape into blocks: (C, H_out, fh, W_out, fw)
+        if interp == "bin_sum":
+            # Sum preserves total signal (photon counts)
+            y = x.reshape(C, H_out, fh, W_out, fw).sum(dim=(2, 4))
+        else:
+            # Mean preserves intensity scale
+            y = x.reshape(C, H_out, fh, W_out, fw).mean(dim=(2, 4))
+
+        # Restore original shape
+        return y[0] if is_2d else y
+
+    # -------------------------
+    # Standard interpolation methods
+    # -------------------------
+    interp_map = {
+        "area": InterpolationMode.AREA,  # Anti-aliased area averaging (best for downsampling)
+        "bicubic": InterpolationMode.BICUBIC,  # Smooth 4×4 interpolation
+        "bilinear": InterpolationMode.BILINEAR,  # Fast 2×2 interpolation
+        "nearest": InterpolationMode.NEAREST,  # No interpolation
+        "lanczos": InterpolationMode.LANCZOS,  # High-quality with sharpening
+    }
+
+    interp_mode = interp_map.get(interpolation, InterpolationMode.BILINEAR)
+
+    # torchvision handles (H,W) and (C,H,W) automatically
+    return F.resize(tensor, size, interpolation=interp_mode)
 
 
 @TransformRegistry.register("torch_center_crop")
@@ -1681,34 +1776,9 @@ def save_image(
     filename: Optional[str] = None,
     extension: Optional[str] = None,
 ) -> TensorLike:
-    """Save tensor/array as image file with flexible path resolution.
+    """Save WITHOUT scaling/clipping/quantizing. Raises if the format would change values."""
+    import numpy as np
 
-    Supports multiple input patterns:
-    - Full path: save_image(img, directory="/output/result.png")
-    - Dir + filename: save_image(img, directory="/output", filename="result.png")
-    - Dir + filename + ext: save_image(img, directory="/output", filename="result", extension=".png")
-    - Tuple input: save_image((img, "/output/result.png"))  # for pipeline use
-
-    Creates output directory (recursively) if it doesn't exist.
-    Uses file extension to determine format (png, tiff, jpg, etc.).
-
-    Args:
-        data: Image tensor/array, OR tuple of (tensor, full_path) for pipeline
-        directory: Output directory, OR full file path if contains extension
-        filename: Output filename (optional, with or without extension)
-        extension: File extension if filename lacks one (e.g., '.png' or 'png')
-
-    Returns:
-        Original input unchanged (tensor or tuple)
-
-    Raises:
-        ValueError: If path cannot be resolved
-
-    Examples:
-        >>> save_image(tensor, directory="/output/result.png")
-        >>> save_image(tensor, directory="/output", filename="result.png")
-        >>> save_image((tensor, "/output/result.png"))  # tuple input for pipeline
-    """
     original_data = data
 
     # Handle tuple input: (tensor, full_path)
@@ -1722,17 +1792,82 @@ def save_image(
     output_path = resolve_save_path(directory, filename, extension)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    array = to_numpy_image(tensor)
+    array = np.asarray(to_numpy_image(tensor))
 
-    # Normalize dtype for saving
-    if array.dtype in (np.float32, np.float64):
-        array = (np.clip(array, 0, 1) * 255).astype(np.uint8)
-    elif array.max() <= 1.0 and array.dtype != np.uint8:
-        array = (array * 255).astype(np.uint8)
+    # If shape is (H, W, 1), squeeze to (H, W) for grayscale writers
+    if array.ndim == 3 and array.shape[-1] == 1:
+        array = array[..., 0]
 
-    Image.fromarray(array).save(output_path)
+    ext = output_path.suffix.lower()
 
-    return original_data
+    # Exact array formats
+    if ext == ".npy":
+        np.save(str(output_path), array)
+        return original_data
+
+    if ext == ".npz":
+        np.savez_compressed(str(output_path), image=array)
+        return original_data
+
+    if ext in (".h5", ".hdf5"):
+        try:
+            import h5py
+        except ImportError:
+            raise RuntimeError("Saving .h5 requires h5py (pip install h5py).")
+
+        with h5py.File(str(output_path), "w") as f:
+            f.create_dataset("image", data=array)
+        return original_data
+
+    # Image formats (must not change values)
+    if ext == ".png":
+        # Refuse silent quantization: only integer PNG.
+        if array.dtype not in (np.uint8, np.uint16):
+            raise ValueError(
+                f"Refusing to save dtype={array.dtype} as PNG (would change values). "
+                "Use uint8/uint16, or save as .tiff/.npy/.h5."
+            )
+
+        try:
+            import cv2
+
+            ok = cv2.imwrite(str(output_path), array)
+            if not ok:
+                raise RuntimeError("cv2.imwrite returned False")
+        except ImportError:
+            # Pillow uint16 PNG support is version-dependent; keep strict.
+            if array.dtype == np.uint16:
+                raise RuntimeError(
+                    "uint16 PNG saving requires OpenCV here (pip install opencv-python)."
+                )
+            from PIL import Image
+
+            Image.fromarray(array).save(output_path)
+
+        return original_data
+
+    if ext in (".tif", ".tiff"):
+        # Prefer tifffile for exact dtype preservation.
+        try:
+            import tifffile
+
+            tifffile.imwrite(str(output_path), array)
+        except ImportError:
+            from PIL import Image
+
+            if array.dtype == np.float32:
+                Image.fromarray(array, mode="F").save(output_path)
+            elif array.dtype in (np.uint8, np.uint16):
+                Image.fromarray(array).save(output_path)
+            else:
+                raise RuntimeError(
+                    f"TIFF save for dtype={array.dtype} requires tifffile "
+                    "(pip install tifffile) to preserve exactly."
+                )
+
+        return original_data
+
+    raise ValueError(f"Unsupported extension '{ext}'. Use .png/.tiff/.npy/.npz/.h5.")
 
 
 @TransformRegistry.register("apply")

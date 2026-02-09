@@ -537,6 +537,117 @@ class PatternDecompositionCombinator(Combinator):
         self._basis_shape = None
 
 
+# SlidingBlockPixelateCombinator
+def _squeeze_2d(x: Any) -> np.ndarray:
+    x = np.asarray(x)
+    if x.ndim == 3 and x.shape[0] == 1:
+        x = x[0]
+    if x.ndim != 2:
+        raise ValueError(f"Expected 2D pattern, got shape {x.shape}")
+    return x
+
+
+def _resize_nearest_2d(img: np.ndarray, out_shape: Tuple[int, int]) -> np.ndarray:
+    """Nearest-neighbor resize (pure numpy)."""
+    H, W = img.shape
+    oh, ow = out_shape
+    r_idx = np.rint(np.linspace(0, H - 1, oh)).astype(np.int64)
+    c_idx = np.rint(np.linspace(0, W - 1, ow)).astype(np.int64)
+    return img[np.ix_(r_idx, c_idx)]
+
+
+class ResizeIndexCombinator(Combinator):
+    """
+    Resize pattern to grid_shape, then:
+      output = sum_i coeff[i] * basis[i]
+    where coeff[i] is the resized pixel value at row-major index i.
+    """
+
+    def __init__(
+        self,
+        pattern_provider,
+        grid_shape: Tuple[int, int] = (32, 32),
+        *,
+        clip_coefficients: Optional[
+            Tuple[float, float]
+        ] = None,  # e.g. (0, 255) or (0, 1)
+        clip_output: Tuple[float, float] = (
+            0.0,
+            255.0,
+        ),  # set (0,1) if your basis is in 0-1
+        eps: float = 0.0,  # set small >0 if you want to skip tiny coefs
+    ):
+        super().__init__()
+        if hasattr(pattern_provider, "__next__"):
+            self._pattern_stream = pattern_provider
+            self.pattern_provider = lambda rng: next(self._pattern_stream)
+        else:
+            self.pattern_provider = pattern_provider
+
+        self.grid_shape = grid_shape
+        self.clip_coefficients = clip_coefficients
+        self.clip_output = clip_output
+        self.eps = eps
+
+        self.last_coeff_grid: Optional[np.ndarray] = None
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        gh, gw = self.grid_shape
+        needed = gh * gw
+        if len(accessor) < needed:
+            raise ValueError(
+                f"Basis has {len(accessor)} items, need {needed} for grid {self.grid_shape}"
+            )
+
+        pattern = _squeeze_2d(self.pattern_provider(rng))
+
+        # Key part: float before arithmetic to avoid uint8 overflow/wrap-around.
+        resized = _resize_nearest_2d(pattern, self.grid_shape).astype(np.float32)
+
+        if self.clip_coefficients is not None:
+            lo, hi = self.clip_coefficients
+            resized = np.clip(resized, lo, hi)
+
+        self.last_coeff_grid = resized
+        coeffs = resized.reshape(-1)  # row-major: top-left -> right -> next row
+
+        sample0 = accessor[0]
+        is_tuple = isinstance(sample0, tuple)
+
+        used_idx: List[int] = []
+        used_coef: List[float] = []
+
+        if is_tuple:
+            out = [np.zeros_like(comp, dtype=np.float32) for comp in sample0]
+            for i in range(needed):
+                c = float(coeffs[i])
+                if abs(c) <= self.eps:
+                    continue
+                basis_item = accessor[i]
+                for k, comp in enumerate(basis_item):
+                    out[k] += c * comp.astype(np.float32)
+                used_idx.append(i)
+                used_coef.append(c)
+
+            lo, hi = self.clip_output
+            out = tuple(np.clip(o, lo, hi) for o in out)
+        else:
+            out = np.zeros_like(sample0, dtype=np.float32)
+            for i in range(needed):
+                c = float(coeffs[i])
+                if abs(c) <= self.eps:
+                    continue
+                out += c * accessor[i].astype(np.float32)
+                used_idx.append(i)
+                used_coef.append(c)
+
+            lo, hi = self.clip_output
+            out = np.clip(out, lo, hi)
+
+        self._last_record = CombinationRecord(indices=used_idx, coefficients=used_coef)
+        return out
+
+
 # ============================================================
 # K-samplers (reusable)
 # ============================================================
