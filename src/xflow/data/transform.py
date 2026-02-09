@@ -918,17 +918,16 @@ def torch_resize(
 
     Supports tensor shapes: (H, W) or (C, H, W)
 
-    Interpolation modes (ranked by scientific quality for sensor data):
-      1. "area": Area averaging with anti-aliasing (RECOMMENDED for arbitrary sizes, prevents aliasing)
-      2. "bicubic": Smooth high-quality interpolation using 4×4 neighborhood
+    Interpolation modes for ML sensor data (ranked by quality):
+      1. "bicubic": Highest quality, preserves fine details (RECOMMENDED for ML)
+      2. "bilinear": Fast, acceptable quality (default)
       3. "bin_sum": Block-reduce by summing (preserves photon counts, requires exact integer ratios)
       4. "bin_mean" / "binning" / "bin": Block-reduce by averaging (requires exact integer ratios)
-      5. "bilinear": Fast, good quality (default)
-      6. "nearest": Nearest-neighbor (no interpolation)
-      7. "lanczos": High-quality with sharpening
+      5. "nearest": Nearest-neighbor (no interpolation)
+      6. "lanczos": High-quality with sharpening
 
-    For scientific sensor data compression:
-      - Use "area" or "bicubic" for arbitrary sizes (e.g., 732×732 → 256×256)
+    For scientific sensor data downsizing:
+      - Use "bicubic" for arbitrary sizes (e.g., 732×732 → 256×256) - ML standard
       - Use "bin_sum" for exact ratios where preserving total signal matters (e.g., 768×768 → 256×256)
     """
     try:
@@ -989,8 +988,8 @@ def torch_resize(
                 f"\n"
                 f"Solutions:\n"
                 f"  1. Crop input to ({suggest_h}, {suggest_w}) first, then bin to ({H_out}, {W_out})\n"
-                f"  2. Use interpolation='area' (recommended for arbitrary sizes)\n"
-                f"  3. Use interpolation='bicubic' (smooth high-quality resize)"
+                f"  2. Use interpolation='bicubic' (RECOMMENDED for ML - highest quality)\n"
+                f"  3. Use interpolation='bilinear' (fast, good quality)"
             )
 
         fh = H // H_out
@@ -1011,8 +1010,7 @@ def torch_resize(
     # Standard interpolation methods
     # -------------------------
     interp_map = {
-        "area": InterpolationMode.AREA,  # Anti-aliased area averaging (best for downsampling)
-        "bicubic": InterpolationMode.BICUBIC,  # Smooth 4×4 interpolation
+        "bicubic": InterpolationMode.BICUBIC,  # Smooth 4×4 interpolation (best for ML)
         "bilinear": InterpolationMode.BILINEAR,  # Fast 2×2 interpolation
         "nearest": InterpolationMode.NEAREST,  # No interpolation
         "lanczos": InterpolationMode.LANCZOS,  # High-quality with sharpening
