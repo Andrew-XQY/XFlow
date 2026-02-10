@@ -257,6 +257,7 @@ def resize(
         "cubic": cv2.INTER_CUBIC,
         "area": cv2.INTER_AREA,
         "linear": cv2.INTER_LINEAR,
+        "bilinear": cv2.INTER_LINEAR,
         "nearest": cv2.INTER_NEAREST,
     }
 
@@ -2249,3 +2250,36 @@ def torch_l2_normalize(
         return x / denom
     except ImportError:
         raise RuntimeError("Transform failed, please check the source code")
+
+
+# future features: unified api with dispatch/backend detection for internal resolve usage on different backend/datatype.
+# def _detect_backend(obj) -> str:
+#     """Detect the compute backend from the object type."""
+#     if isinstance(obj, np.ndarray):
+#         return "numpy"
+#     # Check torch before tf — torch tensors can have __array__
+#     try:
+#         import torch
+#         if isinstance(obj, torch.Tensor):
+#             return "torch"
+#     except ImportError:
+#         pass
+#     try:
+#         import tensorflow as tf
+#         if isinstance(obj, tf.Tensor):
+#             return "tf"
+#     except ImportError:
+#         pass
+#     raise TypeError(f"Cannot detect backend for {type(obj)}")
+
+# @TransformRegistry.register("resize")
+# def resize(image, size, interpolation="bilinear", **kwargs):
+#     """Unified resize — dispatches to the correct backend automatically."""
+#     backend = _detect_backend(image)
+#     if backend == "numpy":
+#         return _resize_numpy(image, tuple(size), interpolation)
+#     elif backend == "torch":
+#         return _resize_torch(image, list(size), interpolation, **kwargs)
+#     elif backend == "tf":
+#         return _resize_tf(image, list(size))
+#     raise TypeError(f"Unsupported backend: {backend}")

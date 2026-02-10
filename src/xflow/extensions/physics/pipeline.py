@@ -547,35 +547,22 @@ def _squeeze_2d(x: Any) -> np.ndarray:
     return x
 
 
-def _resize_nearest_2d(img: np.ndarray, out_shape: Tuple[int, int]) -> np.ndarray:
-    """Nearest-neighbor resize (pure numpy)."""
-    H, W = img.shape
-    oh, ow = out_shape
-    r_idx = np.rint(np.linspace(0, H - 1, oh)).astype(np.int64)
-    c_idx = np.rint(np.linspace(0, W - 1, ow)).astype(np.int64)
-    return img[np.ix_(r_idx, c_idx)]
-
-
-class ResizeIndexCombinator(Combinator):
+class IndexCombinator(Combinator):
     """
-    Resize pattern to grid_shape, then:
-      output = sum_i coeff[i] * basis[i]
-    where coeff[i] is the resized pixel value at row-major index i.
+    Weighted sum of basis items using coefficients from a 2D map.
+
+    output = sum(coeff[i] * basis[i])
+
+    Coefficients are read in row-major (flattened) order.
     """
 
     def __init__(
         self,
         pattern_provider,
-        grid_shape: Tuple[int, int] = (32, 32),
         *,
-        clip_coefficients: Optional[
-            Tuple[float, float]
-        ] = None,  # e.g. (0, 255) or (0, 1)
-        clip_output: Tuple[float, float] = (
-            0.0,
-            255.0,
-        ),  # set (0,1) if your basis is in 0-1
-        eps: float = 0.0,  # set small >0 if you want to skip tiny coefs
+        skip_zero: bool = True,
+        eps: float = 0.0,
+        postprocess_fns: Optional[List[Callable[[np.ndarray], np.ndarray]]] = None,
     ):
         super().__init__()
         if hasattr(pattern_provider, "__next__"):
@@ -584,65 +571,71 @@ class ResizeIndexCombinator(Combinator):
         else:
             self.pattern_provider = pattern_provider
 
-        self.grid_shape = grid_shape
-        self.clip_coefficients = clip_coefficients
-        self.clip_output = clip_output
+        self.skip_zero = skip_zero
         self.eps = eps
-
-        self.last_coeff_grid: Optional[np.ndarray] = None
+        self.postprocess_fns = list(postprocess_fns) if postprocess_fns else []
+        self.last_coeff_map: Optional[np.ndarray] = None
 
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
-        gh, gw = self.grid_shape
-        needed = gh * gw
-        if len(accessor) < needed:
+        # Get coefficient map and flatten to 1D
+        coeff_map = _squeeze_2d(self.pattern_provider(rng)).astype(
+            np.float32, copy=False
+        )
+        self.last_coeff_map = coeff_map
+        coeffs = coeff_map.ravel()
+
+        if len(accessor) < coeffs.size:
             raise ValueError(
-                f"Basis has {len(accessor)} items, need {needed} for grid {self.grid_shape}"
+                f"Need {coeffs.size} basis items for map shape {coeff_map.shape}, "
+                f"but only {len(accessor)} available."
             )
 
-        pattern = _squeeze_2d(self.pattern_provider(rng))
-
-        # Key part: float before arithmetic to avoid uint8 overflow/wrap-around.
-        resized = _resize_nearest_2d(pattern, self.grid_shape).astype(np.float32)
-
-        if self.clip_coefficients is not None:
-            lo, hi = self.clip_coefficients
-            resized = np.clip(resized, lo, hi)
-
-        self.last_coeff_grid = resized
-        coeffs = resized.reshape(-1)  # row-major: top-left -> right -> next row
+        # Figure out which coefficients are active
+        if self.skip_zero:
+            mask = np.abs(coeffs) > self.eps if self.eps > 0 else coeffs != 0
+            active = np.flatnonzero(mask)
+        else:
+            active = np.arange(coeffs.size)
 
         sample0 = accessor[0]
-        is_tuple = isinstance(sample0, tuple)
+        is_multi = isinstance(sample0, (tuple, list))
 
-        used_idx: List[int] = []
-        used_coef: List[float] = []
+        used_idx = []
+        used_coef = []
 
-        if is_tuple:
-            out = [np.zeros_like(comp, dtype=np.float32) for comp in sample0]
-            for i in range(needed):
+        if is_multi:
+            # Basis items are tuples/lists with a fixed number of elements.
+            # Scale each element by the same coefficient, then sum element-wise.
+            n_elements = len(sample0)
+            out = [
+                np.zeros_like(np.asarray(sample0[j]), dtype=np.float32)
+                for j in range(n_elements)
+            ]
+
+            for i in active:
                 c = float(coeffs[i])
-                if abs(c) <= self.eps:
-                    continue
-                basis_item = accessor[i]
-                for k, comp in enumerate(basis_item):
-                    out[k] += c * comp.astype(np.float32)
-                used_idx.append(i)
+                item = accessor[int(i)]
+                for j in range(n_elements):
+                    out[j] += c * np.asarray(item[j], dtype=np.float32)
+                used_idx.append(int(i))
                 used_coef.append(c)
 
-            lo, hi = self.clip_output
-            out = tuple(np.clip(o, lo, hi) for o in out)
+            for fn in self.postprocess_fns:
+                out = [np.asarray(fn(o), dtype=np.float32) for o in out]
+
+            out = tuple(out)
         else:
-            out = np.zeros_like(sample0, dtype=np.float32)
-            for i in range(needed):
+            # Single array basis items
+            out = np.zeros_like(np.asarray(sample0), dtype=np.float32)
+
+            for i in active:
                 c = float(coeffs[i])
-                if abs(c) <= self.eps:
-                    continue
-                out += c * accessor[i].astype(np.float32)
-                used_idx.append(i)
+                out += c * np.asarray(accessor[int(i)], dtype=np.float32)
+                used_idx.append(int(i))
                 used_coef.append(c)
 
-            lo, hi = self.clip_output
-            out = np.clip(out, lo, hi)
+            for fn in self.postprocess_fns:
+                out = np.asarray(fn(out), dtype=np.float32)
 
         self._last_record = CombinationRecord(indices=used_idx, coefficients=used_coef)
         return out

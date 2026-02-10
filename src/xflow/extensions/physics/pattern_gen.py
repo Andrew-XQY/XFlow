@@ -1,7 +1,7 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from typing import Callable, Generator, List
+from typing import Callable, Generator, List, Optional
 
 import numpy as np
 from scipy.stats import beta
@@ -12,15 +12,22 @@ class DynamicPatterns:
     Minimal dynamic 2D canvas that holds multiple Distribution objects.
     """
 
-    def __init__(self, height: int = 128, width: int = 128) -> None:
+    def __init__(
+        self,
+        height: int = 128,
+        width: int = 128,
+        postprocess_fns: Optional[List[Callable[[np.ndarray], np.ndarray]]] = None,
+    ) -> None:
         self._height = self._validate_and_convert(height)
         self._width = self._validate_and_convert(width)
 
         self.canvas: np.ndarray = np.zeros((self._height, self._width), dtype=float)
         self._distributions: List[Distribution] = []
+        self._postprocess_fns: List[Callable[[np.ndarray], np.ndarray]] = []
 
         # Clip ceiling for the final canvas after summing distributions.
         self.max_pixel_value: float = 255.0
+        self.set_postprocess_fns(postprocess_fns)
 
     def __repr__(self) -> str:
         return f"DynamicPatterns(canvas_shape={self.canvas.shape}, max_pixel_value={self.max_pixel_value})"
@@ -54,6 +61,30 @@ class DynamicPatterns:
         if v <= 0:
             raise ValueError("max_pixel_value must be > 0")
         self.max_pixel_value = v
+
+    def set_postprocess_fns(
+        self, fns: Optional[List[Callable[[np.ndarray], np.ndarray]]]
+    ) -> None:
+        """Set output postprocessing hooks with contract: ndarray -> ndarray."""
+        if fns is None:
+            self._postprocess_fns = []
+            return
+        if not isinstance(fns, list):
+            raise TypeError("postprocess_fns must be a list of callables or None")
+        for fn in fns:
+            if not callable(fn):
+                raise TypeError("Each postprocess function must be callable")
+        self._postprocess_fns = list(fns)
+
+    def add_postprocess_fn(self, fn: Callable[[np.ndarray], np.ndarray]) -> None:
+        """Append one output postprocessing hook with contract: ndarray -> ndarray."""
+        if not callable(fn):
+            raise TypeError("postprocess function must be callable")
+        self._postprocess_fns.append(fn)
+
+    def clear_postprocess_fns(self) -> None:
+        """Remove all output postprocessing hooks."""
+        self._postprocess_fns = []
 
     def _validate_and_convert(self, value: int) -> int:
         if not isinstance(value, int):
@@ -106,7 +137,13 @@ class DynamicPatterns:
             dst.fast_update(*args, **kwargs)
 
     def get_image(self) -> np.ndarray:
-        return self.canvas
+        if not self._postprocess_fns:
+            return self.canvas
+
+        out = self.canvas.copy()
+        for fn in self._postprocess_fns:
+            out = np.asarray(fn(out))
+        return out
 
     def num_of_distributions(self) -> int:
         return sum(0 if dst.is_empty() else 1 for dst in self._distributions)
