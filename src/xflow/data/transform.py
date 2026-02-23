@@ -243,6 +243,20 @@ def remap_range(
     return remapped.astype(np.float32)
 
 
+@TransformRegistry.register("clip_range")
+def clip_range(
+    image: np.ndarray,
+    clip_min: float = 0.0,
+    clip_max: float = 255.0,
+) -> np.ndarray:
+    """Clip array values to the inclusive range [clip_min, clip_max]."""
+    if clip_min > clip_max:
+        raise ValueError(
+            f"clip_min must be <= clip_max, got clip_min={clip_min}, clip_max={clip_max}"
+        )
+    return np.clip(np.asarray(image), clip_min, clip_max)
+
+
 @TransformRegistry.register("resize")
 def resize(
     image: np.ndarray, size: Tuple[int, int], interpolation: str = "lanczos"
@@ -904,6 +918,72 @@ def torch_remap_range(
         normalized = (tensor - current_min) / denominator
         remapped = normalized * (target_max - target_min) + target_min
         return remapped
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("torch_clip_range")
+def torch_clip_range(
+    tensor: TensorLike,
+    clip_min: float = 0.0,
+    clip_max: float = 255.0,
+) -> TensorLike:
+    """Clip tensor values to the inclusive range [clip_min, clip_max] using PyTorch."""
+    if clip_min > clip_max:
+        raise ValueError(
+            f"clip_min must be <= clip_max, got clip_min={clip_min}, clip_max={clip_max}"
+        )
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        return torch.clamp(tensor, min=clip_min, max=clip_max)
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("torch_threshold")
+def torch_threshold(
+    tensor: TensorLike,
+    threshold: float = 5.0,
+    threshold_value: float = 0.0,
+    threshold_mode: str = "below",
+) -> TensorLike:
+    """Apply thresholding with selectable mode and replacement value.
+
+    Args:
+        tensor: Input tensor.
+        threshold: Threshold value.
+        threshold_value: Replacement value for entries selected by threshold_mode.
+        threshold_mode: One of {"below", "below_equal", "above", "above_equal"}.
+            - "below": replace values < threshold
+            - "below_equal": replace values <= threshold
+            - "above": replace values > threshold
+            - "above_equal": replace values >= threshold
+    """
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        mode = str(threshold_mode).lower()
+        if mode == "below":
+            mask = tensor < threshold
+        elif mode == "below_equal":
+            mask = tensor <= threshold
+        elif mode == "above":
+            mask = tensor > threshold
+        elif mode == "above_equal":
+            mask = tensor >= threshold
+        else:
+            raise ValueError(
+                "threshold_mode must be one of {'below', 'below_equal', 'above', 'above_equal'}"
+            )
+        fill = torch.as_tensor(
+            threshold_value, dtype=tensor.dtype, device=tensor.device
+        )
+        return torch.where(mask, fill, tensor)
     except ImportError:
         raise RuntimeError("Transform failed, please check the source code")
 

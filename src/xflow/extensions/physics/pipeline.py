@@ -2,12 +2,12 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 from tqdm.auto import tqdm
 
-from ...data.pipeline import BasePipeline
+from ...data.pipeline import BasePipeline, Transform
 
 
 def _to_numpy(arr) -> np.ndarray:
@@ -562,7 +562,9 @@ class IndexCombinator(Combinator):
         *,
         skip_zero: bool = True,
         eps: float = 0.0,
-        postprocess_fns: Optional[List[Callable[[np.ndarray], np.ndarray]]] = None,
+        post_transforms: Optional[
+            List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
+        ] = None,
     ):
         super().__init__()
         if hasattr(pattern_provider, "__next__"):
@@ -573,7 +575,14 @@ class IndexCombinator(Combinator):
 
         self.skip_zero = skip_zero
         self.eps = eps
-        self.postprocess_fns = list(postprocess_fns) if postprocess_fns else []
+        self.post_transforms = [
+            (
+                fn
+                if isinstance(fn, Transform)
+                else Transform(fn, getattr(fn, "__name__", "unknown"))
+            )
+            for fn in (post_transforms or [])
+        ]
         self.last_coeff_map: Optional[np.ndarray] = None
 
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
@@ -619,10 +628,6 @@ class IndexCombinator(Combinator):
                     out[j] += c * np.asarray(item[j], dtype=np.float32)
                 used_idx.append(int(i))
                 used_coef.append(c)
-
-            for fn in self.postprocess_fns:
-                out = [np.asarray(fn(o), dtype=np.float32) for o in out]
-
             out = tuple(out)
         else:
             # Single array basis items
@@ -634,8 +639,17 @@ class IndexCombinator(Combinator):
                 used_idx.append(int(i))
                 used_coef.append(c)
 
-            for fn in self.postprocess_fns:
-                out = np.asarray(fn(out), dtype=np.float32)
+        for fn in self.post_transforms:
+            out = fn(out)
+
+        if is_multi:
+            if not isinstance(out, (tuple, list)):
+                raise ValueError(
+                    "post_transforms must return tuple/list for multi-component samples"
+                )
+            out = tuple(np.asarray(component, dtype=np.float32) for component in out)
+        else:
+            out = np.asarray(out, dtype=np.float32)
 
         self._last_record = CombinationRecord(indices=used_idx, coefficients=used_coef)
         return out
