@@ -238,13 +238,20 @@ class CachedBasisPipeline(BasePipeline):
         for _ in range(len(self)):
             yield self.combinator(accessor, self.rng)
 
-    def to_framework_dataset(self, framework: str = "pytorch", **kwargs):
+    def to_framework_dataset(
+        self,
+        framework: str = "pytorch",
+        dataset_ops: Optional[List[Dict]] = None,
+        **kwargs,
+    ):
         """Convert to framework-specific dataset."""
         self._load_basis()
 
-        if framework.lower() == "pytorch":
+        if framework.lower() in ("pytorch", "torch"):
             import torch
             from torch.utils.data import Dataset
+
+            from ...data.transform import apply_dataset_operations_from_config
 
             class _CombinatorDataset(Dataset):
                 def __init__(inner_self, pipeline: CachedBasisPipeline):
@@ -263,7 +270,10 @@ class CachedBasisPipeline(BasePipeline):
                         return tuple(torch.from_numpy(s) for s in sample)
                     return torch.from_numpy(sample)
 
-            return _CombinatorDataset(self)
+            dataset = _CombinatorDataset(self)
+            if dataset_ops:
+                dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
+            return dataset
         else:
             raise ValueError(f"Unsupported framework: {framework}")
 

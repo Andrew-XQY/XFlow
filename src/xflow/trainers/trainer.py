@@ -6,8 +6,8 @@ import collections
 import json
 import os
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field, fields
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
 
 from ..utils.io import create_directory
 from ..utils.typing import ModelType, PathLikeStr
@@ -59,7 +59,7 @@ class CallbackDispatcher:
     def call(self, name, ctx):
         import inspect
 
-        kw = asdict(ctx)
+        kw = {f.name: getattr(ctx, f.name) for f in fields(ctx)}
         for cb in self.cbs:
             fn = getattr(cb, name, None)
             if not callable(fn):
@@ -275,7 +275,7 @@ class TorchTrainer(BaseTrainer):
         self.model.to(self.device)
         if hasattr(self, "discriminator") and self.discriminator is not None:
             self.discriminator.to(self.device)
-            
+
         train_loader, val_loader = self._resolve_loaders(train_loader, val_loader)
 
         ctx = CallbackContext(
@@ -305,7 +305,7 @@ class TorchTrainer(BaseTrainer):
                 ctx.batch = i  # NEW: provide PyTorch-style 'batch'
                 self.cb.call("on_batch_begin", ctx)
                 logs = self.train_step(batch)
-                logs["train_loss"] = float(logs.get("loss", 0.0))   # pass train_loss
+                logs["train_loss"] = float(logs.get("loss", 0.0))  # pass train_loss
                 sum_loss += logs.get("loss", 0.0)
                 global_step += 1
                 ctx.logs = logs
@@ -313,7 +313,9 @@ class TorchTrainer(BaseTrainer):
                 self.cb.call("on_batch_end", ctx)
                 # ---- scheduler per-batch (except Plateau) ----
                 if self.scheduler and self.scheduler_step_per_batch:
-                    if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    if not isinstance(
+                        self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+                    ):
                         self.scheduler.step()
                 if ctx.request_stop:
                     break
@@ -354,7 +356,10 @@ class TorchTrainer(BaseTrainer):
             # ---- scheduler per-epoch (handles Plateau) ----
             if self.scheduler and not self.scheduler_step_per_batch:
                 import torch
-                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+
+                if isinstance(
+                    self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+                ):
                     metric = val_logs_epoch.get("val_loss", avg_train)
                     self.scheduler.step(metric)
                 else:
@@ -373,6 +378,7 @@ class TorchTrainer(BaseTrainer):
             x, _ = self._to_device(batch)
             preds.append(self.model(x))
         return preds
+
 
 class TorchGANTrainer(TorchTrainer):
     def __init__(
@@ -410,7 +416,7 @@ class TorchGANTrainer(TorchTrainer):
 
     def train_step(self, batch) -> Dict[str, float]:
         import torch
-        
+
         x, y = self._to_device(batch)
 
         # ---- D step ----
@@ -440,7 +446,7 @@ class TorchGANTrainer(TorchTrainer):
 
     def val_step(self, batch) -> Dict[str, float]:
         import torch
-        
+
         with torch.no_grad():
             x, y = self._to_device(batch)
             fake = self.model(x)
