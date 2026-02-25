@@ -50,6 +50,7 @@ CORE_API = {
     # ML Models
     "BaseModel": APIItem("models.base", "BaseModel"),
     "show_model_info": APIItem("models.utils", "show_model_info"),
+    "shape_trace": APIItem("models.utils", "shape_trace"),
     # Utilities
     "CallbackRegistry": APIItem("trainers.callback", "CallbackRegistry"),
 }
@@ -78,6 +79,7 @@ PACKAGE_API = {
     "models": {
         "BaseModel": APIItem("base", "BaseModel"),
         "show_model_info": APIItem("utils", "show_model_info"),
+        "shape_trace": APIItem("utils", "shape_trace"),
     },
     "trainers": {
         "TorchTrainer": APIItem("trainer", "TorchTrainer"),
