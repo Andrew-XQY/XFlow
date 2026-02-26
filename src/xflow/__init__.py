@@ -18,7 +18,7 @@ from .data.pipeline import (
 from .data.provider import FileProvider, SqlProvider
 from .data.transform import BatchPipeline, ShufflePipeline, TransformRegistry
 from .models.base import BaseModel
-from .models.utils import shape_trace, show_model_info
+from .models.utils import build_model_report, shape_trace, show_model_info
 from .trainers.callback import CallbackRegistry
 from .trainers.trainer import BaseTrainer, TorchGANTrainer, TorchTrainer
 from .utils.config import ConfigManager
@@ -43,6 +43,7 @@ __all__ = [
     "TorchGANTrainer",
     "TorchTrainer",
     "TransformRegistry",
+    "build_model_report",
     "compose",
     "consume",
     "flow",

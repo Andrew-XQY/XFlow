@@ -51,6 +51,7 @@ CORE_API = {
     "BaseModel": APIItem("models.base", "BaseModel"),
     "show_model_info": APIItem("models.utils", "show_model_info"),
     "shape_trace": APIItem("models.utils", "shape_trace"),
+    "build_model_report": APIItem("models.utils", "build_model_report"),
     # Utilities
     "CallbackRegistry": APIItem("trainers.callback", "CallbackRegistry"),
 }
@@ -80,6 +81,7 @@ PACKAGE_API = {
         "BaseModel": APIItem("base", "BaseModel"),
         "show_model_info": APIItem("utils", "show_model_info"),
         "shape_trace": APIItem("utils", "shape_trace"),
+        "build_model_report": APIItem("utils", "build_model_report"),
     },
     "trainers": {
         "TorchTrainer": APIItem("trainer", "TorchTrainer"),

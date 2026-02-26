@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..utils.typing import ModelLike
 
@@ -160,11 +160,11 @@ def format_model_info(info: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def show_model_info(model: ModelLike) -> None:
-    """Display model information in a user-friendly format."""
+def show_model_info(model: ModelLike) -> str:
+    """Return model information as a user-friendly formatted string."""
     info = get_model_info(model)
-    print(f"Detected framework: {info.get('framework', 'Unknown')}")
-    print(format_model_info(info))
+    framework = info.get("framework", "Unknown")
+    return f"Detected framework: {framework}\n{format_model_info(info)}"
 
 
 def detect_model_framework(model: ModelLike) -> str:
@@ -324,3 +324,15 @@ def shape_trace(
         yield
     finally:
         remove_hooks(handles)
+
+
+def build_model_report(
+    model: ModelLike,
+    run_forward: Callable[[], Any],
+    leaf_only: bool = True,
+) -> str:
+    lines: List[str] = [show_model_info(model), "", "-- Shape Trace --"]
+    with shape_trace(model, enabled=True, leaf_only=leaf_only, print_fn=lines.append):
+        out = run_forward()
+    lines += ["", f"Final output shape: {_shape(out)}"]
+    return "\n".join(lines) + "\n"
