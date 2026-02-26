@@ -8,13 +8,14 @@ from ...trainers.callback import CallbackRegistry
 from ...utils.visualization import to_numpy_image
 
 
-
 @CallbackRegistry.register("torch_centroid_ellipse_callback")
 def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
     """Visualize centroid/width ellipses each epoch.
     Assumes dataset yields EXACTLY (A, y_true, B_img) as torch.Tensors."""
     import os
+
     import torch
+
     from ...trainers.callback import PyTorchCallback
 
     KEYS = ["h_centroid", "v_centroid", "h_width", "v_width"]
@@ -64,9 +65,11 @@ def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
                 p = y_pred[0].detach().cpu().view(-1).numpy()
 
                 # Ensure image is (H, W)
-                if img.ndim == 3:          # (C,H,W) → take first channel
+                if img.ndim == 3:  # (C,H,W) → take first channel
                     img = img[0]
-                elif img.ndim == 4:        # (N,C,H,W) shouldn't happen after [0], but guard anyway
+                elif (
+                    img.ndim == 4
+                ):  # (N,C,H,W) shouldn't happen after [0], but guard anyway
                     img = img[0, 0]
                 img_np = img.numpy()
 
@@ -80,15 +83,18 @@ def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
                     os.makedirs(abs_save_dir, exist_ok=True)
                     save_path = os.path.join(abs_save_dir, f"epoch_{epoch+1}.png")
 
-                plot_centroid_ellipse(ax, img_np, true_dict,
-                                      pred_params=pred_dict, save_path=save_path)
+                plot_centroid_ellipse(
+                    ax, img_np, true_dict, pred_params=pred_dict, save_path=save_path
+                )
                 ax.set_title(f"Epoch {epoch + 1}")
                 plt.tight_layout()
 
                 if save_path is None:
                     try:
                         from IPython.display import clear_output, display
-                        clear_output(wait=True); display(fig)
+
+                        clear_output(wait=True)
+                        display(fig)
                     except Exception:
                         plt.show()
                     finally:
@@ -98,7 +104,6 @@ def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
                 print(f"TorchCentroidEllipseCallback error: {e}")
 
     return TorchCentroidEllipseCallback()
-
 
 
 @CallbackRegistry.register("centroid_ellipse_callback")
@@ -308,21 +313,53 @@ from datetime import datetime
 
 
 def _visualize_image_reconstruction(
-    img_in, img_pred, img_true, epoch, save_dir=None, cmap="viridis"
+    img_in,
+    img_pred,
+    img_true,
+    epoch,
+    save_dir=None,
+    cmap="viridis",
+    training_images=None,
 ):
     """Shared visualization logic for image reconstruction callbacks."""
     import os
 
-    fig, axs = plt.subplots(2, 3, figsize=(10, 6))
-    images = [img_in, img_pred, img_true, img_in, img_pred, img_true]
-    titles = [
-        "Input",
-        "Reconstructed",
-        "Ground Truth",
-        "Input (rescale)",
-        "Reconstructed (rescale)",
-        "Ground Truth (rescale)",
-    ]
+    if training_images is None:
+        fig, axs = plt.subplots(2, 3, figsize=(10, 6))
+        images = [img_in, img_pred, img_true, img_in, img_pred, img_true]
+        titles = [
+            "Input",
+            "Reconstructed",
+            "Ground Truth",
+            "Input (rescale)",
+            "Reconstructed (rescale)",
+            "Ground Truth (rescale)",
+        ]
+    else:
+        fig, axs = plt.subplots(3, 3, figsize=(10, 9))
+        train_in, train_pred, train_true = training_images
+        images = [
+            img_in,
+            img_pred,
+            img_true,
+            img_in,
+            img_pred,
+            img_true,
+            train_in,
+            train_pred,
+            train_true,
+        ]
+        titles = [
+            "Input",
+            "Reconstructed",
+            "Ground Truth",
+            "Input (rescale)",
+            "Reconstructed (rescale)",
+            "Ground Truth (rescale)",
+            "Input_training",
+            "Reconstructed_training",
+            "Ground Truth_training",
+        ]
 
     for i, ax in enumerate(axs.flat):
         if i < 3:
@@ -419,7 +456,7 @@ def make_image_reconstruction_callback(dataset=None, save_dir=None, cmap="viridi
 
 @CallbackRegistry.register("torch_image_reconstruction_callback")
 def make_torch_image_reconstruction_callback(
-    dataset=None, save_dir=None, cmap="viridis"
+    dataset=None, save_dir=None, cmap="viridis", include_training_images=False
 ):
     """Create PyTorch image reconstruction visualization callback."""
     import os
@@ -428,18 +465,30 @@ def make_torch_image_reconstruction_callback(
     from ...trainers.callback import PyTorchCallback
 
     class TorchImageReconstructionCallback(PyTorchCallback):
-        def __init__(self, save_dir=save_dir, cmap=cmap):
+        def __init__(
+            self,
+            save_dir=save_dir,
+            cmap=cmap,
+            include_training_images=include_training_images,
+        ):
             super().__init__()
             self.dataset = dataset
+            self.training_dataset = None
             self.sample_batch = None
+            self.training_sample_batch = None
             self.save_dir = save_dir
             self.cmap = cmap
+            self.include_training_images = include_training_images
             if self.dataset is not None:
                 self._refresh_sample()
 
         def set_dataset(self, dataset):
             self.dataset = dataset
             self._refresh_sample()
+
+        def set_training_dataset(self, dataset):
+            self.training_dataset = dataset
+            self._refresh_training_sample()
 
         def _refresh_sample(self):
             if self.dataset is None:
@@ -449,9 +498,23 @@ def make_torch_image_reconstruction_callback(
             else:
                 self.sample_batch = next(iter(self.dataset))
 
+        def _refresh_training_sample(self):
+            if self.training_dataset is None:
+                self.training_sample_batch = None
+                return
+            if (
+                isinstance(self.training_dataset, tuple)
+                and len(self.training_dataset) == 2
+            ):
+                self.training_sample_batch = self.training_dataset
+            else:
+                self.training_sample_batch = next(iter(self.training_dataset))
+
         def on_epoch_begin(self, epoch, model=None, **kwargs):
             if self.dataset is not None:
                 self._refresh_sample()
+            if self.training_dataset is not None:
+                self._refresh_training_sample()
             if self.sample_batch is None or model is None:
                 return
             try:
@@ -474,8 +537,41 @@ def make_torch_image_reconstruction_callback(
                 img_pred = to_numpy_image(y_pred)
                 img_true = to_numpy_image(y_true)
 
+                training_images = None
+                if self.include_training_images:
+                    X_training, Y_training = (
+                        self.training_sample_batch
+                        if self.training_sample_batch is not None
+                        else self.sample_batch
+                    )
+                    idx_training = np.random.randint(0, len(X_training))
+                    x_training = X_training[idx_training : idx_training + 1]
+                    y_true_training = Y_training[idx_training]
+
+                    with torch.no_grad():
+                        if hasattr(x_training, "to"):
+                            x_training = x_training.to(next(model.parameters()).device)
+                        y_pred_training = model(x_training)
+                        if hasattr(y_pred_training, "cpu"):
+                            y_pred_training = y_pred_training.cpu()
+
+                    img_in_training = to_numpy_image(x_training)
+                    img_pred_training = to_numpy_image(y_pred_training)
+                    img_true_training = to_numpy_image(y_true_training)
+                    training_images = (
+                        img_in_training,
+                        img_pred_training,
+                        img_true_training,
+                    )
+
                 _visualize_image_reconstruction(
-                    img_in, img_pred, img_true, epoch, self.save_dir, self.cmap
+                    img_in,
+                    img_pred,
+                    img_true,
+                    epoch,
+                    self.save_dir,
+                    self.cmap,
+                    training_images=training_images,
                 )
 
             except Exception as e:
@@ -486,14 +582,21 @@ def make_torch_image_reconstruction_callback(
 
 @CallbackRegistry.register("torch_serialized_image_reconstruction_callback")
 def make_torch_serialized_image_reconstruction_callback(
-    dataset=None, save_dir=None, cmap="viridis", inp_size=(128, 128), out_size=(128, 128)
+    dataset=None,
+    save_dir=None,
+    cmap="viridis",
+    inp_size=(128, 128),
+    out_size=(128, 128),
 ):
     """Callback for models that output serialized (flattened) images."""
     import torch
+
     from ...trainers.callback import PyTorchCallback
 
     class TorchSerializedImageReconstructionCallback(PyTorchCallback):
-        def __init__(self, save_dir=save_dir, cmap=cmap, inp_size=inp_size, out_size=out_size):
+        def __init__(
+            self, save_dir=save_dir, cmap=cmap, inp_size=inp_size, out_size=out_size
+        ):
             super().__init__()
             self.dataset = dataset
             self.sample_batch = None
@@ -538,11 +641,11 @@ def make_torch_serialized_image_reconstruction_callback(
                 # reshape serialized input to image
                 if x.ndim == 2 and x.shape[1] == self.inp_H * self.inp_W:
                     x = x.view(-1, 1, self.inp_H, self.inp_W)
-                
+
                 # reshape serialized output to image
                 if y_pred.ndim == 2 and y_pred.shape[1] == self.out_H * self.out_W:
                     y_pred = y_pred.view(-1, 1, self.out_H, self.out_W)
-                
+
                 # reshape serialized label to image
                 if y_true.ndim == 1 and len(y_true) == self.out_H * self.out_W:
                     y_true = y_true.view(1, self.out_H, self.out_W)
@@ -561,4 +664,3 @@ def make_torch_serialized_image_reconstruction_callback(
                 print(f"TorchSerializedImageReconstructionCallback error: {e}")
 
     return TorchSerializedImageReconstructionCallback()
-
