@@ -325,7 +325,7 @@ def _visualize_image_reconstruction(
     import os
 
     if training_images is None:
-        fig, axs = plt.subplots(2, 3, figsize=(10, 6))
+        fig, axs = plt.subplots(2, 3, figsize=(9, 6))
         images = [img_in, img_pred, img_true, img_in, img_pred, img_true]
         titles = [
             "Input",
@@ -335,8 +335,9 @@ def _visualize_image_reconstruction(
             "Reconstructed (rescale)",
             "Ground Truth (rescale)",
         ]
+        fixed_range_indices = {0, 1, 2}
     else:
-        fig, axs = plt.subplots(3, 3, figsize=(10, 9))
+        fig, axs = plt.subplots(4, 3, figsize=(8, 12))
         train_in, train_pred, train_true = training_images
         images = [
             img_in,
@@ -345,6 +346,9 @@ def _visualize_image_reconstruction(
             img_in,
             img_pred,
             img_true,
+            train_in,
+            train_pred,
+            train_true,
             train_in,
             train_pred,
             train_true,
@@ -357,18 +361,35 @@ def _visualize_image_reconstruction(
             "Reconstructed (rescale)",
             "Ground Truth (rescale)",
             "Input_training",
-            "Reconstructed_training",
+            "Reconstructed",
             "Ground Truth_training",
+            "Input_training (rescale)",
+            "Reconstructed (rescale)",
+            "Ground Truth_training (rescale)",
         ]
+        fixed_range_indices = {0, 1, 2, 6, 7, 8}
 
     for i, ax in enumerate(axs.flat):
-        if i < 3:
+        if i in fixed_range_indices:
             ax.imshow(images[i], cmap=cmap, vmin=0, vmax=1)
         else:
             ax.imshow(images[i], cmap=cmap)
         ax.set_title(titles[i])
         ax.axis("off")
-    plt.tight_layout()
+
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    # Tight spacing between columns while leaving room on the right for row colorbars.
+    fig.subplots_adjust(left=0.03, right=0.95, wspace=0.0, hspace=0.24)
+
+    # Add one colorbar per row, positioned to the right of the row's last image.
+    nrows = axs.shape[0]
+    for r in range(nrows):
+        right_ax = axs[r, -1]
+        mappable = right_ax.images[0]
+        divider = make_axes_locatable(right_ax)
+        cax = divider.append_axes("right", size="3%", pad=0.1)
+        fig.colorbar(mappable, cax=cax)
 
     if save_dir is not None:
         abs_save_dir = os.path.abspath(save_dir)

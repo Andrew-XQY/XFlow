@@ -234,6 +234,14 @@ def _attach_pytorch_shape_hooks(
 
     cleanups = []
 
+    def root_pre_hook(module, inputs):
+        print_fn(
+            f"{'<input_sample>':30s} | {module.__class__.__name__:20s} | "
+            f"in={_shape(inputs)}"
+        )
+
+    cleanups.append(model.register_forward_pre_hook(root_pre_hook).remove)
+
     def make_hook(name):
         def hook(module, inputs, outputs):
             print_fn(
@@ -261,6 +269,19 @@ def _attach_tensorflow_shape_hooks(
         raise TypeError("Model does not expose layers; expected tf.keras.Model")
 
     cleanups = []
+
+    original_model_call = model.call
+
+    def wrapped_model_call(*args, __original_call=original_model_call, **kwargs):
+        model_inputs = args[0] if len(args) == 1 else args
+        print_fn(
+            f"{'<input_sample>':30s} | {model.__class__.__name__:20s} | "
+            f"in={_shape(model_inputs)}"
+        )
+        return __original_call(*args, **kwargs)
+
+    model.call = wrapped_model_call
+    cleanups.append(lambda m=model, c=original_model_call: setattr(m, "call", c))
 
     for layer in model.layers:
         if leaf_only and hasattr(layer, "layers") and len(layer.layers) > 0:
@@ -331,8 +352,22 @@ def build_model_report(
     run_forward: Callable[[], Any],
     leaf_only: bool = True,
 ) -> str:
-    lines: List[str] = [show_model_info(model), "", "-- Shape Trace --"]
-    with shape_trace(model, enabled=True, leaf_only=leaf_only, print_fn=lines.append):
+    trace_lines: List[str] = []
+    with shape_trace(
+        model, enabled=True, leaf_only=leaf_only, print_fn=trace_lines.append
+    ):
         out = run_forward()
+
+    input_sample_lines = [
+        line for line in trace_lines if line.lstrip().startswith("<input_sample>")
+    ]
+    non_input_lines = [
+        line for line in trace_lines if not line.lstrip().startswith("<input_sample>")
+    ]
+
+    lines: List[str] = [show_model_info(model), "", "-- Shape Trace --"]
+    if input_sample_lines:
+        lines.append(input_sample_lines[0])
+    lines.extend(non_input_lines)
     lines += ["", f"Final output shape: {_shape(out)}"]
     return "\n".join(lines) + "\n"
