@@ -36,6 +36,10 @@ class BasePipeline(ABC):
     Args:
         data_provider: DataProvider instance that yields raw data items.
         transforms: List of functions (Transform-wrapped or named) applied sequentially.
+        pre_transform_hook: Optional callable applied before transforms for each item.
+                            Signature: (item, item_id) -> item
+        post_transform_hook: Optional callable applied after transforms for each item.
+                             Signature: (item, item_id) -> item
         logger: Optional logger for debugging and error tracking.
         skip_errors: Whether to skip items that fail preprocessing vs. raise errors.
 
@@ -61,6 +65,8 @@ class BasePipeline(ABC):
         data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
+        pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+        post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         logger: Optional[logging.Logger] = None,
         skip_errors: bool = True,
     ) -> None:
@@ -77,16 +83,22 @@ class BasePipeline(ABC):
         self.skip_errors = skip_errors
         self.error_count = 0
         self.in_memory_sample_count: Optional[int] = None
+        self._pre_transform_hook = pre_transform_hook
+        self._post_transform_hook = post_transform_hook
 
     def __iter__(self) -> Iterator[Any]:
         """Iterate over preprocessed items."""
-        for raw_item in self.data_provider():
+        for idx, raw_item in enumerate(self.data_provider()):
             current_transform: Optional[Transform] = None
             try:
                 item = raw_item
+                if self._pre_transform_hook is not None:
+                    item = self._pre_transform_hook(item, idx)
                 for fn in self.transforms:
                     current_transform = fn
                     item = fn(item)
+                if self._post_transform_hook is not None:
+                    item = self._post_transform_hook(item, idx)
                 if item is not None:
                     yield item
                 else:
@@ -96,7 +108,9 @@ class BasePipeline(ABC):
                 self.error_count += 1
                 if current_transform is not None:
                     transform_name = getattr(
-                        current_transform, "name", getattr(current_transform, "__name__", repr(current_transform))
+                        current_transform,
+                        "name",
+                        getattr(current_transform, "__name__", repr(current_transform)),
                     )
                     self.logger.warning(
                         "Failed to preprocess item in transform '%s': %s",
@@ -187,11 +201,18 @@ class InMemoryPipeline(BasePipeline):
         data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
+        pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+        post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         logger: Optional[logging.Logger] = None,
         skip_errors: bool = True,
     ) -> None:
         super().__init__(
-            data_provider, transforms, logger=logger, skip_errors=skip_errors
+            data_provider,
+            transforms,
+            pre_transform_hook=pre_transform_hook,
+            post_transform_hook=post_transform_hook,
+            logger=logger,
+            skip_errors=skip_errors,
         )
 
         from .transform import apply_transforms_to_dataset
@@ -199,6 +220,8 @@ class InMemoryPipeline(BasePipeline):
         self.dataset, self.error_count = apply_transforms_to_dataset(
             self.data_provider(),
             self.transforms,
+            pre_transform_hook=self._pre_transform_hook,
+            post_transform_hook=self._post_transform_hook,
             logger=self.logger,
             skip_errors=self.skip_errors,
         )
@@ -352,7 +375,8 @@ class PyTorchPipeline(BasePipeline):
         try:
             import torch
             from IPython.display import clear_output
-            from torch.utils.data import Dataset as TorchDataset, TensorDataset
+            from torch.utils.data import Dataset as TorchDataset
+            from torch.utils.data import TensorDataset
             from tqdm.auto import tqdm
 
             from .transform import apply_dataset_operations_from_config
@@ -417,7 +441,9 @@ class PyTorchPipeline(BasePipeline):
                     tensors = []
                     for i in range(len(first_item)):
                         component_values = [item[i] for item in processed_data]
-                        if not all(isinstance(x, torch.Tensor) for x in component_values):
+                        if not all(
+                            isinstance(x, torch.Tensor) for x in component_values
+                        ):
                             raise TypeError("Non-tensor component detected")
                         tensors.append(torch.stack(component_values))
                     dataset = TensorDataset(*tensors)

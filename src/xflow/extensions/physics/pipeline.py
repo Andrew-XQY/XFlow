@@ -105,6 +105,10 @@ class CachedBasisPipeline(BasePipeline):
         data_provider: Yields (id, raw_item) tuples or just raw_items (auto-indexed).
         combinator: Combinator instance defining how to produce output samples.
         transforms: Applied to each raw item during caching.
+        pre_transform_hook: Optional callable applied to each item before transforms.
+                            Signature: (item, item_id) -> item
+        post_transform_hook: Optional callable applied to each item after transforms.
+                             Signature: (item, item_id) -> item
         seed: RNG seed.
         num_samples: Samples per epoch; default: len(basis).
         id_extractor: Optional function to extract ID from raw item.
@@ -118,6 +122,8 @@ class CachedBasisPipeline(BasePipeline):
         combinator: Combinator,
         *,
         transforms: Optional[List[Callable]] = None,
+        pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+        post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         seed: Optional[int] = None,
         num_samples: Optional[int] = None,
         id_extractor: Optional[Callable[[Any], Any]] = None,
@@ -129,6 +135,8 @@ class CachedBasisPipeline(BasePipeline):
         self.rng = np.random.default_rng(seed)
         self._num_samples = num_samples
         self._id_extractor = id_extractor
+        self._pre_transform_hook = pre_transform_hook
+        self._post_transform_hook = post_transform_hook
 
         # Cached state
         self._basis: Optional[List[Any]] = None
@@ -160,9 +168,17 @@ class CachedBasisPipeline(BasePipeline):
                 item = raw
 
             try:
+                # Optional pre-transform hook
+                if self._pre_transform_hook is not None:
+                    item = self._pre_transform_hook(item, item_id)
+
                 # Apply transforms
                 for fn in self.transforms:
                     item = fn(item)
+
+                # Optional post-transform hook
+                if self._post_transform_hook is not None:
+                    item = self._post_transform_hook(item, item_id)
 
                 if item is not None:
                     item = (

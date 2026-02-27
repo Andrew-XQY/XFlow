@@ -51,6 +51,8 @@ def _copy_pipeline_attributes(target: "BasePipeline", source: BasePipeline) -> N
     target.logger = source.logger
     target.skip_errors = source.skip_errors
     target.error_count = source.error_count
+    target._pre_transform_hook = source._pre_transform_hook
+    target._post_transform_hook = source._post_transform_hook
 
 
 @with_progress
@@ -58,6 +60,8 @@ def apply_transforms_to_dataset(
     data: Iterable[Any],
     transforms: List[Callable],
     *,
+    pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+    post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
     logger: Optional[logging.Logger] = None,
     skip_errors: bool = True,
 ) -> Tuple[List[Any], int]:
@@ -66,10 +70,14 @@ def apply_transforms_to_dataset(
     processed_items = []
     error_count = 0
 
-    for item in data:
+    for idx, item in enumerate(data):
         try:
+            if pre_transform_hook is not None:
+                item = pre_transform_hook(item, idx)
             for transform in transforms:
                 item = transform(item)
+            if post_transform_hook is not None:
+                item = post_transform_hook(item, idx)
             processed_items.append(item)
         except Exception as e:
             error_count += 1
@@ -939,6 +947,50 @@ def torch_clip_range(
         if not torch.is_tensor(tensor):
             tensor = torch.as_tensor(tensor)
         return torch.clamp(tensor, min=clip_min, max=clip_max)
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("torch_subtract_tensor")
+def torch_subtract_tensor(
+    tensor: TensorLike, subtract_tensor: TensorLike
+) -> TensorLike:
+    """Subtract another tensor element-wise and keep resulting values as-is."""
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        if not torch.is_tensor(subtract_tensor):
+            subtract_tensor = torch.as_tensor(
+                subtract_tensor, device=tensor.device, dtype=tensor.dtype
+            )
+        else:
+            subtract_tensor = subtract_tensor.to(
+                device=tensor.device, dtype=tensor.dtype
+            )
+
+        if tensor.shape != subtract_tensor.shape:
+            raise ValueError(
+                "Shape mismatch in torch_subtract_tensor: "
+                f"tensor shape {tuple(tensor.shape)} != "
+                f"subtract_tensor shape {tuple(subtract_tensor.shape)}"
+            )
+
+        return tensor - subtract_tensor
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("torch_clip_below_zero")
+def torch_clip_below_zero(tensor: TensorLike) -> TensorLike:
+    """Set all negative values to zero using PyTorch."""
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        return torch.clamp_min(tensor, 0)
     except ImportError:
         raise RuntimeError("Transform failed, please check the source code")
 
