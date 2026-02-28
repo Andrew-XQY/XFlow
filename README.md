@@ -1,7 +1,7 @@
 <div align="center">
   <a href="https://andrew-xqy.github.io/XFlow/">
-    <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/9feba3930f468ca95b35401232a6febd66f2432c/images/logo.png"
-         alt="XFlow Logo" width="128" height="128">
+    <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/main/images/logo.png"
+         alt="XFlow Logo" width="1212" height="469">
   </a>
 
   <p>
