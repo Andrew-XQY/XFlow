@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Union
 
+import numpy as np
+
 from ..utils.decorator import with_progress
 from .provider import DataProvider
 
@@ -65,6 +67,7 @@ class BasePipeline(ABC):
         data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
+        seed: Optional[int] = None,
         pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         logger: Optional[logging.Logger] = None,
@@ -83,6 +86,8 @@ class BasePipeline(ABC):
         self.skip_errors = skip_errors
         self.error_count = 0
         self.in_memory_sample_count: Optional[int] = None
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
         self._pre_transform_hook = pre_transform_hook
         self._post_transform_hook = post_transform_hook
 
@@ -201,6 +206,7 @@ class InMemoryPipeline(BasePipeline):
         data_provider: DataProvider,
         transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
         *,
+        seed: Optional[int] = None,
         pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
         logger: Optional[logging.Logger] = None,
@@ -209,6 +215,7 @@ class InMemoryPipeline(BasePipeline):
         super().__init__(
             data_provider,
             transforms,
+            seed=seed,
             pre_transform_hook=pre_transform_hook,
             post_transform_hook=post_transform_hook,
             logger=logger,

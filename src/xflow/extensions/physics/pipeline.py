@@ -130,9 +130,13 @@ class CachedBasisPipeline(BasePipeline):
         eager: bool = False,
         **base_kwargs,
     ):
-        super().__init__(data_provider, transforms=transforms, **base_kwargs)
+        super().__init__(
+            data_provider,
+            transforms=transforms,
+            seed=seed,
+            **base_kwargs,
+        )
         self.combinator = combinator
-        self.rng = np.random.default_rng(seed)
         self._num_samples = num_samples
         self._id_extractor = id_extractor
         self._pre_transform_hook = pre_transform_hook
