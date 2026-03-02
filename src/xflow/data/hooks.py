@@ -44,3 +44,21 @@ def compose_hooks(hooks: HookInput) -> Optional[HookFn]:
         return item
 
     return _composed
+
+
+def as_hook(transform_fn: Callable[[Any], Any]) -> HookFn:
+    """Adapt a standard transform ``(item) -> item`` to hook contract.
+
+    Args:
+        transform_fn: Callable that accepts only ``item`` and returns transformed item.
+
+    Returns:
+        Hook callable with signature ``(item, item_id) -> item``.
+    """
+    if not callable(transform_fn):
+        raise TypeError("transform_fn must be callable")
+
+    def _hook(item: Any, item_id: Any) -> Any:
+        return transform_fn(item)
+
+    return _hook

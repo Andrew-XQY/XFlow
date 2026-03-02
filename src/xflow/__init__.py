@@ -8,6 +8,7 @@ except Exception:
     __version__ = "0.0.0"
 
 from .data.core import compose, consume, flow, pipe
+from .data.hooks import as_hook, compose_hooks
 from .data.pipeline import (
     BasePipeline,
     DataPipeline,
@@ -43,8 +44,10 @@ __all__ = [
     "TorchGANTrainer",
     "TorchTrainer",
     "TransformRegistry",
+    "as_hook",
     "build_model_report",
     "compose",
+    "compose_hooks",
     "consume",
     "flow",
     "pipe",

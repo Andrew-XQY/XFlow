@@ -39,6 +39,8 @@ CORE_API = {
     "compose": APIItem("data.core", "compose"),
     "consume": APIItem("data.core", "consume"),
     "TransformRegistry": APIItem("data.transform", "TransformRegistry"),
+    "as_hook": APIItem("data.hooks", "as_hook"),
+    "compose_hooks": APIItem("data.hooks", "compose_hooks"),
     # Data source providers
     "SqlProvider": APIItem("data.provider", "SqlProvider"),
     "FileProvider": APIItem("data.provider", "FileProvider"),
@@ -72,6 +74,8 @@ PACKAGE_API = {
         "build_transforms_from_config": APIItem(
             "transform", "build_transforms_from_config"
         ),
+        "as_hook": APIItem("hooks", "as_hook"),
+        "compose_hooks": APIItem("hooks", "compose_hooks"),
         # Core transform primitives
         "pipe": APIItem("core", "pipe"),
         "flow": APIItem("core", "flow"),

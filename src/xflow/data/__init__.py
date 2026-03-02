@@ -3,6 +3,7 @@
 # This file is auto-generated. Do not edit manually.
 
 from .core import compose, flow, pipe
+from .hooks import as_hook, compose_hooks
 from .pipeline import (
     BasePipeline,
     DataPipeline,
@@ -26,8 +27,10 @@ __all__ = [
     "ShufflePipeline",
     "SqlProvider",
     "TensorFlowPipeline",
+    "as_hook",
     "build_transforms_from_config",
     "compose",
+    "compose_hooks",
     "flow",
     "pipe",
 ]
