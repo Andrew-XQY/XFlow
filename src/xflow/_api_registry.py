@@ -102,6 +102,7 @@ PACKAGE_API = {
         "get_base_dir": APIItem("helper", "get_base_dir"),
         "load_validated_config": APIItem("config", "load_validated_config"),
         "is_container": APIItem("helper", "is_container"),
+        "resolve_resource_dir": APIItem("io", "resolve_resource_dir"),
     },
 }
 

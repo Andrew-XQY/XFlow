@@ -1,6 +1,9 @@
 """Input/Output utilities for file operations."""
 
 import shutil
+import tarfile
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -188,3 +191,130 @@ def resolve_save_path(
         raise ValueError(
             "Cannot resolve path: no filename provided and auto_timestamp=False."
         )
+
+
+# Zip and tar management
+
+
+def resolve_resource_dir(target_dir: PathLikeStr) -> Path:
+    """Resolve a resource directory by using an archive fallback.
+
+    Behavior:
+    1. If ``target_dir`` exists and is a directory, return it.
+    2. If ``target_dir`` does not exist, look for same-name archives
+       (``.zip``, ``.tar``, ``.tar.gz``, ``.tgz``), extract, and return directory.
+    3. If neither directory nor same-name archive exists, raise ``FileNotFoundError``.
+
+    Args:
+        target_dir: Directory path to resolve
+
+    Returns:
+        Resolved directory path
+
+    Raises:
+        FileNotFoundError: If directory and supported archives are missing
+        ValueError: If archive contains unsafe paths or link/device entries
+    """
+    target = Path(target_dir).resolve()
+    if target.exists():
+        if target.is_dir():
+            return target
+        raise NotADirectoryError(f"Path exists but is not a directory: {target}")
+
+    archive = _find_same_name_archive(target)
+    if archive is None:
+        raise FileNotFoundError(
+            f"Resource not found: {target} (also tried .zip/.tar/.tar.gz/.tgz)"
+        )
+
+    target.mkdir(parents=True, exist_ok=True)
+    _extract_archive_to_dir_safely(archive, target)
+    return target
+
+
+def cleanup_resource_dir(target_dir: PathLikeStr) -> bool:
+    """Remove a resolved resource directory.
+
+    Args:
+        target_dir: Directory to remove
+
+    Returns:
+        True if removed, False if missing or not a directory
+    """
+    target = Path(target_dir).resolve()
+    if target.exists() and target.is_dir():
+        shutil.rmtree(target)
+        return True
+    return False
+
+
+def _find_same_name_archive(target_dir: Path) -> Optional[Path]:
+    candidates = [
+        target_dir.with_suffix(".zip"),
+        Path(str(target_dir) + ".tar"),
+        Path(str(target_dir) + ".tar.gz"),
+        Path(str(target_dir) + ".tgz"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def _extract_archive_to_dir_safely(archive: Path, out_dir: Path) -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_out = Path(temp_dir)
+
+        if archive.suffix == ".zip":
+            with zipfile.ZipFile(archive, "r") as zip_file:
+                _safe_extract_zip(zip_file, temp_out)
+        else:
+            with tarfile.open(archive, "r:*") as tar_file:
+                _safe_extract_tar(tar_file, temp_out)
+
+        normalized_source = _normalize_extracted_root(temp_out, out_dir.name)
+        _move_extracted_contents(normalized_source, out_dir)
+
+
+def _normalize_extracted_root(extracted_dir: Path, expected_root_name: str) -> Path:
+    children = list(extracted_dir.iterdir())
+    if (
+        len(children) == 1
+        and children[0].is_dir()
+        and children[0].name == expected_root_name
+    ):
+        return children[0]
+    return extracted_dir
+
+
+def _move_extracted_contents(source_dir: Path, destination_dir: Path) -> None:
+    for entry in source_dir.iterdir():
+        shutil.move(str(entry), str(destination_dir / entry.name))
+
+
+def _is_subpath(base_dir: Path, path: Path) -> bool:
+    base = base_dir.resolve()
+    target = path.resolve()
+    try:
+        target.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_extract_zip(zip_file: zipfile.ZipFile, out_dir: Path) -> None:
+    for member in zip_file.infolist():
+        member_path = (out_dir / member.filename).resolve()
+        if not _is_subpath(out_dir, member_path):
+            raise ValueError(f"Unsafe zip member path: {member.filename}")
+    zip_file.extractall(out_dir)
+
+
+def _safe_extract_tar(tar_file: tarfile.TarFile, out_dir: Path) -> None:
+    for member in tar_file.getmembers():
+        if member.issym() or member.islnk() or member.isdev():
+            raise ValueError(f"Unsafe tar member type: {member.name}")
+        member_path = (out_dir / member.name).resolve()
+        if not _is_subpath(out_dir, member_path):
+            raise ValueError(f"Unsafe tar member path: {member.name}")
+    tar_file.extractall(out_dir)
