@@ -349,11 +349,6 @@ def instantiate(
 
         if allow_extra_kwargs:
             filtered = {k: v for k, v in kwargs.items() if k in named_params}
-            warnings.warn(
-                f"{getattr(target, '__name__', target)}: dropping unexpected keys {sorted(unknown)}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
             return filtered
 
         raise TypeError(

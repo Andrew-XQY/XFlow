@@ -951,6 +951,19 @@ def torch_clip_range(
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("torch_scale")
+def torch_scale(tensor: TensorLike, scale_factor: float = 1.0) -> TensorLike:
+    """Multiply all tensor values by a scalar factor using PyTorch."""
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        return tensor * scale_factor
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
 @TransformRegistry.register("torch_subtract_tensor")
 def torch_subtract_tensor(
     tensor: TensorLike, subtract_tensor: TensorLike
