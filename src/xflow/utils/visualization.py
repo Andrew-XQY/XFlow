@@ -1,11 +1,122 @@
+import importlib
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
+
+try:
+    from PIL import Image
+except Exception:  # optional dependency
+    Image = None
 
 from .typing import ImageLike
+
+
+def _to_2d_feature_array(X: Any) -> np.ndarray:
+    """Validate and normalize embedding input to a 2D float numpy array."""
+    arr = np.asarray(X)
+    if arr.ndim != 2:
+        raise ValueError(
+            f"Expected X to be 2D (n_samples, n_features), got shape {arr.shape}."
+        )
+    if arr.shape[0] < 2:
+        raise ValueError("Expected at least 2 samples for visualization.")
+    return arr.astype(np.float64, copy=False)
+
+
+class DimReducer:
+    """
+    Minimal unified contract for dimensionality reduction visualization.
+
+    Contract:
+    - Input X is treated as ndarray-like with shape (n_samples, n_features)
+    - fit_transform(X) -> ndarray (n_samples, n_components)
+    - transform(X) is available only when supports_transform is True
+    """
+
+    def __init__(
+        self,
+        method: str = "pca",
+        n_components: int = 2,
+        random_state: int | None = 42,
+        **kwargs: Any,
+    ) -> None:
+        self.method = method.lower()
+        self.n_components = n_components
+        self.random_state = random_state
+        self.kwargs = kwargs
+        self.model = self._build_model()
+
+    def _build_model(self):
+        if self.method == "pca":
+            from sklearn.decomposition import PCA
+
+            return PCA(
+                n_components=self.n_components,
+                random_state=self.random_state,
+                **self.kwargs,
+            )
+        if self.method == "tsne":
+            from sklearn.manifold import TSNE
+
+            return TSNE(
+                n_components=self.n_components,
+                random_state=self.random_state,
+                **self.kwargs,
+            )
+        if self.method == "umap":
+            try:
+                umap = importlib.import_module("umap")
+            except Exception as exc:
+                raise ImportError(
+                    "UMAP is not installed. Install with `pip install umap-learn`."
+                ) from exc
+            return umap.UMAP(
+                n_components=self.n_components,
+                random_state=self.random_state,
+                **self.kwargs,
+            )
+        raise ValueError(f"Unknown method: {self.method}. Use one of: pca, tsne, umap.")
+
+    @property
+    def supports_transform(self) -> bool:
+        return self.method in {"pca", "umap"}
+
+    def fit_transform(self, X: Any) -> np.ndarray:
+        X_arr = _to_2d_feature_array(X)
+        return self.model.fit_transform(X_arr)
+
+    def transform(self, X: Any) -> np.ndarray:
+        if not self.supports_transform:
+            raise NotImplementedError(f"{self.method} does not support transform().")
+        X_arr = _to_2d_feature_array(X)
+        return self.model.transform(X_arr)
+
+
+def plot_embedding(
+    coords: Any,
+    labels: Any | None = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (6, 5),
+) -> None:
+    """Plot 2D embedding coordinates."""
+    arr = np.asarray(coords)
+    if arr.ndim != 2 or arr.shape[1] < 2:
+        raise ValueError(f"Expected coords shape (n_samples, >=2), got {arr.shape}.")
+
+    plt.figure(figsize=figsize)
+    if labels is None:
+        plt.scatter(arr[:, 0], arr[:, 1], s=12)
+    else:
+        plt.scatter(arr[:, 0], arr[:, 1], c=np.asarray(labels), s=12, cmap="tab10")
+        plt.colorbar()
+    plt.xlabel("Dim 1")
+    plt.ylabel("Dim 2")
+    if title:
+        plt.title(title)
+    plt.tight_layout()
+    plt.show()
 
 
 def to_numpy_image(img: ImageLike) -> np.ndarray:
@@ -13,13 +124,19 @@ def to_numpy_image(img: ImageLike) -> np.ndarray:
     Convert various image formats to a 2D/3D numpy array suitable for display.
     Works for CPU/GPU PyTorch tensors, TF eager tensors, PIL, and numpy arrays.
     """
-    import torch
+    torch_tensor_type = ()
+    try:
+        import torch
 
-    if isinstance(img, torch.Tensor):  # PyTorch tensor
+        torch_tensor_type = (torch.Tensor,)
+    except Exception:
+        pass
+
+    if torch_tensor_type and isinstance(img, torch_tensor_type):  # PyTorch tensor
         arr = img.detach().cpu().numpy()
     elif hasattr(img, "numpy"):  # TF tensor
         arr = img.numpy()
-    elif isinstance(img, Image.Image):  # PIL
+    elif Image is not None and isinstance(img, Image.Image):  # PIL
         arr = np.array(img)
     elif isinstance(img, np.ndarray):  # already numpy
         arr = img

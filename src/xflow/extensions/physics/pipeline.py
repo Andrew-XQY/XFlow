@@ -592,7 +592,7 @@ class IndexCombinator(Combinator):
         *,
         skip_zero: bool = True,
         eps: float = 0.0,
-        post_transforms: Optional[
+        transforms: Optional[
             List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
         ] = None,
     ):
@@ -605,13 +605,14 @@ class IndexCombinator(Combinator):
 
         self.skip_zero = skip_zero
         self.eps = eps
-        self.post_transforms = [
+
+        self.transforms = [
             (
                 fn
                 if isinstance(fn, Transform)
                 else Transform(fn, getattr(fn, "__name__", "unknown"))
             )
-            for fn in (post_transforms or [])
+            for fn in (transforms or [])
         ]
         self.last_coeff_map: Optional[np.ndarray] = None
 
@@ -669,13 +670,13 @@ class IndexCombinator(Combinator):
                 used_idx.append(int(i))
                 used_coef.append(c)
 
-        for fn in self.post_transforms:
+        for fn in self.transforms:
             out = fn(out)
 
         if is_multi:
             if not isinstance(out, (tuple, list)):
                 raise ValueError(
-                    "post_transforms must return tuple/list for multi-component samples"
+                    "transforms must return tuple/list for multi-component samples"
                 )
             out = tuple(np.asarray(component, dtype=np.float32) for component in out)
         else:
