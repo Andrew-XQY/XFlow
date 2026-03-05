@@ -3,6 +3,8 @@ import itertools
 import os
 import random
 import sys
+import warnings
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, MutableMapping, Optional, Sequence, Tuple
 
@@ -256,6 +258,7 @@ def deep_merge(*dicts: Dict[str, Any]) -> Dict[str, Any]:
 
 _CGROUP_HINTS = ("docker", "containerd", "kubepods", "libpod", "buildkit", "podman")
 
+
 def is_container() -> bool:
     # 0) explicit override wins
     flag = os.getenv("IN_CONTAINER")
@@ -264,17 +267,17 @@ def is_container() -> bool:
 
     # 1) systemd's official hint
     try:
-        if Path("/run/systemd/container").exists():         # readable by all
-            return True                                     # systemd sets this inside containers
+        if Path("/run/systemd/container").exists():  # readable by all
+            return True  # systemd sets this inside containers
         if os.geteuid() == 0:
             env1 = Path("/proc/1/environ").read_bytes()
-            if b"container=" in env1:                       # e.g., container=podman/docker/lxc
+            if b"container=" in env1:  # e.g., container=podman/docker/lxc
                 return True
     except Exception:
         pass
 
     # 2) Podman marker
-    if Path("/run/.containerenv").exists():                 # created by Podman/CRI-O
+    if Path("/run/.containerenv").exists():  # created by Podman/CRI-O
         return True
 
     # 3) Docker marker (may be absent under buildx/buildkit)
@@ -298,3 +301,101 @@ def is_container() -> bool:
         pass
 
     return False
+
+
+def instantiate(
+    target,
+    cfg=None,
+    *,
+    overrides=None,
+    allow_positional: bool = False,
+    allow_extra_kwargs: bool = False,
+):
+    """
+    Safe instantiation/call helper.
+
+    - If cfg is a Mapping: passes as **kwargs (strict by default).
+    - If cfg is a Sequence (not str/bytes): passes as *args (only if allow_positional=True).
+        - Raises on unknown keys and missing required args.
+        - If allow_extra_kwargs=True and target does not accept **kwargs,
+            extra keys are dropped before binding/calling.
+    """
+    cfg = {} if cfg is None else cfg
+    overrides = {} if overrides is None else overrides
+
+    sig = inspect.signature(target)
+
+    # Detect if target accepts **kwargs (e.g. nn.Module subclasses forwarding to super().__init__)
+    has_var_keyword = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+
+    # Only named parameters (exclude *args/**kwargs placeholders)
+    named_params = {
+        p.name
+        for p in sig.parameters.values()
+        if p.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
+
+    def _sanitize_kwargs(kwargs: dict) -> dict:
+        unknown = set(kwargs) - named_params
+
+        if not unknown:
+            return kwargs
+
+        if has_var_keyword:
+            return kwargs
+
+        if allow_extra_kwargs:
+            filtered = {k: v for k, v in kwargs.items() if k in named_params}
+            warnings.warn(
+                f"{getattr(target, '__name__', target)}: dropping unexpected keys {sorted(unknown)}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return filtered
+
+        raise TypeError(
+            f"{getattr(target, '__name__', target)}: unexpected keys {sorted(unknown)}; "
+            f"allowed keys {sorted(named_params)}"
+        )
+
+    # Mapping -> kwargs mode
+    if isinstance(cfg, Mapping):
+        kwargs = dict(cfg)
+        kwargs.update(overrides)
+
+        kwargs = _sanitize_kwargs(kwargs)
+
+        # Bind to force "missing required", "positional-only passed as keyword", etc.
+        sig.bind(**kwargs)
+
+        return target(**kwargs)
+
+    # Sequence -> positional mode (explicitly opt-in)
+    if isinstance(cfg, Sequence) and not isinstance(cfg, (str, bytes, bytearray)):
+        if not allow_positional:
+            raise TypeError(
+                "Positional config (list/tuple) is disabled. "
+                "Pass a dict, or set allow_positional=True."
+            )
+
+        args = list(cfg)
+        kwargs = dict(overrides)
+
+        kwargs = _sanitize_kwargs(kwargs)
+
+        warnings.warn(
+            "Using positional args from a Sequence. This is more fragile than dict-based kwargs.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+        sig.bind(*args, **kwargs)
+
+        return target(*args, **kwargs)
+
+    raise TypeError(
+        f"cfg must be a Mapping (dict-like) or a Sequence (list/tuple), got {type(cfg).__name__}"
+    )

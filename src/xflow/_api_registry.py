@@ -56,6 +56,7 @@ CORE_API = {
     "build_model_report": APIItem("models.utils", "build_model_report"),
     # Utilities
     "CallbackRegistry": APIItem("trainers.callback", "CallbackRegistry"),
+    "instantiate": APIItem("utils.helper", "instantiate"),
 }
 
 # Package-level API organization
@@ -103,6 +104,7 @@ PACKAGE_API = {
         "load_validated_config": APIItem("config", "load_validated_config"),
         "is_container": APIItem("helper", "is_container"),
         "resolve_resource_dir": APIItem("io", "resolve_resource_dir"),
+        "instantiate": APIItem("helper", "instantiate"),
     },
 }
 

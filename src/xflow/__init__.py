@@ -23,6 +23,7 @@ from .models.utils import build_model_report, shape_trace, show_model_info
 from .trainers.callback import CallbackRegistry
 from .trainers.trainer import BaseTrainer, TorchGANTrainer, TorchTrainer
 from .utils.config import ConfigManager
+from .utils.helper import instantiate
 
 Pipeline = BasePipeline
 
@@ -50,6 +51,7 @@ __all__ = [
     "compose_hooks",
     "consume",
     "flow",
+    "instantiate",
     "pipe",
     "shape_trace",
     "show_model_info",

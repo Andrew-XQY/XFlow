@@ -3,9 +3,9 @@
 from typing import Dict, Optional, Sequence, Tuple
 
 from ...data.transform import TransformRegistry
-from ...evaluation.metrics import get_centroid
 from ...utils.typing import TensorLike
 from .beam import extract_beam_parameters
+from .evaluation import get_centroid
 
 # Conditionally import TensorFlow version if available
 try:
