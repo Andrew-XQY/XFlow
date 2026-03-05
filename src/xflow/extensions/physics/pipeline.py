@@ -44,6 +44,29 @@ class CombinationRecord:
     coefficients: List[float]  # Coefficients applied
 
 
+@dataclass
+class RetryPolicy:
+    """Controls retry behavior when sample validation fails."""
+
+    max_retries: int = 8
+    on_exhausted: str = "skip"  # "skip" | "raise" | "yield_last"
+
+    def __post_init__(self):
+        valid = ("skip", "raise", "yield_last")
+        if self.on_exhausted not in valid:
+            raise ValueError(
+                f"on_exhausted must be one of {valid}, got {self.on_exhausted!r}"
+            )
+        if self.max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+
+
+# Validator signature: (sample, CombinationRecord | None) -> bool | (bool, reason)
+SampleValidator = Callable[
+    [Any, Optional["CombinationRecord"]], Union[bool, Tuple[bool, str]]
+]
+
+
 class BasisAccessor:
     """Interface for combinators to request basis items by index."""
 
@@ -114,6 +137,9 @@ class CachedBasisPipeline(BasePipeline):
         id_extractor: Optional function to extract ID from raw item.
                       If None and data_provider yields tuples, first element is ID.
         eager: If True, load basis immediately during __init__.
+        sample_validator: Optional quality gate for generated samples.
+                          Signature: (sample, CombinationRecord | None) -> bool | (bool, reason)
+        retry_policy: Retry behavior when validation fails (default: skip after 8 retries).
     """
 
     def __init__(
@@ -128,6 +154,8 @@ class CachedBasisPipeline(BasePipeline):
         num_samples: Optional[int] = None,
         id_extractor: Optional[Callable[[Any], Any]] = None,
         eager: bool = False,
+        sample_validator: Optional[SampleValidator] = None,
+        retry_policy: Optional[RetryPolicy] = None,
         **base_kwargs,
     ):
         super().__init__(
@@ -141,6 +169,12 @@ class CachedBasisPipeline(BasePipeline):
         self._id_extractor = id_extractor
         self._pre_transform_hook = pre_transform_hook
         self._post_transform_hook = post_transform_hook
+
+        # Quality control
+        self.sample_validator = sample_validator
+        self.retry_policy = retry_policy or RetryPolicy()
+        self.accepted_count: int = 0
+        self.rejected_count: int = 0
 
         # Cached state
         self._basis: Optional[List[Any]] = None
@@ -252,11 +286,73 @@ class CachedBasisPipeline(BasePipeline):
         self._load_basis()
         return self._num_samples or len(self._basis)
 
+    def _generate_one(self, accessor: BasisAccessor) -> Optional[Any]:
+        """Generate one sample, optionally validating and retrying.
+
+        Returns sample on success, or None if validation exhausted with 'skip' policy.
+        """
+        # Fast path: no validator
+        if self.sample_validator is None:
+            sample = self.combinator(accessor, self.rng)
+            self.accepted_count += 1
+            return sample
+
+        last_sample = None
+        for attempt in range(self.retry_policy.max_retries + 1):
+            sample = self.combinator(accessor, self.rng)
+            record = self.combinator.last_record
+
+            result = self.sample_validator(sample, record)
+            ok = result[0] if isinstance(result, tuple) else bool(result)
+
+            if ok:
+                self.accepted_count += 1
+                return sample
+
+            self.rejected_count += 1
+            last_sample = sample
+
+            if isinstance(result, tuple) and len(result) >= 2:
+                self.logger.debug(
+                    "Sample rejected (attempt %d): %s", attempt + 1, result[1]
+                )
+
+        # Retries exhausted
+        mode = self.retry_policy.on_exhausted
+        if mode == "yield_last":
+            self.accepted_count += 1
+            return last_sample
+        if mode == "skip":
+            return None
+        # mode == "raise"
+        raise RuntimeError(
+            f"Sample validation failed after {self.retry_policy.max_retries + 1} attempts."
+        )
+
     def __iter__(self) -> Iterator[Any]:
         self._load_basis()
         accessor = BasisAccessor(self._basis, self._ids)
-        for _ in range(len(self)):
-            yield self.combinator(accessor, self.rng)
+        yielded = 0
+        target = len(self)
+        attempts = 0
+        max_attempts = (
+            target
+            if self.sample_validator is None
+            else target * max(1, self.retry_policy.max_retries + 1)
+        )
+        while yielded < target:
+            if attempts >= max_attempts:
+                raise RuntimeError(
+                    "Validation exhausted while generating samples. "
+                    "Consider relaxing validator constraints, increasing max_retries, "
+                    "or changing on_exhausted policy."
+                )
+            attempts += 1
+            sample = self._generate_one(accessor)
+            if sample is None:
+                continue
+            yielded += 1
+            yield sample
 
     def to_framework_dataset(
         self,
@@ -282,9 +378,12 @@ class CachedBasisPipeline(BasePipeline):
                     return len(inner_self.pipeline)
 
                 def __getitem__(inner_self, idx):
-                    sample = inner_self.pipeline.combinator(
-                        inner_self.accessor, inner_self.pipeline.rng
-                    )
+                    sample = inner_self.pipeline._generate_one(inner_self.accessor)
+                    if sample is None:
+                        raise RuntimeError(
+                            "Validation exhausted with 'skip' policy in dataset __getitem__. "
+                            "Use 'yield_last'/'raise' or relax validator constraints."
+                        )
                     # Convert to tensors
                     if isinstance(sample, tuple):
                         return tuple(torch.from_numpy(s) for s in sample)

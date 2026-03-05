@@ -27,6 +27,7 @@ class DynamicPatterns:
 
         # Clip ceiling for the final canvas after summing distributions.
         self.max_pixel_value: float = 255.0
+        self.threshold: Optional[float] = None
         self.set_postprocess_fns(postprocess_fns)
 
     def __repr__(self) -> str:
@@ -102,8 +103,22 @@ class DynamicPatterns:
     def clear_canvas(self) -> None:
         self.canvas = np.zeros((self._height, self._width), dtype=float)
 
-    def thresholding(self, threshold: float = 5) -> None:
-        self.canvas[self.canvas < threshold] = 0.0
+    def set_threshold(self, threshold: Optional[float]) -> None:
+        if threshold is None:
+            self.threshold = None
+            return
+        try:
+            threshold = float(threshold)
+        except Exception as e:
+            raise ValueError(
+                f"threshold must be a number or None, got {threshold!r}"
+            ) from e
+        self.threshold = threshold
+
+    def thresholding(self) -> None:
+        if self.threshold is None:
+            return
+        self.canvas[self.canvas < self.threshold] = 0.0
 
     def is_blank(self) -> bool:
         return np.all(self.canvas == 0)
@@ -118,6 +133,7 @@ class DynamicPatterns:
         for dst in self._distributions:
             self.canvas += dst.pattern
         self.canvas = np.clip(self.canvas, 0.0, self.max_pixel_value)
+        self.thresholding()
 
     def update(self, *args, **kwargs) -> None:
         """
