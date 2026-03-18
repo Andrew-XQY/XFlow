@@ -1,6 +1,7 @@
 import importlib
+import warnings
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +24,362 @@ def _to_2d_feature_array(X: Any) -> np.ndarray:
     if arr.shape[0] < 2:
         raise ValueError("Expected at least 2 samples for visualization.")
     return arr.astype(np.float64, copy=False)
+
+
+def _resolve_point_colors(
+    n_samples: int,
+    labels: Any | None,
+    properties: Mapping[str, Any] | None,
+    color_by: str | None,
+) -> np.ndarray | None:
+    """Resolve point-wise color values from labels or named properties.
+
+    Contract: values are index-aligned with coords; value[i] maps to coords[i].
+    """
+    values = labels
+    if color_by is not None:
+        if properties is None:
+            raise ValueError("`properties` must be provided when `color_by` is set.")
+        if color_by not in properties:
+            raise ValueError(
+                f"Unknown property '{color_by}'. Available: {list(properties.keys())}."
+            )
+        values = properties[color_by]
+
+    if values is None:
+        return None
+
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(
+            f"Expected 1D point metadata for colors, got shape {arr.shape}."
+        )
+    if arr.shape[0] != n_samples:
+        raise ValueError(
+            f"Color metadata length mismatch: expected {n_samples}, got {arr.shape[0]}."
+        )
+    return arr
+
+
+def _resolve_point_groups(
+    n_samples: int,
+    labels: Any | None,
+    properties: Mapping[str, Any] | None,
+    group_by: str | None,
+) -> np.ndarray | None:
+    """Resolve point-wise grouping values used for envelope drawing.
+
+    Contract: values are index-aligned with coords; value[i] maps to coords[i].
+    """
+    values = labels
+    if group_by is not None:
+        if properties is None:
+            raise ValueError("`properties` must be provided when `group_by` is set.")
+        if group_by not in properties:
+            raise ValueError(
+                f"Unknown property '{group_by}'. Available: {list(properties.keys())}."
+            )
+        values = properties[group_by]
+
+    if values is None:
+        return None
+
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(
+            f"Expected 1D point metadata for groups, got shape {arr.shape}."
+        )
+    if arr.shape[0] != n_samples:
+        raise ValueError(
+            f"Group metadata length mismatch: expected {n_samples}, got {arr.shape[0]}."
+        )
+    return arr
+
+
+def _scatter_3d_with_color(
+    fig: Any,
+    ax: Any,
+    arr: np.ndarray,
+    color_values: np.ndarray | None,
+    cmap: str,
+    point_size: float,
+    legend_title: str | None,
+) -> None:
+    if color_values is None:
+        ax.scatter(arr[:, 0], arr[:, 1], arr[:, 2], s=point_size)
+        return
+
+    if np.issubdtype(color_values.dtype, np.number):
+        sc = ax.scatter(
+            arr[:, 0], arr[:, 1], arr[:, 2], c=color_values, s=point_size, cmap=cmap
+        )
+        fig.colorbar(sc, ax=ax)
+        return
+
+    categories = np.unique(color_values.astype(str))
+    cmap_obj = plt.get_cmap(cmap, len(categories))
+    for idx, category in enumerate(categories):
+        mask = color_values.astype(str) == category
+        ax.scatter(
+            arr[mask, 0],
+            arr[mask, 1],
+            arr[mask, 2],
+            s=point_size,
+            color=cmap_obj(idx),
+            label=category,
+        )
+    ax.legend(title=legend_title or "Category")
+
+
+def _draw_3d_group_envelopes(
+    ax: Any,
+    arr: np.ndarray,
+    group_values: np.ndarray,
+    cmap: str,
+    envelope_alpha: float,
+    envelope_linewidth: float,
+) -> None:
+    """Draw convex-hull surfaces for each group in 3D."""
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    from scipy.spatial import ConvexHull, QhullError
+
+    groups = group_values.astype(str)
+    categories = np.unique(groups)
+    cmap_obj = plt.get_cmap(cmap, len(categories))
+    for idx, category in enumerate(categories):
+        mask = groups == category
+        pts = arr[mask, :3]
+        if pts.shape[0] < 4:
+            continue
+        try:
+            hull = ConvexHull(pts)
+        except QhullError:
+            continue
+        faces = [pts[simplex] for simplex in hull.simplices]
+        poly = Poly3DCollection(
+            faces,
+            facecolor=cmap_obj(idx),
+            edgecolor=cmap_obj(idx),
+            linewidths=envelope_linewidth,
+            alpha=envelope_alpha,
+        )
+        ax.add_collection3d(poly)
+
+
+class Embedding3DPlot:
+    """Stateful Plotly-native 3D embedding plot object.
+
+    Contract:
+    - `coords` is 2D with shape (n_samples, >=3)
+    - Point metadata (`labels`, `properties[key]`) is index-aligned with `coords`
+    - `get_plot(...)` builds/returns a Plotly Figure for automation workflows
+    - `show(...)` is interactive display only (no backend switching)
+    - This object owns the cached Plotly figure until `close()`
+    """
+
+    def __init__(
+        self,
+        coords: Any,
+        labels: Any | None = None,
+        properties: Mapping[str, Any] | None = None,
+        color_by: str | None = None,
+        title: str | None = None,
+        figsize: tuple[float, float] = (7, 6),
+        cmap: str = "tab10",
+        point_size: float = 12,
+        legend_title: str | None = None,
+        envelope: bool = False,
+        envelope_by: str | None = None,
+        envelope_alpha: float = 0.12,
+        envelope_linewidth: float = 0.8,
+    ) -> None:
+        try:
+            import plotly.express as px
+        except Exception as exc:
+            raise ImportError(
+                "Embedding3DPlot requires Plotly. Install with `pip install plotly`."
+            ) from exc
+
+        self._px = px
+        self.arr = np.asarray(coords)
+        if self.arr.ndim != 2 or self.arr.shape[1] < 3:
+            raise ValueError(
+                f"Expected coords shape (n_samples, >=3), got {self.arr.shape}."
+            )
+
+        self.title = title
+        self.figsize = figsize
+        self.cmap = cmap
+        self.point_size = point_size
+        self.legend_title = legend_title
+        self.envelope = envelope
+        self.envelope_alpha = envelope_alpha
+        self.envelope_linewidth = envelope_linewidth
+
+        if self.envelope:
+            raise NotImplementedError(
+                "Plotly-native Embedding3DPlot does not implement `envelope` yet."
+            )
+
+        self.color_values = _resolve_point_colors(
+            n_samples=self.arr.shape[0],
+            labels=labels,
+            properties=properties,
+            color_by=color_by,
+        )
+        self.group_values = _resolve_point_groups(
+            n_samples=self.arr.shape[0],
+            labels=labels,
+            properties=properties,
+            group_by=envelope_by,
+        )
+
+        self._fig: Any | None = None
+
+    @staticmethod
+    def _camera_from_elev_azim(
+        elev: float, azim: float, radius: float = 1.8
+    ) -> dict[str, dict[str, float]]:
+        """Convert Matplotlib-style (elev, azim) to Plotly camera eye."""
+        elev_rad = np.deg2rad(elev)
+        azim_rad = np.deg2rad(azim)
+        return {
+            "eye": {
+                "x": float(radius * np.cos(elev_rad) * np.cos(azim_rad)),
+                "y": float(radius * np.cos(elev_rad) * np.sin(azim_rad)),
+                "z": float(radius * np.sin(elev_rad)),
+            }
+        }
+
+    def _build(self, rebuild: bool = False) -> Any:
+        if self._fig is not None and not rebuild:
+            return self._fig
+
+        px = self._px
+        x = self.arr[:, 0]
+        y = self.arr[:, 1]
+        z = self.arr[:, 2]
+
+        if self.color_values is None:
+            fig = px.scatter_3d(
+                x=x,
+                y=y,
+                z=z,
+                title=self.title,
+                labels={"x": "Dim 1", "y": "Dim 2", "z": "Dim 3"},
+            )
+        else:
+            if np.issubdtype(self.color_values.dtype, np.number):
+                fig = px.scatter_3d(
+                    x=x,
+                    y=y,
+                    z=z,
+                    color=self.color_values,
+                    title=self.title,
+                    labels={
+                        "x": "Dim 1",
+                        "y": "Dim 2",
+                        "z": "Dim 3",
+                        "color": self.legend_title or "Value",
+                    },
+                )
+            else:
+                fig = px.scatter_3d(
+                    x=x,
+                    y=y,
+                    z=z,
+                    color=self.color_values.astype(str),
+                    title=self.title,
+                    labels={
+                        "x": "Dim 1",
+                        "y": "Dim 2",
+                        "z": "Dim 3",
+                        "color": self.legend_title or "Category",
+                    },
+                )
+
+        fig.update_traces(marker={"size": self.point_size})
+        fig.update_layout(
+            width=int(self.figsize[0] * 100),
+            height=int(self.figsize[1] * 100),
+            scene={
+                "xaxis_title": "Dim 1",
+                "yaxis_title": "Dim 2",
+                "zaxis_title": "Dim 3",
+            },
+        )
+        if self.legend_title:
+            fig.update_layout(legend_title_text=self.legend_title)
+
+        self._fig = fig
+        return fig
+
+    def get_plot(
+        self,
+        elev: float | None = None,
+        azim: float | None = None,
+        rebuild: bool = False,
+    ) -> Any:
+        """Build/update and return a Plotly Figure for automation workflows."""
+        fig = self._build(rebuild=rebuild)
+        if elev is not None or azim is not None:
+            camera = self._camera_from_elev_azim(
+                elev=25.0 if elev is None else elev,
+                azim=35.0 if azim is None else azim,
+            )
+            fig.update_layout(scene_camera=camera)
+        return fig
+
+    def show(
+        self,
+        elev: float | None = None,
+        azim: float | None = None,
+        rebuild: bool = False,
+        renderer: str | None = None,
+    ) -> Any:
+        """Display the interactive Plotly figure and return it.
+
+        Contract:
+        - This is interactive display only
+        - Use `get_plot(...)` for automation-only usage without UI side effects
+        """
+        fig = self.get_plot(elev=elev, azim=azim, rebuild=rebuild)
+        fig.show(renderer=renderer)
+        return fig
+
+    def export_html(
+        self,
+        path: str,
+        elev: float | None = None,
+        azim: float | None = None,
+        rebuild: bool = False,
+        include_plotlyjs: str | bool = "cdn",
+    ) -> None:
+        """Export an interactive HTML artifact for automation/reporting."""
+        fig = self.get_plot(elev=elev, azim=azim, rebuild=rebuild)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(path, include_plotlyjs=include_plotlyjs)
+
+    def export_rotation_gif(
+        self,
+        path: str,
+        elev: float = 25.0,
+        azim_start: float = 0.0,
+        azim_end: float = 360.0,
+        n_frames: int = 120,
+        fps: int = 24,
+        dpi: int = 120,
+        rebuild: bool = True,
+    ) -> None:
+        """Not supported in Plotly-native mode; use `export_html` instead."""
+        raise NotImplementedError(
+            "Plotly-native Embedding3DPlot does not support GIF export. "
+            "Use `export_html(...)` for interactive export."
+        )
+
+    def close(self) -> None:
+        """Release cached figure reference."""
+        self._fig = None
 
 
 class DimReducer:
@@ -92,31 +449,6 @@ class DimReducer:
             raise NotImplementedError(f"{self.method} does not support transform().")
         X_arr = _to_2d_feature_array(X)
         return self.model.transform(X_arr)
-
-
-def plot_embedding(
-    coords: Any,
-    labels: Any | None = None,
-    title: str | None = None,
-    figsize: tuple[float, float] = (6, 5),
-) -> None:
-    """Plot 2D embedding coordinates."""
-    arr = np.asarray(coords)
-    if arr.ndim != 2 or arr.shape[1] < 2:
-        raise ValueError(f"Expected coords shape (n_samples, >=2), got {arr.shape}.")
-
-    plt.figure(figsize=figsize)
-    if labels is None:
-        plt.scatter(arr[:, 0], arr[:, 1], s=12)
-    else:
-        plt.scatter(arr[:, 0], arr[:, 1], c=np.asarray(labels), s=12, cmap="tab10")
-        plt.colorbar()
-    plt.xlabel("Dim 1")
-    plt.ylabel("Dim 2")
-    if title:
-        plt.title(title)
-    plt.tight_layout()
-    plt.show()
 
 
 def to_numpy_image(img: ImageLike) -> np.ndarray:

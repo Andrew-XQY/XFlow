@@ -51,6 +51,7 @@ ml_torch = [
 viz = [
     "matplotlib",
     "opencv-python",
+    "plotly"
 ]
 dev = [
     "mypy",
