@@ -956,7 +956,7 @@ class DimReducer:
             )
 
     def _build_model(self):
-        if self.method == "pca":
+        if self.method == "pca" or self.method == "PCA":
             from sklearn.decomposition import PCA
 
             return PCA(
@@ -964,7 +964,7 @@ class DimReducer:
                 random_state=self.random_state,
                 **self.kwargs,
             )
-        if self.method == "tsne":
+        if self.method == "tsne" or self.method == "TSNE":
             from sklearn.manifold import TSNE
 
             return TSNE(
@@ -972,7 +972,7 @@ class DimReducer:
                 random_state=self.random_state,
                 **self.kwargs,
             )
-        if self.method == "umap":
+        if self.method == "umap" or self.method == "UMAP":
             try:
                 umap = importlib.import_module("umap")
             except Exception as exc:
