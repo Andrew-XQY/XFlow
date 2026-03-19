@@ -13,6 +13,53 @@ except Exception:  # optional dependency
 
 from .typing import ImageLike
 
+PLOTLY_DEFAULT_COLORWAY = (
+    "#636EFA",
+    "#EF553B",
+    "#00CC96",
+    "#AB63FA",
+    "#FFA15A",
+    "#19D3F3",
+    "#FF6692",
+    "#B6E880",
+    "#FF97FF",
+    "#FECB52",
+)
+
+
+def _distinct_spectrum_colors(n_colors: int) -> list[str]:
+    """Build a distinct qualitative palette for categorical points."""
+    if n_colors <= 0:
+        return []
+
+    colors = list(
+        PLOTLY_DEFAULT_COLORWAY[: min(n_colors, len(PLOTLY_DEFAULT_COLORWAY))]
+    )
+    if len(colors) >= n_colors:
+        return colors
+
+    # Fill remaining colors by alternating spectrum extremes toward center.
+    import matplotlib.colors as mcolors
+
+    n_extra = n_colors - len(colors)
+    cmap = plt.get_cmap("turbo")
+    positions = np.linspace(0.0, 1.0, n_extra, endpoint=True)
+
+    left = 0
+    right = n_extra - 1
+    ordered_indices: list[int] = []
+    while left <= right:
+        ordered_indices.append(left)
+        left += 1
+        if left <= right:
+            ordered_indices.append(right)
+            right -= 1
+
+    for idx in ordered_indices:
+        colors.append(mcolors.to_hex(cmap(float(positions[idx]))))
+
+    return colors
+
 
 def _to_2d_feature_array(X: Any) -> np.ndarray:
     """Validate and normalize embedding input to a 2D float numpy array."""
@@ -32,9 +79,20 @@ def _resolve_point_colors(
     properties: Mapping[str, Any] | None,
     color_by: str | None,
 ) -> np.ndarray | None:
-    """Resolve point-wise color values from labels or named properties.
+    """Resolve per-point color values.
 
-    Contract: values are index-aligned with coords; value[i] maps to coords[i].
+    Semantics:
+    - labels: default per-point metadata vector used when color_by is not set
+    - properties: dict of named per-point metadata vectors
+    - color_by: key in properties that overrides labels for coloring
+
+    Precedence:
+    - if color_by is provided -> use properties[color_by]
+    - otherwise -> use labels
+
+    Contract:
+    - resolved vector is 1D and index-aligned with coords
+    - resolved[i] maps to coords[i]
     """
     values = labels
     if color_by is not None:
@@ -67,9 +125,16 @@ def _resolve_point_groups(
     properties: Mapping[str, Any] | None,
     group_by: str | None,
 ) -> np.ndarray | None:
-    """Resolve point-wise grouping values used for envelope drawing.
+    """Resolve per-point grouping values (for envelope grouping).
 
-    Contract: values are index-aligned with coords; value[i] maps to coords[i].
+    Semantics mirror _resolve_point_colors:
+    - labels: default per-point metadata vector
+    - properties: dict of named per-point metadata vectors
+    - group_by: key in properties that overrides labels for grouping
+
+    Contract:
+    - resolved vector is 1D and index-aligned with coords
+    - resolved[i] maps to coords[i]
     """
     values = labels
     if group_by is not None:
@@ -104,6 +169,7 @@ def _scatter_3d_with_color(
     cmap: str,
     point_size: float,
     legend_title: str | None,
+    legend_loc: str,
 ) -> None:
     if color_values is None:
         ax.scatter(arr[:, 0], arr[:, 1], arr[:, 2], s=point_size)
@@ -117,7 +183,7 @@ def _scatter_3d_with_color(
         return
 
     categories = np.unique(color_values.astype(str))
-    cmap_obj = plt.get_cmap(cmap, len(categories))
+    palette = _distinct_spectrum_colors(len(categories))
     for idx, category in enumerate(categories):
         mask = color_values.astype(str) == category
         ax.scatter(
@@ -125,10 +191,10 @@ def _scatter_3d_with_color(
             arr[mask, 1],
             arr[mask, 2],
             s=point_size,
-            color=cmap_obj(idx),
+            color=palette[idx],
             label=category,
         )
-    ax.legend(title=legend_title or "Category")
+    ax.legend(title=legend_title or "Category", loc=legend_loc)
 
 
 def _draw_3d_group_envelopes(
@@ -166,13 +232,30 @@ def _draw_3d_group_envelopes(
         ax.add_collection3d(poly)
 
 
+def _projection_walls(arr: np.ndarray, gap_ratio: float) -> tuple[float, float, float]:
+    """Compute x/y/z wall positions used for projection overlays."""
+    mins = arr[:, :3].min(axis=0)
+    maxs = arr[:, :3].max(axis=0)
+    spans = np.maximum(maxs - mins, 1e-12)
+    wall_x = float(mins[0] - gap_ratio * spans[0])
+    wall_y = float(mins[1] - gap_ratio * spans[1])
+    wall_z = float(mins[2] - gap_ratio * spans[2])
+    return wall_x, wall_y, wall_z
+
+
 class Embedding3DPlot:
     """Stateful Plotly-native 3D embedding plot object.
 
     Contract:
     - `coords` is 2D with shape (n_samples, >=3)
     - Point metadata (`labels`, `properties[key]`) is index-aligned with `coords`
+    - `labels` is the default metadata vector for color/group
+    - `properties` holds multiple named metadata vectors
+    - `color_by`/`envelope_by` select a key in `properties` and override `labels`
     - `get_plot(...)` builds/returns a Plotly Figure for automation workflows
+    - `get_plot_with_projections(...)` overlays wall projections on the Plotly Figure
+    - `get_matplotlib_plot(...)` builds/returns a Matplotlib Figure/Axes snapshot
+    - `get_matplotlib_frame(...)` returns one RGB frame in memory for a camera angle
     - `show(...)` is interactive display only (no backend switching)
     - This object owns the cached Plotly figure until `close()`
     """
@@ -188,10 +271,17 @@ class Embedding3DPlot:
         cmap: str = "tab10",
         point_size: float = 12,
         legend_title: str | None = None,
+        legend_loc: str = "upper right",
         envelope: bool = False,
         envelope_by: str | None = None,
         envelope_alpha: float = 0.12,
         envelope_linewidth: float = 0.8,
+        show_projections: bool = False,
+        projection_alpha: float = 0.35,
+        projection_size_scale: float = 0.65,
+        projection_gap_ratio: float = 0.06,
+        projection_envelope: bool = False,
+        projection_envelope_alpha: float = 0.18,
     ) -> None:
         try:
             import plotly.express as px
@@ -212,9 +302,16 @@ class Embedding3DPlot:
         self.cmap = cmap
         self.point_size = point_size
         self.legend_title = legend_title
+        self.legend_loc = legend_loc
         self.envelope = envelope
         self.envelope_alpha = envelope_alpha
         self.envelope_linewidth = envelope_linewidth
+        self.show_projections = show_projections
+        self.projection_alpha = projection_alpha
+        self.projection_size_scale = projection_size_scale
+        self.projection_gap_ratio = projection_gap_ratio
+        self.projection_envelope = projection_envelope
+        self.projection_envelope_alpha = projection_envelope_alpha
 
         if self.envelope:
             raise NotImplementedError(
@@ -330,6 +427,246 @@ class Embedding3DPlot:
             fig.update_layout(scene_camera=camera)
         return fig
 
+    @staticmethod
+    def _rgba_from_hex(hex_color: str, alpha: float) -> str:
+        color = hex_color.lstrip("#")
+        if len(color) != 6:
+            return f"rgba(120,120,120,{alpha})"
+        r = int(color[0:2], 16)
+        g = int(color[2:4], 16)
+        b = int(color[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+
+    def get_plot_with_projections(
+        self,
+        elev: float | None = None,
+        azim: float | None = None,
+        rebuild: bool = False,
+        show_projections: bool | None = None,
+        projection_alpha: float | None = None,
+        projection_size_scale: float | None = None,
+        projection_gap_ratio: float | None = None,
+        projection_envelope: bool | None = None,
+        projection_envelope_alpha: float | None = None,
+    ) -> Any:
+        """Return Plotly Figure with added wall projections for each PCA axis.
+
+        Projections are added onto three walls:
+        - X wall: x = min(x) - gap
+        - Y wall: y = min(y) - gap
+        - Z wall: z = min(z) - gap
+
+        Colors are copied from the original sample traces.
+        """
+        try:
+            import plotly.graph_objects as go
+        except Exception as exc:
+            raise ImportError(
+                "Embedding3DPlot projection overlay requires Plotly graph_objects."
+            ) from exc
+
+        fig = self.get_plot(elev=elev, azim=azim, rebuild=rebuild)
+
+        projection_alpha = (
+            self.projection_alpha if projection_alpha is None else projection_alpha
+        )
+        show_projections = (
+            self.show_projections if show_projections is None else show_projections
+        )
+        projection_size_scale = (
+            self.projection_size_scale
+            if projection_size_scale is None
+            else projection_size_scale
+        )
+        projection_gap_ratio = (
+            self.projection_gap_ratio
+            if projection_gap_ratio is None
+            else projection_gap_ratio
+        )
+        projection_envelope = (
+            self.projection_envelope
+            if projection_envelope is None
+            else projection_envelope
+        )
+        projection_envelope_alpha = (
+            self.projection_envelope_alpha
+            if projection_envelope_alpha is None
+            else projection_envelope_alpha
+        )
+
+        # Remove previously-added projection overlays so repeated calls are idempotent.
+        base_traces = [
+            trace
+            for trace in fig.data
+            if getattr(trace, "legendgroup", None) != "__xflow_projection__"
+        ]
+        fig.data = tuple(base_traces)
+
+        wall_x, wall_y, wall_z = _projection_walls(self.arr, projection_gap_ratio)
+
+        if show_projections:
+            for trace in base_traces:
+                x = np.asarray(trace.x, dtype=np.float64)
+                y = np.asarray(trace.y, dtype=np.float64)
+                z = np.asarray(trace.z, dtype=np.float64)
+                if x.ndim != 1 or y.ndim != 1 or z.ndim != 1:
+                    continue
+
+                marker = {}
+                if getattr(trace, "marker", None) is not None:
+                    marker = trace.marker.to_plotly_json()
+
+                size = marker.get("size", self.point_size)
+                if np.isscalar(size):
+                    marker["size"] = float(size) * projection_size_scale
+                else:
+                    marker["size"] = (
+                        np.asarray(size, dtype=np.float64) * projection_size_scale
+                    ).tolist()
+                marker["opacity"] = projection_alpha
+                marker["showscale"] = False
+
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=np.full_like(x, wall_x),
+                        y=y,
+                        z=z,
+                        mode="markers",
+                        marker=marker,
+                        name=f"{getattr(trace, 'name', '')} (x-wall)",
+                        showlegend=False,
+                        legendgroup="__xflow_projection__",
+                        hoverinfo="skip",
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=x,
+                        y=np.full_like(y, wall_y),
+                        z=z,
+                        mode="markers",
+                        marker=marker,
+                        name=f"{getattr(trace, 'name', '')} (y-wall)",
+                        showlegend=False,
+                        legendgroup="__xflow_projection__",
+                        hoverinfo="skip",
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter3d(
+                        x=x,
+                        y=y,
+                        z=np.full_like(z, wall_z),
+                        mode="markers",
+                        marker=marker,
+                        name=f"{getattr(trace, 'name', '')} (z-wall)",
+                        showlegend=False,
+                        legendgroup="__xflow_projection__",
+                        hoverinfo="skip",
+                    )
+                )
+
+        if projection_envelope:
+            try:
+                from scipy.spatial import ConvexHull, QhullError
+            except Exception:
+                warnings.warn(
+                    "Projection envelope requires scipy; skipping envelope overlay.",
+                    stacklevel=2,
+                )
+                return fig
+
+            groups = (
+                self.group_values.astype(str)
+                if self.group_values is not None
+                else np.array(["all"] * self.arr.shape[0], dtype=str)
+            )
+
+            color_map: dict[str, str] = {}
+            for trace in base_traces:
+                name = getattr(trace, "name", None)
+                if name is None:
+                    continue
+                marker = getattr(trace, "marker", None)
+                color = getattr(marker, "color", None)
+                if isinstance(color, str):
+                    color_map[str(name)] = color
+
+            unique_groups = np.unique(groups)
+            fallback_colors = _distinct_spectrum_colors(len(unique_groups))
+            for idx, group in enumerate(unique_groups):
+                mask = groups == group
+                pts = self.arr[mask, :3]
+                if pts.shape[0] < 3:
+                    continue
+
+                base_color = color_map.get(str(group), fallback_colors[idx])
+                face_color = (
+                    self._rgba_from_hex(base_color, projection_envelope_alpha)
+                    if isinstance(base_color, str) and base_color.startswith("#")
+                    else base_color
+                )
+
+                walls = (
+                    (np.column_stack([pts[:, 1], pts[:, 2]]), "x", wall_x),
+                    (np.column_stack([pts[:, 0], pts[:, 2]]), "y", wall_y),
+                    (np.column_stack([pts[:, 0], pts[:, 1]]), "z", wall_z),
+                )
+                for pts2d, wall_axis, wall_val in walls:
+                    uniq = np.unique(pts2d, axis=0)
+                    if uniq.shape[0] < 3:
+                        continue
+                    try:
+                        hull = ConvexHull(uniq)
+                    except QhullError:
+                        continue
+                    hull_pts = uniq[hull.vertices]
+                    if hull_pts.shape[0] < 3:
+                        continue
+
+                    if wall_axis == "x":
+                        xs = np.full(hull_pts.shape[0], wall_val)
+                        ys = hull_pts[:, 0]
+                        zs = hull_pts[:, 1]
+                    elif wall_axis == "y":
+                        xs = hull_pts[:, 0]
+                        ys = np.full(hull_pts.shape[0], wall_val)
+                        zs = hull_pts[:, 1]
+                    else:
+                        xs = hull_pts[:, 0]
+                        ys = hull_pts[:, 1]
+                        zs = np.full(hull_pts.shape[0], wall_val)
+
+                    i = [0] * (hull_pts.shape[0] - 2)
+                    j = list(range(1, hull_pts.shape[0] - 1))
+                    k = list(range(2, hull_pts.shape[0]))
+                    fig.add_trace(
+                        go.Mesh3d(
+                            x=xs,
+                            y=ys,
+                            z=zs,
+                            i=i,
+                            j=j,
+                            k=k,
+                            color=face_color,
+                            opacity=projection_envelope_alpha,
+                            showscale=False,
+                            showlegend=False,
+                            name=f"{group} ({wall_axis}-wall envelope)",
+                            legendgroup="__xflow_projection__",
+                            hoverinfo="skip",
+                        )
+                    )
+
+        fig.update_layout(
+            scene={
+                "xaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
+                "yaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
+                "zaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
+            }
+        )
+        return fig
+
     def show(
         self,
         elev: float | None = None,
@@ -360,22 +697,231 @@ class Embedding3DPlot:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(path, include_plotlyjs=include_plotlyjs)
 
-    def export_rotation_gif(
+    def get_matplotlib_plot(
         self,
-        path: str,
         elev: float = 25.0,
-        azim_start: float = 0.0,
-        azim_end: float = 360.0,
-        n_frames: int = 120,
-        fps: int = 24,
-        dpi: int = 120,
-        rebuild: bool = True,
-    ) -> None:
-        """Not supported in Plotly-native mode; use `export_html` instead."""
-        raise NotImplementedError(
-            "Plotly-native Embedding3DPlot does not support GIF export. "
-            "Use `export_html(...)` for interactive export."
+        azim: float = 35.0,
+        show_projections: bool | None = None,
+        projection_alpha: float | None = None,
+        projection_size_scale: float | None = None,
+        projection_gap_ratio: float | None = None,
+        projection_envelope: bool | None = None,
+        projection_envelope_alpha: float | None = None,
+    ) -> tuple[Any, Any]:
+        """Build and return a Matplotlib (fig, ax) snapshot at a camera angle."""
+        import matplotlib.colors as mcolors
+
+        fig = plt.figure(figsize=self.figsize)
+        ax = fig.add_subplot(111, projection="3d")
+
+        show_projections = (
+            self.show_projections if show_projections is None else show_projections
         )
+        projection_alpha = (
+            self.projection_alpha if projection_alpha is None else projection_alpha
+        )
+        projection_size_scale = (
+            self.projection_size_scale
+            if projection_size_scale is None
+            else projection_size_scale
+        )
+        projection_gap_ratio = (
+            self.projection_gap_ratio
+            if projection_gap_ratio is None
+            else projection_gap_ratio
+        )
+        projection_envelope = (
+            self.projection_envelope
+            if projection_envelope is None
+            else projection_envelope
+        )
+        projection_envelope_alpha = (
+            self.projection_envelope_alpha
+            if projection_envelope_alpha is None
+            else projection_envelope_alpha
+        )
+
+        _scatter_3d_with_color(
+            fig=fig,
+            ax=ax,
+            arr=self.arr,
+            color_values=self.color_values,
+            cmap=self.cmap,
+            point_size=self.point_size,
+            legend_title=self.legend_title,
+            legend_loc=self.legend_loc,
+        )
+
+        mins = self.arr[:, :3].min(axis=0)
+        maxs = self.arr[:, :3].max(axis=0)
+        center = (mins + maxs) / 2.0
+        radius = float((maxs - mins).max() / 2.0 + 1e-12)
+        ax.set_xlim(center[0] - radius, center[0] + radius)
+        ax.set_ylim(center[1] - radius, center[1] + radius)
+        ax.set_zlim(center[2] - radius, center[2] + radius)
+
+        # Anchor projection/shading planes to axis panes to avoid mplot3d depth artifacts.
+        xlim = ax.get_xlim3d()
+        ylim = ax.get_ylim3d()
+        zlim = ax.get_zlim3d()
+        eps_x = max((xlim[1] - xlim[0]) * 1e-4, 1e-12)
+        eps_y = max((ylim[1] - ylim[0]) * 1e-4, 1e-12)
+        eps_z = max((zlim[1] - zlim[0]) * 1e-4, 1e-12)
+        wall_x = float(xlim[0] + eps_x)
+        wall_y = float(ylim[0] + eps_y)
+        wall_z = float(zlim[0] + eps_z)
+
+        x = self.arr[:, 0]
+        y = self.arr[:, 1]
+        z = self.arr[:, 2]
+
+        if show_projections:
+            proj_size = float(self.point_size) * projection_size_scale
+
+            if self.color_values is None:
+                proj_kwargs = {"c": "C0", "alpha": projection_alpha}
+            elif np.issubdtype(self.color_values.dtype, np.number):
+                proj_kwargs = {
+                    "c": self.color_values,
+                    "cmap": self.cmap,
+                    "alpha": projection_alpha,
+                }
+            else:
+                categories = np.unique(self.color_values.astype(str))
+                palette = _distinct_spectrum_colors(len(categories))
+                cat_to_color = {cat: palette[i] for i, cat in enumerate(categories)}
+                per_point_colors = np.array(
+                    [cat_to_color[c] for c in self.color_values.astype(str)],
+                    dtype=object,
+                )
+                proj_kwargs = {"c": per_point_colors, "alpha": projection_alpha}
+
+            ax.scatter(np.full_like(x, wall_x), y, z, s=proj_size, **proj_kwargs)
+            ax.scatter(x, np.full_like(y, wall_y), z, s=proj_size, **proj_kwargs)
+            ax.scatter(x, y, np.full_like(z, wall_z), s=proj_size, **proj_kwargs)
+
+        if projection_envelope:
+            try:
+                from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+                from scipy.spatial import ConvexHull, QhullError
+            except Exception:
+                warnings.warn(
+                    "Projection envelope requires scipy; skipping envelope overlay.",
+                    stacklevel=2,
+                )
+            else:
+                groups = (
+                    self.group_values.astype(str)
+                    if self.group_values is not None
+                    else np.array(["all"] * self.arr.shape[0], dtype=str)
+                )
+                unique_groups = np.unique(groups)
+                fallback_colors = _distinct_spectrum_colors(len(unique_groups))
+
+                group_to_color: dict[str, str] = {}
+                if self.color_values is not None and not np.issubdtype(
+                    self.color_values.dtype, np.number
+                ):
+                    categories = np.unique(self.color_values.astype(str))
+                    palette = _distinct_spectrum_colors(len(categories))
+                    cat_to_color = {cat: palette[i] for i, cat in enumerate(categories)}
+                    for group in unique_groups:
+                        if group in cat_to_color:
+                            group_to_color[str(group)] = cat_to_color[group]
+
+                for idx, group in enumerate(unique_groups):
+                    mask = groups == group
+                    pts = self.arr[mask, :3]
+                    if pts.shape[0] < 3:
+                        continue
+
+                    base_color = group_to_color.get(str(group), fallback_colors[idx])
+                    face_rgba = mcolors.to_rgba(
+                        base_color, alpha=projection_envelope_alpha
+                    )
+
+                    walls = (
+                        (np.column_stack([pts[:, 1], pts[:, 2]]), "x", wall_x),
+                        (np.column_stack([pts[:, 0], pts[:, 2]]), "y", wall_y),
+                        (np.column_stack([pts[:, 0], pts[:, 1]]), "z", wall_z),
+                    )
+                    for pts2d, wall_axis, wall_val in walls:
+                        uniq = np.unique(pts2d, axis=0)
+                        if uniq.shape[0] < 3:
+                            continue
+                        try:
+                            hull = ConvexHull(uniq)
+                        except QhullError:
+                            continue
+                        poly2d = uniq[hull.vertices]
+                        if poly2d.shape[0] < 3:
+                            continue
+
+                        if wall_axis == "x":
+                            poly3d = [
+                                (float(wall_val), float(v0), float(v1))
+                                for v0, v1 in poly2d
+                            ]
+                        elif wall_axis == "y":
+                            poly3d = [
+                                (float(v0), float(wall_val), float(v1))
+                                for v0, v1 in poly2d
+                            ]
+                        else:
+                            poly3d = [
+                                (float(v0), float(v1), float(wall_val))
+                                for v0, v1 in poly2d
+                            ]
+
+                        ax.add_collection3d(
+                            Poly3DCollection(
+                                [poly3d],
+                                facecolor=face_rgba,
+                                edgecolor=face_rgba,
+                                linewidths=self.envelope_linewidth,
+                                alpha=projection_envelope_alpha,
+                                zsort="min",
+                            )
+                        )
+
+        ax.set_xlabel("Dim 1")
+        ax.set_ylabel("Dim 2")
+        ax.set_zlabel("Dim 3")
+        if self.title:
+            ax.set_title(self.title)
+
+        ax.view_init(elev=elev, azim=azim)
+        fig.tight_layout()
+        return fig, ax
+
+    def get_matplotlib_frame(
+        self,
+        elev: float = 25.0,
+        azim: float = 35.0,
+        dpi: int = 120,
+        show_projections: bool | None = None,
+        projection_alpha: float | None = None,
+        projection_size_scale: float | None = None,
+        projection_gap_ratio: float | None = None,
+        projection_envelope: bool | None = None,
+        projection_envelope_alpha: float | None = None,
+    ) -> np.ndarray:
+        """Return one RGB frame in memory for the requested camera angle."""
+        fig, _ = self.get_matplotlib_plot(
+            elev=elev,
+            azim=azim,
+            show_projections=show_projections,
+            projection_alpha=projection_alpha,
+            projection_size_scale=projection_size_scale,
+            projection_gap_ratio=projection_gap_ratio,
+            projection_envelope=projection_envelope,
+            projection_envelope_alpha=projection_envelope_alpha,
+        )
+        fig.set_dpi(dpi)
+        fig.canvas.draw()
+        frame = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
+        plt.close(fig)
+        return frame
 
     def close(self) -> None:
         """Release cached figure reference."""
@@ -384,12 +930,15 @@ class Embedding3DPlot:
 
 class DimReducer:
     """
-    Minimal unified contract for dimensionality reduction visualization.
+    Minimal unified API for dimensionality reduction.
 
     Contract:
-    - Input X is treated as ndarray-like with shape (n_samples, n_features)
-    - fit_transform(X) -> ndarray (n_samples, n_components)
-    - transform(X) is available only when supports_transform is True
+    - Input `X` is ndarray-like with shape (n_samples, n_features)
+    - Output is ndarray with shape (n_samples, n_components)
+    - You may use a built-in method (`pca`, `tsne`, `umap`) or inject a custom model
+    - Custom model must provide either:
+      1) `fit_transform(X)`; or
+      2) both `fit(X)` and `transform(X)`
     """
 
     def __init__(
@@ -397,13 +946,20 @@ class DimReducer:
         method: str = "pca",
         n_components: int = 2,
         random_state: int | None = 42,
+        model: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        self.method = method.lower()
+        self.method = "custom" if model is not None else method.lower()
         self.n_components = n_components
         self.random_state = random_state
         self.kwargs = kwargs
-        self.model = self._build_model()
+        self.model = model if model is not None else self._build_model()
+
+        if model is not None and kwargs:
+            raise ValueError(
+                "`kwargs` are only used for built-in methods. "
+                "For custom models, configure the model before injecting it."
+            )
 
     def _build_model(self):
         if self.method == "pca":
@@ -438,17 +994,50 @@ class DimReducer:
 
     @property
     def supports_transform(self) -> bool:
-        return self.method in {"pca", "umap"}
+        return callable(getattr(self.model, "transform", None))
+
+    def _validate_output(self, Z: Any, n_samples: int) -> np.ndarray:
+        arr = np.asarray(Z)
+        if arr.ndim != 2:
+            raise ValueError(
+                f"Reducer output must be 2D (n_samples, n_components), got shape {arr.shape}."
+            )
+        if arr.shape[0] != n_samples:
+            raise ValueError(
+                f"Reducer output sample mismatch: expected {n_samples}, got {arr.shape[0]}."
+            )
+        if arr.shape[1] != self.n_components:
+            raise ValueError(
+                "Reducer output component mismatch: "
+                f"expected {self.n_components}, got {arr.shape[1]}."
+            )
+        return arr.astype(np.float64, copy=False)
 
     def fit_transform(self, X: Any) -> np.ndarray:
         X_arr = _to_2d_feature_array(X)
-        return self.model.fit_transform(X_arr)
+        fit_transform = getattr(self.model, "fit_transform", None)
+        if callable(fit_transform):
+            return self._validate_output(fit_transform(X_arr), n_samples=X_arr.shape[0])
+
+        fit = getattr(self.model, "fit", None)
+        transform = getattr(self.model, "transform", None)
+        if callable(fit) and callable(transform):
+            fit(X_arr)
+            return self._validate_output(transform(X_arr), n_samples=X_arr.shape[0])
+
+        raise TypeError(
+            "Reducer model must implement either `fit_transform(X)` or both `fit(X)` "
+            "and `transform(X)`."
+        )
 
     def transform(self, X: Any) -> np.ndarray:
         if not self.supports_transform:
             raise NotImplementedError(f"{self.method} does not support transform().")
         X_arr = _to_2d_feature_array(X)
-        return self.model.transform(X_arr)
+        return self._validate_output(
+            self.model.transform(X_arr),
+            n_samples=X_arr.shape[0],
+        )
 
 
 def to_numpy_image(img: ImageLike) -> np.ndarray:

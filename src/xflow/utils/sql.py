@@ -467,8 +467,10 @@ def union_sqlite_db_tables(
 
 
 def merge_sqlite_dbs(
-    db_paths: List[str], output_path: str, source_column: Optional[str] = None
-) -> str:
+    db_paths: List[str],
+    output_path: Optional[str] = None,
+    source_column: Optional[str] = None,
+) -> Union[str, sqlite3.Connection]:
     """
     Merge multiple SQLite databases with identical structure into one.
 
@@ -477,11 +479,13 @@ def merge_sqlite_dbs(
 
     Args:
         db_paths: List of paths to .db files.
-        output_path: Path for the merged .db file.
+        output_path: Path for the merged .db file. If None, use in-memory database.
         source_column: If provided, adds a column with the source filename.
 
     Returns:
-        Path to the merged database.
+        If output_path is provided, returns path to the merged database.
+        If output_path is None, returns an open sqlite3.Connection to an in-memory
+        merged database.
     """
     if not db_paths:
         raise ValueError("No database paths provided")
@@ -494,9 +498,12 @@ def merge_sqlite_dbs(
     table_names = [row[0] for row in cursor.fetchall()]
     conn.close()
 
-    # Merge each table
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    out_conn = sqlite3.connect(output_path)
+    # Merge each table into file-backed or in-memory database
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        out_conn = sqlite3.connect(output_path)
+    else:
+        out_conn = sqlite3.connect(":memory:")
 
     for table in table_names:
         dfs = []
@@ -511,8 +518,11 @@ def merge_sqlite_dbs(
         merged_df = pd.concat(dfs, ignore_index=True)
         merged_df.to_sql(table, out_conn, index=False, if_exists="replace")
 
-    out_conn.close()
-    return output_path
+    if output_path:
+        out_conn.close()
+        return output_path
+
+    return out_conn
 
 
 def add_composite_key(
