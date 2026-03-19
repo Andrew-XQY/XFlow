@@ -168,7 +168,6 @@ def _scatter_3d_with_color(
     color_values: np.ndarray | None,
     cmap: str,
     point_size: float,
-    legend_title: str | None,
     legend_loc: str,
 ) -> None:
     if color_values is None:
@@ -194,7 +193,7 @@ def _scatter_3d_with_color(
             color=palette[idx],
             label=category,
         )
-    ax.legend(title=legend_title or "Category", loc=legend_loc)
+    ax.legend(loc=legend_loc)
 
 
 def _draw_3d_group_envelopes(
@@ -270,7 +269,6 @@ class Embedding3DPlot:
         figsize: tuple[float, float] = (7, 6),
         cmap: str = "tab10",
         point_size: float = 12,
-        legend_title: str | None = None,
         legend_loc: str = "upper right",
         envelope: bool = False,
         envelope_by: str | None = None,
@@ -301,7 +299,6 @@ class Embedding3DPlot:
         self.figsize = figsize
         self.cmap = cmap
         self.point_size = point_size
-        self.legend_title = legend_title
         self.legend_loc = legend_loc
         self.envelope = envelope
         self.envelope_alpha = envelope_alpha
@@ -377,7 +374,6 @@ class Embedding3DPlot:
                         "x": "Dim 1",
                         "y": "Dim 2",
                         "z": "Dim 3",
-                        "color": self.legend_title or "Value",
                     },
                 )
             else:
@@ -391,7 +387,6 @@ class Embedding3DPlot:
                         "x": "Dim 1",
                         "y": "Dim 2",
                         "z": "Dim 3",
-                        "color": self.legend_title or "Category",
                     },
                 )
 
@@ -399,14 +394,14 @@ class Embedding3DPlot:
         fig.update_layout(
             width=int(self.figsize[0] * 100),
             height=int(self.figsize[1] * 100),
+            legend_title_text="",
             scene={
                 "xaxis_title": "Dim 1",
                 "yaxis_title": "Dim 2",
                 "zaxis_title": "Dim 3",
             },
         )
-        if self.legend_title:
-            fig.update_layout(legend_title_text=self.legend_title)
+        fig.update_coloraxes(colorbar_title_text="")
 
         self._fig = fig
         return fig
@@ -748,7 +743,6 @@ class Embedding3DPlot:
             color_values=self.color_values,
             cmap=self.cmap,
             point_size=self.point_size,
-            legend_title=self.legend_title,
             legend_loc=self.legend_loc,
         )
 
