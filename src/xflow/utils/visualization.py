@@ -1,4 +1,5 @@
 import importlib
+import re
 import warnings
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -943,7 +944,7 @@ class DimReducer:
         model: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        self.method = "custom" if model is not None else method.lower()
+        self.method = "custom" if model is not None else self._normalize_method(method)
         self.n_components = n_components
         self.random_state = random_state
         self.kwargs = kwargs
@@ -955,8 +956,13 @@ class DimReducer:
                 "For custom models, configure the model before injecting it."
             )
 
+    @staticmethod
+    def _normalize_method(method: str) -> str:
+        """Normalize reducer names like 't-SNE' -> 'tsne'."""
+        return re.sub(r"[^a-z0-9]+", "", str(method).lower())
+
     def _build_model(self):
-        if self.method == "pca" or self.method == "PCA":
+        if self.method == "pca":
             from sklearn.decomposition import PCA
 
             return PCA(
@@ -964,7 +970,7 @@ class DimReducer:
                 random_state=self.random_state,
                 **self.kwargs,
             )
-        if self.method == "tsne" or self.method == "TSNE":
+        if self.method == "tsne":
             from sklearn.manifold import TSNE
 
             return TSNE(
@@ -972,7 +978,7 @@ class DimReducer:
                 random_state=self.random_state,
                 **self.kwargs,
             )
-        if self.method == "umap" or self.method == "UMAP":
+        if self.method == "umap":
             try:
                 umap = importlib.import_module("umap")
             except Exception as exc:
