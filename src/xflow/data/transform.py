@@ -346,6 +346,103 @@ def join_image(images: Iterable[ImageLike], layout: Tuple[int, int]) -> ImageLik
     return mosaic
 
 
+@TransformRegistry.register("torch_sum_ratio")
+def torch_sum_ratio(
+    images: Iterable[TensorLike],
+    eps: float = 0.0,
+    return_input: bool = False,
+) -> Any:
+    """Compute sum(first_image) / sum(second_image) from exactly two inputs.
+
+    If return_input=True, returns (first_image, second_image, ratio).
+    """
+    try:
+        import torch
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+    img_list = list(images)
+    if len(img_list) != 2:
+        raise ValueError(
+            f"torch_sum_ratio expects exactly 2 images, got {len(img_list)}"
+        )
+
+    # Core idea: convert both inputs to tensors and compare global signal sums.
+    first = torch.as_tensor(img_list[0], dtype=torch.float64)
+    second = torch.as_tensor(img_list[1], dtype=torch.float64, device=first.device)
+    denom = second.sum()
+    if denom.item() == 0.0:
+        if eps <= 0.0:
+            raise ZeroDivisionError("sum(second_image) is zero in torch_sum_ratio")
+        denom = denom + float(eps)
+
+    ratio = float((first.sum() / denom).item())
+    if return_input:
+        # Keep input order unchanged and append ratio at the end.
+        return (img_list[0], img_list[1], ratio)
+    return ratio
+
+
+@TransformRegistry.register("torch_image_stats")
+def torch_image_stats(
+    tensor: TensorLike,
+    metrics: Sequence[Any] = ("mean", "std", "min", "max", "sum"),
+    metric_fns: Optional[Dict[str, Callable[[Any], Any]]] = None,
+    return_input: bool = False,
+    detach: bool = True,
+) -> Any:
+    """Extract configurable statistics from a tensor.
+
+    If return_input=True, returns (tensor, stats_dict).
+    """
+    try:
+        import torch
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+    # Core idea: normalize input once, then compute selected metrics dynamically.
+    x = tensor.detach() if (detach and hasattr(tensor, "detach")) else tensor
+    x = torch.as_tensor(x)
+
+    x_stats = x if (torch.is_floating_point(x) or torch.is_complex(x)) else x.float()
+
+    builtin_metrics: Dict[str, Callable[[Any], Any]] = {
+        "mean": lambda t: x_stats.mean().item(),
+        "std": lambda t: (x_stats.std().item() if x_stats.numel() > 1 else 0.0),
+        "min": lambda t: t.min().item(),
+        "max": lambda t: t.max().item(),
+        "sum": lambda t: x_stats.sum().item(),
+        "numel": lambda t: int(t.numel()),
+    }
+
+    # Extension hook: callers can inject/override metric implementations by name.
+    resolved_metrics = dict(builtin_metrics)
+    if metric_fns:
+        resolved_metrics.update(metric_fns)
+
+    stats: Dict[str, Any] = {}
+    for metric in metrics:
+        if callable(metric):
+            name = getattr(metric, "__name__", "custom_metric")
+            value = metric(x)
+        else:
+            if metric not in resolved_metrics:
+                raise ValueError(
+                    f"Unknown metric '{metric}'. Available: {list(resolved_metrics.keys())}"
+                )
+            name = str(metric)
+            value = resolved_metrics[name](x)
+
+        if hasattr(value, "item"):
+            value = value.item()
+        stats[name] = value
+
+    # Pass-through mode keeps pipeline data flow unchanged while exposing stats.
+    if return_input:
+        return (tensor, stats)
+    return stats
+
+
 # TensorFlow transforms
 @TransformRegistry.register("tf_read_file")
 def tf_read_file(file_path: str) -> TensorLike:
