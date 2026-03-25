@@ -386,7 +386,7 @@ def torch_sum_ratio(
 @TransformRegistry.register("torch_image_stats")
 def torch_image_stats(
     tensor: TensorLike,
-    metrics: Sequence[Any] = ("mean", "std", "min", "max", "sum"),
+    metrics: Sequence[Any] = ("max", "min", "mean", "sum"),
     metric_fns: Optional[Dict[str, Callable[[Any], Any]]] = None,
     return_input: bool = False,
     detach: bool = True,
