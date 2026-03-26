@@ -1082,6 +1082,7 @@ def plot_image(
     vmin: float = None,
     vmax: float = None,
     colorbar: bool = True,
+    scale: str = "linear",
 ) -> None:
     """
     Plot an image using matplotlib.
@@ -1094,13 +1095,35 @@ def plot_image(
         vmin: Minimum pixel value for color scaling (auto if None)
         vmax: Maximum pixel value for color scaling (auto if None)
         colorbar: Whether to show the colorbar (default True)
+        scale: Display scale, either "linear" (default) or "log"
     """
     arr = to_numpy_image(img)
     if cmap is None:
         cmap = "gray" if arr.ndim == 2 else None
+    scale = str(scale).strip().lower()
+    if scale not in {"linear", "log"}:
+        raise ValueError("`scale` must be either 'linear' or 'log'.")
+
     if figsize:
         plt.figure(figsize=figsize)
-    plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
+    if scale == "linear":
+        plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
+    else:
+        from matplotlib.colors import LogNorm
+
+        arr_float = np.asarray(arr, dtype=np.float64)
+        positive_vals = arr_float[arr_float > 0]
+        if positive_vals.size == 0:
+            raise ValueError("Log scale requires at least one positive pixel value.")
+
+        log_vmin = float(vmin) if vmin is not None else float(np.min(positive_vals))
+        log_vmax = float(vmax) if vmax is not None else float(np.max(arr_float))
+        if log_vmin <= 0:
+            raise ValueError("Log scale requires `vmin` to be > 0.")
+        if log_vmax <= log_vmin:
+            raise ValueError("For log scale, `vmax` must be greater than `vmin`.")
+
+        plt.imshow(arr_float, cmap=cmap, norm=LogNorm(vmin=log_vmin, vmax=log_vmax))
     plt.xlabel("X (pixel index)")
     plt.ylabel("Y (pixel index)")
     if colorbar:
@@ -1202,3 +1225,28 @@ def stack_linear_clip(images: Iterable[ImageLike], max_val: int = 255) -> np.nda
         raise ValueError("Empty images iterable.")
 
     return np.clip(stack, 0, max_val).astype(np.uint8)
+
+
+def stack_mip(images: Iterable[ImageLike]) -> np.ndarray:
+    """
+    Pixel-wise maximum over all images.
+    Assumes all images are same shape and already usable.
+    """
+    try:
+        from tqdm import tqdm
+
+        it = tqdm(images)
+    except Exception:
+        it = images
+
+    mip = None
+    for img in it:
+        arr = to_numpy_image(img).astype(np.float64, copy=False)
+        if mip is None:
+            mip = arr.copy()
+        else:
+            np.maximum(mip, arr, out=mip)
+
+    if mip is None:
+        raise ValueError("Empty images iterable.")
+    return mip
