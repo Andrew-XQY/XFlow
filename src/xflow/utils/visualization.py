@@ -78,17 +78,18 @@ def _resolve_point_colors(
     n_samples: int,
     labels: Any | None,
     properties: Mapping[str, Any] | None,
-    color_by: str | None,
+    color_by: Any | None,
 ) -> np.ndarray | None:
     """Resolve per-point color values.
 
     Semantics:
     - labels: default per-point metadata vector used when color_by is not set
     - properties: dict of named per-point metadata vectors
-    - color_by: key in properties that overrides labels for coloring
+    - color_by: either a key in properties or a direct per-point metadata vector
 
     Precedence:
-    - if color_by is provided -> use properties[color_by]
+    - if color_by is a str and exists in properties -> use properties[color_by]
+    - otherwise if color_by is provided -> use color_by directly
     - otherwise -> use labels
 
     Contract:
@@ -97,13 +98,13 @@ def _resolve_point_colors(
     """
     values = labels
     if color_by is not None:
-        if properties is None:
-            raise ValueError("`properties` must be provided when `color_by` is set.")
-        if color_by not in properties:
-            raise ValueError(
-                f"Unknown property '{color_by}'. Available: {list(properties.keys())}."
-            )
-        values = properties[color_by]
+        if isinstance(color_by, str):
+            if properties is not None and color_by in properties:
+                values = properties[color_by]
+            else:
+                values = color_by
+        else:
+            values = color_by
 
     if values is None:
         return None
@@ -949,6 +950,7 @@ class DimReducer:
         self.random_state = random_state
         self.kwargs = kwargs
         self.model = model if model is not None else self._build_model()
+        self._fitted_model: Any | None = None
 
         if model is not None and kwargs:
             raise ValueError(
@@ -971,9 +973,13 @@ class DimReducer:
                 **self.kwargs,
             )
         if self.method == "tsne":
-            from sklearn.manifold import TSNE
-
-            return TSNE(
+            try:
+                open_tsne = importlib.import_module("openTSNE")
+            except Exception as exc:
+                raise ImportError(
+                    "openTSNE is not installed. Install with `pip install openTSNE`."
+                ) from exc
+            return open_tsne.TSNE(
                 n_components=self.n_components,
                 random_state=self.random_state,
                 **self.kwargs,
@@ -994,7 +1000,8 @@ class DimReducer:
 
     @property
     def supports_transform(self) -> bool:
-        return callable(getattr(self.model, "transform", None))
+        target = self._fitted_model if self._fitted_model is not None else self.model
+        return callable(getattr(target, "transform", None))
 
     def _validate_output(self, Z: Any, n_samples: int) -> np.ndarray:
         arr = np.asarray(Z)
@@ -1015,14 +1022,26 @@ class DimReducer:
 
     def fit_transform(self, X: Any) -> np.ndarray:
         X_arr = _to_2d_feature_array(X)
+
+        # openTSNE returns a TSNEEmbedding from `fit`, which carries `transform`.
+        if self.method == "tsne":
+            fit = getattr(self.model, "fit", None)
+            if callable(fit):
+                embedding = fit(X_arr)
+                self._fitted_model = embedding
+                return self._validate_output(embedding, n_samples=X_arr.shape[0])
+
         fit_transform = getattr(self.model, "fit_transform", None)
         if callable(fit_transform):
-            return self._validate_output(fit_transform(X_arr), n_samples=X_arr.shape[0])
+            out = fit_transform(X_arr)
+            self._fitted_model = self.model
+            return self._validate_output(out, n_samples=X_arr.shape[0])
 
         fit = getattr(self.model, "fit", None)
         transform = getattr(self.model, "transform", None)
         if callable(fit) and callable(transform):
             fit(X_arr)
+            self._fitted_model = self.model
             return self._validate_output(transform(X_arr), n_samples=X_arr.shape[0])
 
         raise TypeError(
@@ -1031,11 +1050,12 @@ class DimReducer:
         )
 
     def transform(self, X: Any) -> np.ndarray:
-        if not self.supports_transform:
+        target = self._fitted_model if self._fitted_model is not None else self.model
+        if not callable(getattr(target, "transform", None)):
             raise NotImplementedError(f"{self.method} does not support transform().")
         X_arr = _to_2d_feature_array(X)
         return self._validate_output(
-            self.model.transform(X_arr),
+            target.transform(X_arr),
             n_samples=X_arr.shape[0],
         )
 
