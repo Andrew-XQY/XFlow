@@ -2,7 +2,7 @@ import importlib
 import re
 import warnings
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -74,128 +74,132 @@ def _to_2d_feature_array(X: Any) -> np.ndarray:
     return arr.astype(np.float64, copy=False)
 
 
-def _resolve_point_colors(
+def _resolve_point_vector(
     n_samples: int,
-    labels: Any | None,
-    properties: Mapping[str, Any] | None,
-    color_by: Any | None,
+    values: Any | None,
+    name: str,
 ) -> np.ndarray | None:
-    """Resolve per-point color values.
-
-    Semantics:
-    - labels: default per-point metadata vector used when color_by is not set
-    - properties: dict of named per-point metadata vectors
-    - color_by: either a key in properties or a direct per-point metadata vector
-
-    Precedence:
-    - if color_by is a str and exists in properties -> use properties[color_by]
-    - otherwise if color_by is provided -> use color_by directly
-    - otherwise -> use labels
-
-    Contract:
-    - resolved vector is 1D and index-aligned with coords
-    - resolved[i] maps to coords[i]
-    """
-    values = labels
-    if color_by is not None:
-        if isinstance(color_by, str):
-            if properties is not None and color_by in properties:
-                values = properties[color_by]
-            else:
-                values = color_by
-        else:
-            values = color_by
-
+    """Validate a per-point metadata vector aligned to sample order."""
     if values is None:
         return None
 
     arr = np.asarray(values)
     if arr.ndim != 1:
-        raise ValueError(
-            f"Expected 1D point metadata for colors, got shape {arr.shape}."
-        )
+        raise ValueError(f"Expected 1D `{name}` metadata, got shape {arr.shape}.")
     if arr.shape[0] != n_samples:
         raise ValueError(
-            f"Color metadata length mismatch: expected {n_samples}, got {arr.shape[0]}."
+            f"`{name}` length mismatch: expected {n_samples}, got {arr.shape[0]}."
         )
     return arr
 
 
-def _resolve_point_groups(
-    n_samples: int,
-    labels: Any | None,
-    properties: Mapping[str, Any] | None,
-    group_by: str | None,
-) -> np.ndarray | None:
-    """Resolve per-point grouping values (for envelope grouping).
+def _ordered_unique_strings(values: np.ndarray) -> list[str]:
+    """Return first-seen unique string values, preserving input order."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values.astype(str):
+        if value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
 
-    Semantics mirror _resolve_point_colors:
-    - labels: default per-point metadata vector
-    - properties: dict of named per-point metadata vectors
-    - group_by: key in properties that overrides labels for grouping
 
-    Contract:
-    - resolved vector is 1D and index-aligned with coords
-    - resolved[i] maps to coords[i]
-    """
-    values = labels
-    if group_by is not None:
-        if properties is None:
-            raise ValueError("`properties` must be provided when `group_by` is set.")
-        if group_by not in properties:
-            raise ValueError(
-                f"Unknown property '{group_by}'. Available: {list(properties.keys())}."
-            )
-        values = properties[group_by]
+def _is_color_like(value: Any) -> bool:
+    """Return True if the value can be interpreted as a color spec."""
+    import matplotlib.colors as mcolors
 
-    if values is None:
-        return None
+    try:
+        mcolors.to_rgba(value)
+        return True
+    except Exception:
+        return False
 
-    arr = np.asarray(values)
-    if arr.ndim != 1:
-        raise ValueError(
-            f"Expected 1D point metadata for groups, got shape {arr.shape}."
-        )
-    if arr.shape[0] != n_samples:
-        raise ValueError(
-            f"Group metadata length mismatch: expected {n_samples}, got {arr.shape[0]}."
-        )
-    return arr
+
+def _resolve_marker_colors(color_values: np.ndarray) -> np.ndarray:
+    """Resolve per-point marker colors from numeric, color-like, or categorical input."""
+    if np.issubdtype(color_values.dtype, np.number):
+        return color_values.astype(np.float64, copy=False)
+
+    as_str = color_values.astype(str)
+    if all(_is_color_like(v) for v in as_str):
+        return as_str.astype(object, copy=False)
+
+    categories = _ordered_unique_strings(as_str)
+    palette = _distinct_spectrum_colors(len(categories))
+    cat_to_color = {cat: palette[idx] for idx, cat in enumerate(categories)}
+    return np.array([cat_to_color[v] for v in as_str], dtype=object)
+
+
+def _colors_from_labels(label_values: np.ndarray) -> np.ndarray:
+    """Build deterministic per-point colors from label groups."""
+    categories = _ordered_unique_strings(label_values)
+    palette = _distinct_spectrum_colors(len(categories))
+    cat_to_color = {cat: palette[idx] for idx, cat in enumerate(categories)}
+    return np.array([cat_to_color[v] for v in label_values], dtype=object)
 
 
 def _scatter_3d_with_color(
     fig: Any,
     ax: Any,
     arr: np.ndarray,
-    color_values: np.ndarray | None,
+    label_values: np.ndarray | None,
+    marker_colors: np.ndarray | None,
     cmap: str,
     point_size: float,
     legend_loc: str,
 ) -> None:
-    if color_values is None:
-        ax.scatter(arr[:, 0], arr[:, 1], arr[:, 2], s=point_size)
-        return
+    if label_values is None:
+        groups = [("samples", np.ones(arr.shape[0], dtype=bool))]
+        show_legend = False
+    else:
+        groups = [
+            (label, label_values == label)
+            for label in _ordered_unique_strings(label_values)
+        ]
+        show_legend = True
 
-    if np.issubdtype(color_values.dtype, np.number):
+    has_numeric_colors = marker_colors is not None and np.issubdtype(
+        np.asarray(marker_colors).dtype, np.number
+    )
+    first_scatter = None
+    if has_numeric_colors:
+        vmin = float(np.min(marker_colors))
+        vmax = float(np.max(marker_colors))
+
+    for label, mask in groups:
+        kwargs: dict[str, Any] = {"s": point_size}
+        if marker_colors is not None:
+            if has_numeric_colors:
+                kwargs["c"] = marker_colors[mask]
+                kwargs["cmap"] = cmap
+                kwargs["vmin"] = vmin
+                kwargs["vmax"] = vmax
+            else:
+                kwargs["c"] = marker_colors[mask]
+
         sc = ax.scatter(
-            arr[:, 0], arr[:, 1], arr[:, 2], c=color_values, s=point_size, cmap=cmap
-        )
-        fig.colorbar(sc, ax=ax)
-        return
-
-    categories = np.unique(color_values.astype(str))
-    palette = _distinct_spectrum_colors(len(categories))
-    for idx, category in enumerate(categories):
-        mask = color_values.astype(str) == category
-        ax.scatter(
             arr[mask, 0],
             arr[mask, 1],
             arr[mask, 2],
-            s=point_size,
-            color=palette[idx],
-            label=category,
+            label=label if show_legend else None,
+            **kwargs,
         )
-    ax.legend(loc=legend_loc)
+        if first_scatter is None:
+            first_scatter = sc
+
+    if has_numeric_colors and first_scatter is not None:
+        fig.colorbar(first_scatter, ax=ax)
+    if show_legend:
+        handles, labels = ax.get_legend_handles_labels()
+        ordered = sorted(zip(labels, handles), key=lambda item: item[0].lower())
+        sorted_labels = [label for label, _ in ordered]
+        sorted_handles = [handle for _, handle in ordered]
+        ax.legend(
+            sorted_handles,
+            sorted_labels,
+            loc=legend_loc,
+            markerscale=3,
+        )
 
 
 def _draw_3d_group_envelopes(
@@ -249,10 +253,10 @@ class Embedding3DPlot:
 
     Contract:
     - `coords` is 2D with shape (n_samples, >=3)
-    - Point metadata (`labels`, `properties[key]`) is index-aligned with `coords`
-    - `labels` is the default metadata vector for color/group
-    - `properties` holds multiple named metadata vectors
-    - `color_by`/`envelope_by` select a key in `properties` and override `labels`
+    - Point metadata (`labels`, `color`) is index-aligned with `coords`
+    - `labels` controls legend/group names only
+    - `color` controls marker colors only (numeric, direct color specs, or categories)
+    - Projection envelopes group by `labels` (or all points if labels are not provided)
     - `get_plot(...)` builds/returns a Plotly Figure for automation workflows
     - `get_plot_with_projections(...)` overlays wall projections on the Plotly Figure
     - `get_matplotlib_plot(...)` builds/returns a Matplotlib Figure/Axes snapshot
@@ -265,15 +269,13 @@ class Embedding3DPlot:
         self,
         coords: Any,
         labels: Any | None = None,
-        properties: Mapping[str, Any] | None = None,
-        color_by: str | None = None,
+        color: Any | None = None,
         title: str | None = None,
         figsize: tuple[float, float] = (7, 6),
         cmap: str = "tab10",
         point_size: float = 12,
         legend_loc: str = "upper right",
         envelope: bool = False,
-        envelope_by: str | None = None,
         envelope_alpha: float = 0.12,
         envelope_linewidth: float = 0.8,
         show_projections: bool = False,
@@ -284,13 +286,13 @@ class Embedding3DPlot:
         projection_envelope_alpha: float = 0.18,
     ) -> None:
         try:
-            import plotly.express as px
+            import plotly.graph_objects as go
         except Exception as exc:
             raise ImportError(
                 "Embedding3DPlot requires Plotly. Install with `pip install plotly`."
             ) from exc
 
-        self._px = px
+        self._go = go
         self.arr = np.asarray(coords)
         if self.arr.ndim != 2 or self.arr.shape[1] < 3:
             raise ValueError(
@@ -317,18 +319,22 @@ class Embedding3DPlot:
                 "Plotly-native Embedding3DPlot does not implement `envelope` yet."
             )
 
-        self.color_values = _resolve_point_colors(
-            n_samples=self.arr.shape[0],
-            labels=labels,
-            properties=properties,
-            color_by=color_by,
+        n_samples = self.arr.shape[0]
+        self.labels = _resolve_point_vector(n_samples, labels, name="labels")
+        self.color_values = _resolve_point_vector(n_samples, color, name="color")
+        self.label_values = (
+            None if self.labels is None else self.labels.astype(str, copy=False)
         )
-        self.group_values = _resolve_point_groups(
-            n_samples=self.arr.shape[0],
-            labels=labels,
-            properties=properties,
-            group_by=envelope_by,
-        )
+        self.group_values = self.label_values
+
+        if self.color_values is None:
+            self.marker_colors = (
+                None
+                if self.label_values is None
+                else _colors_from_labels(self.label_values)
+            )
+        else:
+            self.marker_colors = _resolve_marker_colors(self.color_values)
 
         self._fig: Any | None = None
 
@@ -351,59 +357,76 @@ class Embedding3DPlot:
         if self._fig is not None and not rebuild:
             return self._fig
 
-        px = self._px
+        go = self._go
         x = self.arr[:, 0]
         y = self.arr[:, 1]
         z = self.arr[:, 2]
 
-        if self.color_values is None:
-            fig = px.scatter_3d(
-                x=x,
-                y=y,
-                z=z,
-                title=self.title,
-                labels={"x": "Dim 1", "y": "Dim 2", "z": "Dim 3"},
-            )
+        if self.label_values is None:
+            groups = [("samples", np.ones(self.arr.shape[0], dtype=bool))]
+            show_legend = False
         else:
-            if np.issubdtype(self.color_values.dtype, np.number):
-                fig = px.scatter_3d(
-                    x=x,
-                    y=y,
-                    z=z,
-                    color=self.color_values,
-                    title=self.title,
-                    labels={
-                        "x": "Dim 1",
-                        "y": "Dim 2",
-                        "z": "Dim 3",
-                    },
+            groups = [
+                (label, self.label_values == label)
+                for label in _ordered_unique_strings(self.label_values)
+            ]
+            show_legend = True
+            legend_rank = {
+                label: idx
+                for idx, label in enumerate(
+                    sorted(_ordered_unique_strings(self.label_values), key=str.lower)
                 )
-            else:
-                fig = px.scatter_3d(
-                    x=x,
-                    y=y,
-                    z=z,
-                    color=self.color_values.astype(str),
-                    title=self.title,
-                    labels={
-                        "x": "Dim 1",
-                        "y": "Dim 2",
-                        "z": "Dim 3",
-                    },
-                )
+            }
 
-        fig.update_traces(marker={"size": self.point_size})
+        marker_colors = self.marker_colors
+        has_numeric_colors = marker_colors is not None and np.issubdtype(
+            np.asarray(marker_colors).dtype, np.number
+        )
+        if has_numeric_colors:
+            cmin = float(np.min(marker_colors))
+            cmax = float(np.max(marker_colors))
+
+        fig = go.Figure()
+        for idx, (label, mask) in enumerate(groups):
+            marker: dict[str, Any] = {"size": self.point_size}
+
+            if marker_colors is not None:
+                subset = marker_colors[mask]
+                if has_numeric_colors:
+                    marker["color"] = subset.astype(np.float64)
+                    marker["cmin"] = cmin
+                    marker["cmax"] = cmax
+                    marker["showscale"] = idx == 0
+                    marker["colorbar"] = {"title": ""}
+                else:
+                    marker["color"] = subset.tolist()
+
+            fig.add_trace(
+                go.Scatter3d(
+                    x=x[mask],
+                    y=y[mask],
+                    z=z[mask],
+                    mode="markers",
+                    marker=marker,
+                    name=label,
+                    showlegend=show_legend,
+                    legendgroup=label,
+                    legendrank=legend_rank[label] if show_legend else None,
+                )
+            )
+
         fig.update_layout(
+            title=self.title,
             width=int(self.figsize[0] * 100),
             height=int(self.figsize[1] * 100),
             legend_title_text="",
+            legend={"itemsizing": "constant"},
             scene={
                 "xaxis_title": "Dim 1",
                 "yaxis_title": "Dim 2",
                 "zaxis_title": "Dim 3",
             },
         )
-        fig.update_coloraxes(colorbar_title_text="")
 
         self._fig = fig
         return fig
@@ -588,6 +611,10 @@ class Embedding3DPlot:
                 color = getattr(marker, "color", None)
                 if isinstance(color, str):
                     color_map[str(name)] = color
+                elif isinstance(color, (list, tuple, np.ndarray)) and len(color) > 0:
+                    first = color[0]
+                    if isinstance(first, str) and _is_color_like(first):
+                        color_map[str(name)] = first
 
             unique_groups = np.unique(groups)
             fallback_colors = _distinct_spectrum_colors(len(unique_groups))
@@ -742,7 +769,8 @@ class Embedding3DPlot:
             fig=fig,
             ax=ax,
             arr=self.arr,
-            color_values=self.color_values,
+            label_values=self.label_values,
+            marker_colors=self.marker_colors,
             cmap=self.cmap,
             point_size=self.point_size,
             legend_loc=self.legend_loc,
@@ -774,23 +802,16 @@ class Embedding3DPlot:
         if show_projections:
             proj_size = float(self.point_size) * projection_size_scale
 
-            if self.color_values is None:
+            if self.marker_colors is None:
                 proj_kwargs = {"c": "C0", "alpha": projection_alpha}
-            elif np.issubdtype(self.color_values.dtype, np.number):
+            elif np.issubdtype(np.asarray(self.marker_colors).dtype, np.number):
                 proj_kwargs = {
-                    "c": self.color_values,
+                    "c": self.marker_colors,
                     "cmap": self.cmap,
                     "alpha": projection_alpha,
                 }
             else:
-                categories = np.unique(self.color_values.astype(str))
-                palette = _distinct_spectrum_colors(len(categories))
-                cat_to_color = {cat: palette[i] for i, cat in enumerate(categories)}
-                per_point_colors = np.array(
-                    [cat_to_color[c] for c in self.color_values.astype(str)],
-                    dtype=object,
-                )
-                proj_kwargs = {"c": per_point_colors, "alpha": projection_alpha}
+                proj_kwargs = {"c": self.marker_colors, "alpha": projection_alpha}
 
             ax.scatter(np.full_like(x, wall_x), y, z, s=proj_size, **proj_kwargs)
             ax.scatter(x, np.full_like(y, wall_y), z, s=proj_size, **proj_kwargs)
@@ -815,15 +836,15 @@ class Embedding3DPlot:
                 fallback_colors = _distinct_spectrum_colors(len(unique_groups))
 
                 group_to_color: dict[str, str] = {}
-                if self.color_values is not None and not np.issubdtype(
-                    self.color_values.dtype, np.number
+                if self.marker_colors is not None and not np.issubdtype(
+                    np.asarray(self.marker_colors).dtype, np.number
                 ):
-                    categories = np.unique(self.color_values.astype(str))
-                    palette = _distinct_spectrum_colors(len(categories))
-                    cat_to_color = {cat: palette[i] for i, cat in enumerate(categories)}
                     for group in unique_groups:
-                        if group in cat_to_color:
-                            group_to_color[str(group)] = cat_to_color[group]
+                        mask = groups == group
+                        if np.any(mask):
+                            group_to_color[str(group)] = str(
+                                self.marker_colors[mask][0]
+                            )
 
                 for idx, group in enumerate(unique_groups):
                     mask = groups == group
