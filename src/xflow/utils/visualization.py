@@ -952,7 +952,7 @@ class DimReducer:
     Contract:
     - Input `X` is ndarray-like with shape (n_samples, n_features)
     - Output is ndarray with shape (n_samples, n_components)
-    - You may use a built-in method (`pca`, `tsne`, `umap`) or inject a custom model
+    - You may use a built-in method (`pca`, `tsne`, `opentsne`, `umap`) or inject a custom model
     - Custom model must provide either:
       1) `fit_transform(X)`; or
       2) both `fit(X)` and `transform(X)`
@@ -994,6 +994,14 @@ class DimReducer:
                 **self.kwargs,
             )
         if self.method == "tsne":
+            from sklearn.manifold import TSNE
+
+            return TSNE(
+                n_components=self.n_components,
+                random_state=self.random_state,
+                **self.kwargs,
+            )
+        if self.method == "opentsne":
             try:
                 open_tsne = importlib.import_module("openTSNE")
             except Exception as exc:
@@ -1017,7 +1025,9 @@ class DimReducer:
                 random_state=self.random_state,
                 **self.kwargs,
             )
-        raise ValueError(f"Unknown method: {self.method}. Use one of: pca, tsne, umap.")
+        raise ValueError(
+            f"Unknown method: {self.method}. Use one of: pca, tsne, opentsne, umap."
+        )
 
     @property
     def supports_transform(self) -> bool:
@@ -1045,7 +1055,7 @@ class DimReducer:
         X_arr = _to_2d_feature_array(X)
 
         # openTSNE returns a TSNEEmbedding from `fit`, which carries `transform`.
-        if self.method == "tsne":
+        if self.method == "opentsne":
             fit = getattr(self.model, "fit", None)
             if callable(fit):
                 embedding = fit(X_arr)
