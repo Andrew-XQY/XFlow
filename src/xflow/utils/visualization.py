@@ -261,6 +261,7 @@ class Embedding3DPlot:
     - `get_plot_with_projections(...)` overlays wall projections on the Plotly Figure
     - `get_matplotlib_plot(...)` builds/returns a Matplotlib Figure/Axes snapshot
     - `get_matplotlib_frame(...)` returns one RGB frame in memory for a camera angle
+    - `set_style(...)` changes rendering style state for subsequent plot builds
     - `show(...)` is interactive display only (no backend switching)
     - This object owns the cached Plotly figure until `close()`
     """
@@ -336,6 +337,7 @@ class Embedding3DPlot:
         else:
             self.marker_colors = _resolve_marker_colors(self.color_values)
 
+        self._style = "light"
         self._fig: Any | None = None
 
     @staticmethod
@@ -352,6 +354,20 @@ class Embedding3DPlot:
                 "z": float(radius * np.sin(elev_rad)),
             }
         }
+
+    @staticmethod
+    def _normalize_style(style: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "", str(style).lower())
+        if normalized in {"light", "default"}:
+            return "light"
+        if normalized in {"dark", "darkmode"}:
+            return "dark"
+        raise ValueError("`style` must be one of: light, dark.")
+
+    def set_style(self, style: str) -> None:
+        """Set rendering style for subsequent Plotly/Matplotlib outputs."""
+        self._style = self._normalize_style(style)
+        self._fig = None
 
     def _build(self, rebuild: bool = False) -> Any:
         if self._fig is not None and not rebuild:
@@ -415,18 +431,42 @@ class Embedding3DPlot:
                 )
             )
 
-        fig.update_layout(
-            title=self.title,
-            width=int(self.figsize[0] * 100),
-            height=int(self.figsize[1] * 100),
-            legend_title_text="",
-            legend={"itemsizing": "constant"},
-            scene={
+        layout: dict[str, Any] = {
+            "title": self.title,
+            "width": int(self.figsize[0] * 100),
+            "height": int(self.figsize[1] * 100),
+            "legend_title_text": "",
+            "legend": {"itemsizing": "constant"},
+            "scene": {
                 "xaxis_title": "Dim 1",
                 "yaxis_title": "Dim 2",
                 "zaxis_title": "Dim 3",
             },
-        )
+        }
+        if self._style == "dark":
+            axis_style = {
+                "backgroundcolor": "rgba(38,38,38,0.72)",
+                "gridcolor": "rgba(220,220,220,0.18)",
+                "zerolinecolor": "rgba(220,220,220,0.28)",
+                "color": "#F2F2F2",
+            }
+            layout.update(
+                {
+                    "template": "plotly_dark",
+                    "paper_bgcolor": "#111111",
+                    "plot_bgcolor": "#111111",
+                    "font": {"color": "#F2F2F2"},
+                }
+            )
+            layout["scene"].update(
+                {
+                    "xaxis": dict(axis_style),
+                    "yaxis": dict(axis_style),
+                    "zaxis": dict(axis_style),
+                }
+            )
+
+        fig.update_layout(**layout)
 
         self._fig = fig
         return fig
@@ -682,11 +722,16 @@ class Embedding3DPlot:
                         )
                     )
 
+        projection_bg = (
+            "rgba(48,48,48,0.55)"
+            if self._style == "dark"
+            else "rgba(245,245,245,0.5)"
+        )
         fig.update_layout(
             scene={
-                "xaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
-                "yaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
-                "zaxis": {"backgroundcolor": "rgba(245,245,245,0.5)"},
+                "xaxis": {"backgroundcolor": projection_bg},
+                "yaxis": {"backgroundcolor": projection_bg},
+                "zaxis": {"backgroundcolor": projection_bg},
             }
         )
         return fig
@@ -737,6 +782,12 @@ class Embedding3DPlot:
 
         fig = plt.figure(figsize=self.figsize)
         ax = fig.add_subplot(111, projection="3d")
+        if self._style == "dark":
+            fig.patch.set_facecolor("#111111")
+            ax.set_facecolor("#111111")
+            for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+                axis.pane.set_facecolor((0.15, 0.15, 0.15, 1.0))
+                axis.pane.set_edgecolor((0.75, 0.75, 0.75, 0.35))
 
         show_projections = (
             self.show_projections if show_projections is None else show_projections
@@ -775,6 +826,23 @@ class Embedding3DPlot:
             point_size=self.point_size,
             legend_loc=self.legend_loc,
         )
+        if self._style == "dark":
+            text_color = "#F2F2F2"
+            ax.tick_params(colors=text_color)
+            for axis in fig.axes:
+                axis.tick_params(colors=text_color)
+                if hasattr(axis, "xaxis") and axis.xaxis is not None:
+                    axis.xaxis.label.set_color(text_color)
+                if hasattr(axis, "yaxis") and axis.yaxis is not None:
+                    axis.yaxis.label.set_color(text_color)
+                axis.set_facecolor("#111111")
+
+            if ax.legend_ is not None:
+                legend = ax.legend_
+                legend.get_frame().set_facecolor("#1B1B1B")
+                legend.get_frame().set_edgecolor("#777777")
+                for text in legend.get_texts():
+                    text.set_color(text_color)
 
         mins = self.arr[:, :3].min(axis=0)
         maxs = self.arr[:, :3].max(axis=0)
@@ -901,11 +969,15 @@ class Embedding3DPlot:
                             )
                         )
 
-        ax.set_xlabel("Dim 1")
-        ax.set_ylabel("Dim 2")
-        ax.set_zlabel("Dim 3")
+        label_kwargs: dict[str, Any] = {}
+        if self._style == "dark":
+            label_kwargs["color"] = "#F2F2F2"
+
+        ax.set_xlabel("Dim 1", **label_kwargs)
+        ax.set_ylabel("Dim 2", **label_kwargs)
+        ax.set_zlabel("Dim 3", **label_kwargs)
         if self.title:
-            ax.set_title(self.title)
+            ax.set_title(self.title, **label_kwargs)
 
         ax.view_init(elev=elev, azim=azim)
         fig.tight_layout()
