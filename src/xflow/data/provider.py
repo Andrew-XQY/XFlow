@@ -85,6 +85,27 @@ class DataProvider(ABC):
             f"{self.__class__.__name__} doesn't support splitting. Create separate providers manually."
         )
 
+    @classmethod
+    def concat(cls, providers: List["DataProvider"]) -> "DataProvider":
+        """
+        Concatenate multiple providers into one via successive merge.
+
+        Args:
+            providers: List of compatible providers (at least one)
+
+        Returns:
+            Single merged provider
+        """
+        if not providers:
+            raise ValueError("Need at least one provider to concatenate")
+        if len(providers) == 1:
+            return providers[0]
+
+        result = providers[0]
+        for p in providers[1:]:
+            result = result.merge(p)
+        return result
+
 
 class FileProvider(DataProvider):
     """Data provider that scans directories for files with specified extensions."""
@@ -232,9 +253,6 @@ class FileProvider(DataProvider):
         return self._from_file_list(combined_files, merged_extensions, self.path_type)
 
 
-
-        
-
 class SqlProvider(DataProvider):
     """Data provider that unifies data from SQL database sources into a DataFrame."""
 
@@ -360,7 +378,7 @@ class SqlProvider(DataProvider):
             return providers
 
         elif ratio is not None:
-            # Ratio-based split 
+            # Ratio-based split
             from ..utils.dataframe import split_dataframe_by_ratio
 
             first_df, second_df = split_dataframe_by_ratio(
@@ -411,4 +429,3 @@ class SqlProvider(DataProvider):
         from ..utils.sql import get_supported_db_types
 
         return get_supported_db_types()
-
