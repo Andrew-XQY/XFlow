@@ -1,10 +1,18 @@
+import base64
+import json
+import math
 import sqlite3
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime, time
+from decimal import Decimal
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
+import numpy as np
 import pandas as pd
 
 from .decorator import print_separator
@@ -558,3 +566,130 @@ def add_composite_key(
     conn.execute(f"UPDATE {table_name} SET {key_name} = {concat_expr}")
     conn.commit()
     conn.close()
+
+
+def _is_null(v) -> bool:
+    if v is None:
+        return True
+    try:
+        out = pd.isna(v)
+        return bool(out) if not isinstance(out, (np.ndarray, list, tuple)) else False
+    except Exception:
+        return False
+
+
+def _to_jsonable(v):
+    if _is_null(v):
+        return None
+
+    if isinstance(v, np.generic):
+        return _to_jsonable(v.item())
+
+    if isinstance(v, (str, int, bool)):
+        return v
+
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+
+    if isinstance(v, (datetime, date, time, pd.Timestamp)):
+        return v.isoformat()
+
+    if isinstance(v, bytes):
+        # JSON cannot represent raw bytes
+        return {"__bytes_b64__": base64.b64encode(v).decode("ascii")}
+
+    if isinstance(v, np.ndarray):
+        return [_to_jsonable(x) for x in v.tolist()]
+
+    if isinstance(v, Mapping):
+        return {str(k): _to_jsonable(val) for k, val in v.items()}
+
+    if isinstance(v, (list, tuple, set)):
+        return [_to_jsonable(x) for x in v]
+
+    if isinstance(v, (Path, UUID, Decimal, Enum)):
+        return str(v)
+
+    return str(v)
+
+
+def sqlite_scalar(v, *, strict: bool = False):
+    """
+    Convert one Python value into a SQLite-bindable scalar:
+    None | int | float | str | bytes
+    """
+    if _is_null(v):
+        return None
+
+    if isinstance(v, np.generic):
+        v = v.item()
+
+    if isinstance(v, (bool, int)):
+        return int(v) if isinstance(v, bool) else v
+
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+
+    if isinstance(v, (str, bytes)):
+        return v
+
+    if isinstance(v, (datetime, date, time, pd.Timestamp)):
+        return v.isoformat()
+
+    if isinstance(v, (Mapping, list, tuple, set, np.ndarray)):
+        return json.dumps(_to_jsonable(v), ensure_ascii=False, separators=(",", ":"))
+
+    if strict:
+        raise TypeError(f"Unsupported type for SQLite binding: {type(v).__name__}")
+
+    return str(v)
+
+
+def sanitize_dataframe_for_sqlite(
+    df: pd.DataFrame,
+    *,
+    columns: list[str] | None = None,
+    copy: bool = True,
+    strict: bool = False,
+) -> pd.DataFrame:
+    """
+    Sanitize dataframe cells so pandas.to_sql works reliably with sqlite3.
+    By default, only object columns are sanitized (faster).
+    """
+    out = df.copy(deep=True) if copy else df
+    target_cols = (
+        list(columns)
+        if columns is not None
+        else out.select_dtypes(include=["object"]).columns.tolist()
+    )
+
+    for c in target_cols:
+        out[c] = out[c].map(lambda x: sqlite_scalar(x, strict=strict))
+
+    return out
+
+
+def to_sqlite_safe(
+    df: pd.DataFrame,
+    name: str,
+    con,
+    *,
+    if_exists: str = "replace",
+    index: bool = False,
+    chunksize: int = 1000,
+    method: str = "multi",
+    columns: list[str] | None = None,
+    strict: bool = False,
+):
+    """
+    Drop-in safe writer around DataFrame.to_sql for sqlite.
+    """
+    clean = sanitize_dataframe_for_sqlite(df, columns=columns, copy=True, strict=strict)
+    return clean.to_sql(
+        name,
+        con,
+        if_exists=if_exists,
+        index=index,
+        chunksize=chunksize,
+        method=method,
+    )
