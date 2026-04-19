@@ -1227,10 +1227,21 @@ def plot_image(
     if scale not in {"linear", "log"}:
         raise ValueError("`scale` must be either 'linear' or 'log'.")
 
-    if figsize:
-        plt.figure(figsize=figsize)
+    if figsize is None:
+        # Keep image geometry unchanged by sizing the figure from image ratio.
+        h, w = arr.shape[:2]
+        image_ratio = float(w) / max(float(h), 1.0)
+        base_height = 4.8
+        colorbar_fraction = 0.045 if colorbar else 0.0
+        colorbar_pad = 0.02 if colorbar else 0.0
+        width_scale = 1.0 + colorbar_fraction + colorbar_pad
+        fig_width = max(3.2, base_height * image_ratio * width_scale)
+        fig, ax = plt.subplots(figsize=(fig_width, base_height))
+    else:
+        fig, ax = plt.subplots(figsize=figsize)
+
     if scale == "linear":
-        plt.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax)
+        im = ax.imshow(arr, cmap=cmap, vmin=vmin, vmax=vmax, aspect="equal")
     else:
         from matplotlib.colors import LogNorm
 
@@ -1246,14 +1257,19 @@ def plot_image(
         if log_vmax <= log_vmin:
             raise ValueError("For log scale, `vmax` must be greater than `vmin`.")
 
-        plt.imshow(arr_float, cmap=cmap, norm=LogNorm(vmin=log_vmin, vmax=log_vmax))
-    plt.xlabel("X (pixel index)")
-    plt.ylabel("Y (pixel index)")
+        im = ax.imshow(
+            arr_float,
+            cmap=cmap,
+            norm=LogNorm(vmin=log_vmin, vmax=log_vmax),
+            aspect="equal",
+        )
+    ax.set_xlabel("X (pixel index)")
+    ax.set_ylabel("Y (pixel index)")
     if colorbar:
-        plt.colorbar(label="Pixel value")
+        fig.colorbar(im, ax=ax, label="Pixel value", pad=0.02, fraction=0.045)
     if title:
-        plt.title(title)
-    plt.tight_layout()
+        ax.set_title(title)
+    fig.tight_layout()
     plt.show()
 
 

@@ -19,6 +19,25 @@ def _to_numpy(arr) -> np.ndarray:
     return np.asarray(arr)
 
 
+def _validate_normalized_position(position: Any, *, item_id: Any = None) -> Tuple[float, float]:
+    """Validate and normalize a single 2D position in [0, 1]."""
+    p = np.asarray(position, dtype=np.float32).reshape(-1)
+    if p.size != 2:
+        raise ValueError(
+            f"basis_position_extractor must return 2 values, got shape {p.shape}"
+        )
+    if not np.all(np.isfinite(p)):
+        raise ValueError(f"Non-finite basis position for ID={item_id!r}: {p}")
+
+    x, y = float(p[0]), float(p[1])
+    if x < 0.0 or x > 1.0 or y < 0.0 or y > 1.0:
+        raise ValueError(
+            "Basis positions must be normalized to [0, 1]. "
+            f"Got (x={x}, y={y}) for ID={item_id!r}."
+        )
+    return x, y
+
+
 # ============================================================
 # Contracts
 # ============================================================
@@ -65,6 +84,10 @@ class RetryPolicy:
 SampleValidator = Callable[
     [Any, Optional["CombinationRecord"]], Union[bool, Tuple[bool, str]]
 ]
+
+# Basis position extractor signature: (sample, item_id) -> (x, y) in normalized [0, 1].
+# Coordinate convention: top-left is (0, 0), bottom-right is (1, 1).
+BasisPositionExtractor = Callable[[Any, Any], Tuple[float, float]]
 
 
 class BasisAccessor:
@@ -137,6 +160,9 @@ class CachedBasisPipeline(BasePipeline):
         id_extractor: Optional function to extract ID from raw item.
                       If None and data_provider yields tuples, first element is ID.
         eager: If True, load basis immediately during __init__.
+        basis_position_extractor: Optional callable used to compute and cache
+                  normalized 2D positions for each basis item once.
+                  Signature: (sample, item_id) -> (x, y), both in [0, 1].
         sample_validator: Optional quality gate for generated samples.
                           Signature: (sample, CombinationRecord | None) -> bool | (bool, reason)
         retry_policy: Retry behavior when validation fails (default: skip after 8 retries).
@@ -154,6 +180,7 @@ class CachedBasisPipeline(BasePipeline):
         num_samples: Optional[int] = None,
         id_extractor: Optional[Callable[[Any], Any]] = None,
         eager: bool = False,
+        basis_position_extractor: Optional[BasisPositionExtractor] = None,
         sample_validator: Optional[SampleValidator] = None,
         retry_policy: Optional[RetryPolicy] = None,
         **base_kwargs,
@@ -169,6 +196,7 @@ class CachedBasisPipeline(BasePipeline):
         self._id_extractor = id_extractor
         self._pre_transform_hook = pre_transform_hook
         self._post_transform_hook = post_transform_hook
+        self._basis_position_extractor = basis_position_extractor
 
         # Quality control
         self.sample_validator = sample_validator
@@ -180,6 +208,7 @@ class CachedBasisPipeline(BasePipeline):
         self._basis: Optional[List[Any]] = None
         self._ids: Optional[List[Any]] = None
         self._metadata: Optional[BasisMetadata] = None
+        self._basis_positions: Optional[np.ndarray] = None
 
         if eager:
             self._load_basis()
@@ -191,6 +220,7 @@ class CachedBasisPipeline(BasePipeline):
 
         basis = []
         ids = []
+        basis_positions = [] if self._basis_position_extractor is not None else None
         raw_items = list(self.data_provider())
 
         pbar = tqdm(raw_items, desc="Caching basis", leave=False)
@@ -224,6 +254,13 @@ class CachedBasisPipeline(BasePipeline):
                         if not isinstance(item, tuple)
                         else tuple(_to_numpy(x) for x in item)
                     )
+
+                    if self._basis_position_extractor is not None:
+                        pos = self._basis_position_extractor(item, item_id)
+                        basis_positions.append(
+                            _validate_normalized_position(pos, item_id=item_id)
+                        )
+
                     basis.append(item)
                     ids.append(item_id)
                 else:
@@ -245,6 +282,15 @@ class CachedBasisPipeline(BasePipeline):
             count=len(basis),
             shapes=self._infer_shapes(basis[0]),
         )
+
+        if basis_positions is not None:
+            self._basis_positions = np.asarray(basis_positions, dtype=np.float32)
+            self._metadata.extra["basis_positions_norm"] = self._basis_positions
+
+            # Let spatial combinators consume cached positions without changing core API.
+            if hasattr(self.combinator, "set_basis_positions"):
+                self.combinator.set_basis_positions(self._basis_positions)
+
         self.in_memory_sample_count = len(basis)
 
     def _infer_shapes(self, sample: Any) -> Dict[str, Tuple[int, ...]]:
@@ -270,6 +316,12 @@ class CachedBasisPipeline(BasePipeline):
         """Direct read-only access to cached basis list."""
         self._load_basis()
         return self._basis
+
+    @property
+    def basis_positions_norm(self) -> Optional[np.ndarray]:
+        """Normalized basis positions as an (N, 2) array if configured."""
+        self._load_basis()
+        return self._basis_positions
 
     def get_basis(self, idx: int) -> Any:
         """Get cached basis item by index."""
@@ -676,6 +728,67 @@ def _squeeze_2d(x: Any) -> np.ndarray:
     return x
 
 
+def make_centroid_position_extractor(
+    *,
+    method: str = "first_moment",
+    component: Optional[int] = None,
+) -> BasisPositionExtractor:
+    """Build a centroid-based normalized position extractor for basis caching.
+
+    This helper returns a callback compatible with ``basis_position_extractor`` in
+    ``CachedBasisPipeline``.
+
+    Notes:
+        - Returns coordinates as ``(x, y)`` in normalized ``[0, 1]``.
+        - Uses top-left origin and pixel-center normalization:
+          ``x = (cx + 0.5) / width``, ``y = (cy + 0.5) / height``.
+        - If centroid is undefined (e.g. zero-valued image), it falls back to the
+          geometric center.
+
+    Args:
+        method: Centroid method passed to ``physics.evaluation.get_centroid``.
+        component: If basis samples are tuples/lists, choose this component before
+            centroid calculation. If ``None``, the full sample is used.
+
+    Returns:
+        A callable with signature ``(sample, item_id) -> (x, y)``.
+    """
+
+    from .evaluation import get_centroid
+
+    def _extract(sample: Any, item_id: Any) -> Tuple[float, float]:
+        target = sample[component] if component is not None else sample
+        arr = np.asarray(target)
+
+        while arr.ndim > 2:
+            if arr.shape[0] <= 4:
+                arr = arr.mean(axis=0)
+            else:
+                arr = arr.mean(axis=-1)
+
+        if arr.ndim != 2:
+            raise ValueError(
+                f"Centroid extractor expected 2D-compatible data, got shape {arr.shape} for ID={item_id!r}."
+            )
+
+        h, w = arr.shape
+        if h <= 0 or w <= 0:
+            raise ValueError(f"Invalid image shape {arr.shape} for ID={item_id!r}.")
+
+        cx, cy = get_centroid(arr, method=method)
+        if not np.isfinite(cx) or not np.isfinite(cy):
+            cx = (w - 1) / 2.0
+            cy = (h - 1) / 2.0
+
+        x = (float(cx) + 0.5) / float(w)
+        y = (float(cy) + 0.5) / float(h)
+        x = float(np.clip(x, 0.0, 1.0))
+        y = float(np.clip(y, 0.0, 1.0))
+        return x, y
+
+    return _extract
+
+
 class IndexCombinator(Combinator):
     """
     Weighted sum of basis items using coefficients from a 2D map.
@@ -782,6 +895,181 @@ class IndexCombinator(Combinator):
             out = np.asarray(out, dtype=np.float32)
 
         self._last_record = CombinationRecord(indices=used_idx, coefficients=used_coef)
+        return out
+
+
+class SpatialNearestCombinator(Combinator):
+    """Pattern-driven weighted sum with nearest-neighbor spatial assignment.
+
+    For each pattern cell (coefficient), this combinator finds the nearest basis
+    position in normalized ``(x, y)`` space and accumulates that coefficient into
+    the matched basis item.
+
+    Typical flow:
+        1. Provide normalized basis positions (N, 2), or let
+           ``CachedBasisPipeline(basis_position_extractor=...)`` inject them.
+        2. Provide a 2D coefficient map from ``pattern_provider``.
+        3. The combinator maps each pattern cell center to nearest basis position,
+           then performs a weighted sum over basis items.
+
+    Notes:
+        - Coordinate convention is top-left origin: ``(0, 0)`` at top-left,
+          ``(1, 1)`` at bottom-right.
+        - Pattern cell centers use pixel-center normalization:
+          ``x = (col + 0.5)/W``, ``y = (row + 0.5)/H``.
+        - Distance ties are resolved by first occurrence (NumPy ``argmin`` behavior).
+    """
+
+    def __init__(
+        self,
+        pattern_provider,
+        *,
+        basis_positions: Optional[np.ndarray] = None,
+        skip_zero: bool = True,
+        eps: float = 0.0,
+        transforms: Optional[
+            List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
+        ] = None,
+    ):
+        super().__init__()
+        if hasattr(pattern_provider, "__next__"):
+            self._pattern_stream = pattern_provider
+            self.pattern_provider = lambda rng: next(self._pattern_stream)
+        else:
+            self.pattern_provider = pattern_provider
+
+        self.skip_zero = skip_zero
+        self.eps = eps
+        self.transforms = [
+            (
+                fn
+                if isinstance(fn, Transform)
+                else Transform(fn, getattr(fn, "__name__", "unknown"))
+            )
+            for fn in (transforms or [])
+        ]
+
+        self.last_coeff_map: Optional[np.ndarray] = None
+        self._basis_positions: Optional[np.ndarray] = None
+        self._nearest_cache: Dict[Tuple[int, int], np.ndarray] = {}
+
+        if basis_positions is not None:
+            self.set_basis_positions(basis_positions)
+
+    def set_basis_positions(self, basis_positions: np.ndarray) -> None:
+        """Set normalized basis positions as shape (N, 2)."""
+        positions = np.asarray(basis_positions, dtype=np.float32)
+        if positions.ndim != 2 or positions.shape[1] != 2:
+            raise ValueError(
+                f"basis_positions must have shape (N, 2), got {positions.shape}."
+            )
+        if not np.all(np.isfinite(positions)):
+            raise ValueError("basis_positions contains non-finite values.")
+        if np.any(positions < 0.0) or np.any(positions > 1.0):
+            raise ValueError("basis_positions must be normalized to [0, 1].")
+
+        self._basis_positions = positions
+        self._nearest_cache.clear()
+
+    def _get_nearest_indices(self, pattern_shape: Tuple[int, int]) -> np.ndarray:
+        """Get cached nearest-basis index for each pattern cell."""
+        if pattern_shape in self._nearest_cache:
+            return self._nearest_cache[pattern_shape]
+
+        if self._basis_positions is None:
+            raise RuntimeError(
+                "SpatialNearestCombinator requires basis positions. "
+                "Pass basis_positions=... or set CachedBasisPipeline(basis_position_extractor=...)."
+            )
+
+        h, w = pattern_shape
+        ys = (np.arange(h, dtype=np.float32) + 0.5) / float(h)
+        xs = (np.arange(w, dtype=np.float32) + 0.5) / float(w)
+        grid_x, grid_y = np.meshgrid(xs, ys, indexing="xy")
+        pattern_centers = np.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
+
+        d2 = np.sum(
+            (pattern_centers[:, None, :] - self._basis_positions[None, :, :]) ** 2,
+            axis=2,
+        )
+        nearest = np.argmin(d2, axis=1).astype(np.int64)
+        self._nearest_cache[pattern_shape] = nearest
+        return nearest
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        coeff_map = _squeeze_2d(self.pattern_provider(rng)).astype(
+            np.float32, copy=False
+        )
+        self.last_coeff_map = coeff_map
+        coeffs = coeff_map.ravel()
+
+        if self._basis_positions is None:
+            raise RuntimeError(
+                "Missing basis positions. Use set_basis_positions(...) or "
+                "CachedBasisPipeline(basis_position_extractor=...)."
+            )
+        if len(accessor) != len(self._basis_positions):
+            raise ValueError(
+                "basis_positions length must match cached basis length: "
+                f"got {len(self._basis_positions)} vs {len(accessor)}."
+            )
+
+        nearest = self._get_nearest_indices(coeff_map.shape)
+        if nearest.size != coeffs.size:
+            raise RuntimeError(
+                "Internal mismatch between nearest-neighbor map and pattern coefficients."
+            )
+
+        if self.skip_zero:
+            mask = np.abs(coeffs) > self.eps if self.eps > 0 else coeffs != 0
+            active = np.flatnonzero(mask)
+        else:
+            active = np.arange(coeffs.size)
+
+        weights = np.zeros(len(accessor), dtype=np.float32)
+        if active.size > 0:
+            np.add.at(weights, nearest[active], coeffs[active])
+
+        used_idx = np.flatnonzero(weights != 0)
+        used_coef = [float(weights[i]) for i in used_idx]
+
+        sample0 = accessor[0]
+        is_multi = isinstance(sample0, (tuple, list))
+
+        if is_multi:
+            n_elements = len(sample0)
+            out = [
+                np.zeros_like(np.asarray(sample0[j]), dtype=np.float32)
+                for j in range(n_elements)
+            ]
+
+            for i in used_idx:
+                c = float(weights[i])
+                item = accessor[int(i)]
+                for j in range(n_elements):
+                    out[j] += c * np.asarray(item[j], dtype=np.float32)
+            out = tuple(out)
+        else:
+            out = np.zeros_like(np.asarray(sample0), dtype=np.float32)
+            for i in used_idx:
+                out += float(weights[i]) * np.asarray(accessor[int(i)], dtype=np.float32)
+
+        for fn in self.transforms:
+            out = fn(out)
+
+        if is_multi:
+            if not isinstance(out, (tuple, list)):
+                raise ValueError(
+                    "transforms must return tuple/list for multi-component samples"
+                )
+            out = tuple(np.asarray(component, dtype=np.float32) for component in out)
+        else:
+            out = np.asarray(out, dtype=np.float32)
+
+        self._last_record = CombinationRecord(
+            indices=[int(i) for i in used_idx.tolist()],
+            coefficients=used_coef,
+        )
         return out
 
 
