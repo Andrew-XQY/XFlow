@@ -19,7 +19,9 @@ def _to_numpy(arr) -> np.ndarray:
     return np.asarray(arr)
 
 
-def _validate_normalized_position(position: Any, *, item_id: Any = None) -> Tuple[float, float]:
+def _validate_normalized_position(
+    position: Any, *, item_id: Any = None
+) -> Tuple[float, float]:
     """Validate and normalize a single 2D position in [0, 1]."""
     p = np.asarray(position, dtype=np.float32).reshape(-1)
     if p.size != 2:
@@ -918,6 +920,8 @@ class SpatialNearestCombinator(Combinator):
         - Pattern cell centers use pixel-center normalization:
           ``x = (col + 0.5)/W``, ``y = (row + 0.5)/H``.
         - Distance ties are resolved by first occurrence (NumPy ``argmin`` behavior).
+        - Optional global jitter can be applied per synthetic sample before
+          nearest-neighbor assignment.
     """
 
     def __init__(
@@ -927,6 +931,8 @@ class SpatialNearestCombinator(Combinator):
         basis_positions: Optional[np.ndarray] = None,
         skip_zero: bool = True,
         eps: float = 0.0,
+        jitter_mode: str = "none",
+        jitter_alpha: float = 0.0,
         transforms: Optional[
             List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
         ] = None,
@@ -940,6 +946,16 @@ class SpatialNearestCombinator(Combinator):
 
         self.skip_zero = skip_zero
         self.eps = eps
+        mode = str(jitter_mode).lower()
+        valid_modes = {"none", "global_cell"}
+        if mode not in valid_modes:
+            raise ValueError(
+                f"jitter_mode must be one of {sorted(valid_modes)}, got {jitter_mode!r}."
+            )
+        if not 0.0 <= float(jitter_alpha) <= 1.0:
+            raise ValueError(f"jitter_alpha must be in [0, 1], got {jitter_alpha}.")
+        self.jitter_mode = mode
+        self.jitter_alpha = float(jitter_alpha)
         self.transforms = [
             (
                 fn
@@ -971,9 +987,33 @@ class SpatialNearestCombinator(Combinator):
         self._basis_positions = positions
         self._nearest_cache.clear()
 
-    def _get_nearest_indices(self, pattern_shape: Tuple[int, int]) -> np.ndarray:
-        """Get cached nearest-basis index for each pattern cell."""
-        if pattern_shape in self._nearest_cache:
+    def _sample_global_jitter(
+        self, pattern_shape: Tuple[int, int], rng: np.random.Generator
+    ) -> Optional[Tuple[float, float]]:
+        """Sample one shared normalized offset for all pattern cells in a sample."""
+        if self.jitter_mode == "none" or self.jitter_alpha <= 0.0:
+            return None
+
+        if self.jitter_mode != "global_cell":
+            raise RuntimeError(
+                f"Unsupported jitter_mode={self.jitter_mode!r}; expected 'global_cell' or 'none'."
+            )
+
+        h, w = pattern_shape
+        # alpha=1.0 means max shift of half a cell, so centers stay within their own cell.
+        max_dx = 0.5 * self.jitter_alpha / float(w)
+        max_dy = 0.5 * self.jitter_alpha / float(h)
+        dx = float(rng.uniform(-max_dx, max_dx))
+        dy = float(rng.uniform(-max_dy, max_dy))
+        return (dx, dy)
+
+    def _get_nearest_indices(
+        self,
+        pattern_shape: Tuple[int, int],
+        jitter_offset: Optional[Tuple[float, float]] = None,
+    ) -> np.ndarray:
+        """Get nearest-basis index for each pattern cell, optionally with global jitter."""
+        if jitter_offset is None and pattern_shape in self._nearest_cache:
             return self._nearest_cache[pattern_shape]
 
         if self._basis_positions is None:
@@ -988,12 +1028,19 @@ class SpatialNearestCombinator(Combinator):
         grid_x, grid_y = np.meshgrid(xs, ys, indexing="xy")
         pattern_centers = np.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
 
+        if jitter_offset is not None:
+            dx, dy = jitter_offset
+            # One shared offset per sample keeps the generated map coherent.
+            pattern_centers[:, 0] = np.clip(pattern_centers[:, 0] + dx, 0.0, 1.0)
+            pattern_centers[:, 1] = np.clip(pattern_centers[:, 1] + dy, 0.0, 1.0)
+
         d2 = np.sum(
             (pattern_centers[:, None, :] - self._basis_positions[None, :, :]) ** 2,
             axis=2,
         )
         nearest = np.argmin(d2, axis=1).astype(np.int64)
-        self._nearest_cache[pattern_shape] = nearest
+        if jitter_offset is None:
+            self._nearest_cache[pattern_shape] = nearest
         return nearest
 
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
@@ -1014,7 +1061,10 @@ class SpatialNearestCombinator(Combinator):
                 f"got {len(self._basis_positions)} vs {len(accessor)}."
             )
 
-        nearest = self._get_nearest_indices(coeff_map.shape)
+        jitter_offset = self._sample_global_jitter(coeff_map.shape, rng)
+        nearest = self._get_nearest_indices(
+            coeff_map.shape, jitter_offset=jitter_offset
+        )
         if nearest.size != coeffs.size:
             raise RuntimeError(
                 "Internal mismatch between nearest-neighbor map and pattern coefficients."
@@ -1052,7 +1102,9 @@ class SpatialNearestCombinator(Combinator):
         else:
             out = np.zeros_like(np.asarray(sample0), dtype=np.float32)
             for i in used_idx:
-                out += float(weights[i]) * np.asarray(accessor[int(i)], dtype=np.float32)
+                out += float(weights[i]) * np.asarray(
+                    accessor[int(i)], dtype=np.float32
+                )
 
         for fn in self.transforms:
             out = fn(out)
