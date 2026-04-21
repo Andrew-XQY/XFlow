@@ -96,6 +96,18 @@ PACKAGE_API = {
             "callback", "build_callbacks_from_config"
         ),
     },
+    "evaluation": {
+        "EvalBatch": APIItem("runner", "EvalBatch"),
+        "EvalContext": APIItem("runner", "EvalContext"),
+        "EvalHook": APIItem("runner", "EvalHook"),
+        "BaseEvalHook": APIItem("runner", "BaseEvalHook"),
+        "TqdmHook": APIItem("runner", "TqdmHook"),
+        "InMemoryCollector": APIItem("runner", "InMemoryCollector"),
+        "default_unpack_batch": APIItem("runner", "default_unpack_batch"),
+        "default_forward": APIItem("runner", "default_forward"),
+        "slice_sample": APIItem("runner", "slice_sample"),
+        "run_evaluation": APIItem("runner", "run_evaluation"),
+    },
     "utils": {
         "ConfigManager": APIItem("config", "ConfigManager"),
         "plot_image": APIItem("visualization", "plot_image"),
