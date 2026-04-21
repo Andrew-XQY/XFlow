@@ -108,6 +108,12 @@ ModelLike: TypeAlias = Union[
     "Any",  # Any other custom model type
 ]
 
+# Device identifiers used by backend-specific runners
+DeviceLike: TypeAlias = Union[
+    str,
+    "torch.device",  # PyTorch device object
+]
+
 # Model-related types
 Metrics: TypeAlias = Dict[str, Union[float, int, "np.floating", "np.integer"]]
 Batch: TypeAlias = Tuple[Any, Any]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import time
 from dataclasses import dataclass, field
 from typing import (
@@ -14,8 +15,16 @@ from typing import (
     Union,
 )
 
-import torch
-from torch.utils._pytree import tree_map
+from ..utils.typing import DeviceLike, ModelLike
+
+
+def _get_torch():
+    try:
+        return importlib.import_module("torch")
+    except Exception as exc:
+        raise ImportError(
+            "xflow.evaluation.runner requires PyTorch at runtime. Install xflow-py[ml_torch] or torch."
+        ) from exc
 
 
 # ----------------------------
@@ -53,8 +62,8 @@ class EvalContext:
     - set `stop = True` to halt before the next batch
     """
 
-    model: torch.nn.Module
-    device: torch.device
+    model: ModelLike
+    device: DeviceLike
     total_batches: Optional[int] = None
     started_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
@@ -121,7 +130,7 @@ def default_unpack_batch(raw: Any) -> Unpacked:
     raise TypeError(f"Unsupported batch type: {type(raw).__name__}")
 
 
-def default_forward(model: torch.nn.Module, inputs: Any) -> Any:
+def default_forward(model: ModelLike, inputs: Any) -> Any:
     if isinstance(inputs, Mapping):
         return model(**inputs)
     if isinstance(inputs, (tuple, list)):
@@ -132,18 +141,31 @@ def default_forward(model: torch.nn.Module, inputs: Any) -> Any:
 # ----------------------------
 # Small tensor utilities
 # ----------------------------
-def _to_device(value: Any, device: torch.device) -> Any:
-    return tree_map(lambda t: t.to(device) if isinstance(t, torch.Tensor) else t, value)
+def _tree_map(fn: Callable[[Any], Any], x: Any) -> Any:
+    torch = _get_torch()
+    if isinstance(x, torch.Tensor):
+        return fn(x)
+    if isinstance(x, dict):
+        return {k: _tree_map(fn, v) for k, v in x.items()}
+    if isinstance(x, tuple):
+        mapped = [_tree_map(fn, v) for v in x]
+        return type(x)(*mapped) if hasattr(x, "_fields") else type(x)(mapped)
+    if isinstance(x, list):
+        return [_tree_map(fn, v) for v in x]
+    return x
+
+
+def _to_device(value: Any, device: DeviceLike) -> Any:
+    return _tree_map(lambda tensor: tensor.to(device), value)
 
 
 def _detach_cpu(value: Any) -> Any:
-    return tree_map(
-        lambda t: t.detach().cpu() if isinstance(t, torch.Tensor) else t, value
-    )
+    return _tree_map(lambda tensor: tensor.detach().cpu(), value)
 
 
 def _batch_size_from_inputs(inputs: Any) -> int:
     """Infer batch size from inputs only. Assumption: first tensor's dim 0 is batch."""
+    torch = _get_torch()
     if isinstance(inputs, torch.Tensor):
         return 1 if inputs.ndim == 0 else int(inputs.shape[0])
     if isinstance(inputs, Mapping):
@@ -163,52 +185,54 @@ def slice_sample(value: Any, i: int) -> Any:
     Exposed because hooks commonly need it.
     """
 
+    torch = _get_torch()
+
     def pick(t):
         if isinstance(t, torch.Tensor):
             return t if t.ndim == 0 else t[i]
         return t
 
-    return tree_map(pick, value)
+    return _tree_map(pick, value)
 
 
 # ----------------------------
 # Core runner
 # ----------------------------
 def run_evaluation(
-    model: torch.nn.Module,
+    model: ModelLike,
     dataset: Iterable[Any],
-    device: Union[str, torch.device],
+    device: DeviceLike,
     hooks: Optional[Sequence[EvalHook]] = None,
     unpack_batch: Callable[[Any], Unpacked] = default_unpack_batch,
-    forward_fn: Callable[[torch.nn.Module, Any], Any] = default_forward,
+    forward_fn: Callable[[ModelLike, Any], Any] = default_forward,
     max_batches: Optional[int] = None,
     strict_hook_errors: bool = True,
 ) -> EvalContext:
     """
-    Minimal evaluation/inference workflow.
+    Run a simple model inference/evaluation loop.
 
-    Batch contract:
-    - `{"inputs": ..., "targets": ..., "metadata": ...}`
+    Use this when you already have:
+    - a model
+    - an iterable dataset or dataloader
+    - optional hooks for progress, saving, metrics, or custom post-processing
+
+    Accepted batch shapes by default:
+    - `{"inputs": x, "targets": y, "metadata": meta}`
     - `(x,)`
     - `(x, y)`
 
-    Hook contract:
-    - `on_start(ctx)`
-    - `on_batch(ctx, batch)`
-    - `on_end(ctx)`
+    Hooks receive:
+    - `ctx`: run-level state such as device, counters, and stop flag
+    - `batch`: one batch with `inputs`, `predictions`, optional `targets`, and metadata
 
-    Example:
+    Typical usage:
+    - `ctx = run_evaluation(model, loader, "cuda")`
     - `ctx = run_evaluation(model, loader, "cuda", hooks=[TqdmHook(), InMemoryCollector()])`
 
-    Responsibilities:
-    - set eval mode, move model to device, restore training mode on exit
-    - iterate batches, unpack, forward, build EvalBatch
-    - fire hooks
-    - track basic stats
-
-    Non-responsibilities (use a hook):
-    - progress bars, saving, metrics, plotting, domain-specific extraction
+    For custom batch formats, pass your own `unpack_batch`.
+    For custom model calls, pass your own `forward_fn`.
     """
+    torch = _get_torch()
     hooks = list(hooks or [])
     device = torch.device(device)
     total_batches = len(dataset) if hasattr(dataset, "__len__") else None  # type: ignore[arg-type]
@@ -280,8 +304,7 @@ class TqdmHook(BaseEvalHook):
 
     def on_start(self, ctx: EvalContext) -> None:
         try:
-            from tqdm.auto import tqdm
-
+            tqdm = importlib.import_module("tqdm.auto").tqdm
             self._bar = tqdm(total=ctx.total_batches, desc=self.desc, unit=self.unit)
         except Exception:
             self._bar = None
