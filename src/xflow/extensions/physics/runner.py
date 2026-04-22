@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import importlib
 import os
-from typing import Callable
+from typing import Callable, Dict, List, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 
@@ -15,6 +17,38 @@ from ...evaluation.runner import (
     slice_sample,
 )
 from ...utils.typing import TensorLike
+from .beam import extract_beam_parameters
+
+# Beam parameter CSV contract shared by all hook internals.
+BEAM_PARAM_KEYS: Tuple[str, ...] = (
+    "h_centroid",
+    "v_centroid",
+    "h_width",
+    "v_width",
+)
+BEAM_PARAM_SOURCES: Tuple[str, ...] = ("label", "reconstructed")
+BEAM_PARAM_INDEX_COLUMNS: Tuple[str, ...] = (
+    "batch_index",
+    "sample_index",
+    "global_sample_index",
+)
+
+
+def _beam_parameter_columns_for_source(
+    source: str, methods: Sequence[str]
+) -> List[str]:
+    columns: List[str] = []
+    for method in methods:
+        for key in BEAM_PARAM_KEYS:
+            columns.append(f"{source}_{method}_{key}")
+    return columns
+
+
+def _beam_parameter_csv_columns(methods: Sequence[str]) -> List[str]:
+    columns = list(BEAM_PARAM_INDEX_COLUMNS)
+    for source in BEAM_PARAM_SOURCES:
+        columns.extend(_beam_parameter_columns_for_source(source, methods))
+    return columns
 
 
 class BeamParamHook(BaseEvalHook):
@@ -39,6 +73,153 @@ class BeamParamHook(BaseEvalHook):
             if batch.targets is not None:
                 row["gt"] = self.extractor(slice_sample(batch.targets, i))
             self.rows.append(row)
+
+
+class BeamParamCSVHook(BaseEvalHook):
+    """
+    Save per-sample transverse beam parameters to CSV.
+
+    For each sample, this hook extracts four normalized transverse parameters
+    (h_centroid, v_centroid, h_width, v_width) using both "moments" and
+    "gaussian" methods from both:
+    - reconstructed image (model output)
+    - label image (ground truth)
+
+    Total parameter columns per sample: 16.
+    """
+
+    PARAMETER_KEYS: Tuple[str, ...] = BEAM_PARAM_KEYS
+
+    def __init__(
+        self,
+        csv_path: str,
+        methods: Sequence[str] = ("moments", "gaussian"),
+        append: bool = True,
+        flush_every: int = 0,
+    ) -> None:
+        self.csv_path = csv_path
+        self.methods = tuple(methods)
+        self.append = append
+        self.flush_every = int(flush_every)
+
+        self.rows: List[Dict[str, object]] = []
+        self.saved_rows = 0
+        self._global_sample_index = 0
+        self._has_written = False
+
+        self.columns = _beam_parameter_csv_columns(self.methods)
+
+    def _parameter_columns(self, source: str) -> List[str]:
+        return _beam_parameter_columns_for_source(source, self.methods)
+
+    def _read_existing_header(self) -> List[str]:
+        if not os.path.exists(self.csv_path):
+            return []
+
+        with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            return next(reader, [])
+
+    def _empty_parameter_values(self, source: str) -> Dict[str, float]:
+        return {name: float("nan") for name in self._parameter_columns(source)}
+
+    def _extract_parameter_values(
+        self,
+        image: TensorLike,
+        source: str,
+    ) -> Dict[str, float]:
+        values = self._empty_parameter_values(source)
+
+        for method in self.methods:
+            params = extract_beam_parameters(
+                image=image,
+                method=method,
+                as_array=False,
+                normalize=True,
+            )
+
+            if params is None:
+                continue
+
+            for key in self.PARAMETER_KEYS:
+                col = f"{source}_{method}_{key}"
+                if key in params:
+                    values[col] = float(params[key])
+
+        return values
+
+    def _flush_rows(self) -> None:
+        if not self.rows:
+            return
+
+        pd = importlib.import_module("pandas")
+
+        os.makedirs(os.path.dirname(self.csv_path) or ".", exist_ok=True)
+
+        df = pd.DataFrame(self.rows)
+        for col in self.columns:
+            if col not in df.columns:
+                df[col] = float("nan")
+        df = df[self.columns]
+
+        if self._has_written:
+            mode = "a"
+            header = False
+        else:
+            if self.append and os.path.exists(self.csv_path):
+                mode = "a"
+                header = False
+            else:
+                mode = "w"
+                header = True
+
+        df.to_csv(self.csv_path, mode=mode, header=header, index=False)
+
+        self.saved_rows += len(df)
+        self.rows.clear()
+        self._has_written = True
+
+    def on_start(self, ctx: EvalContext) -> None:
+        if not self.append and os.path.exists(self.csv_path):
+            os.remove(self.csv_path)
+
+        if self.append and os.path.exists(self.csv_path):
+            existing_header = self._read_existing_header()
+            if existing_header and existing_header != self.columns:
+                raise ValueError(
+                    "Existing CSV header does not match expected BeamParamCSVHook columns. "
+                    "Use append=False to overwrite or provide a different csv_path."
+                )
+
+    def on_batch(self, ctx: EvalContext, batch: EvalBatch) -> None:
+        if batch.targets is None:
+            raise ValueError("BeamParamCSVHook requires batch.targets.")
+
+        batch_size = _batch_size_from_inputs(batch.inputs)
+
+        for i in range(batch_size):
+            pred_sample = slice_sample(batch.predictions, i)
+            target_sample = slice_sample(batch.targets, i)
+
+            row: Dict[str, object] = {
+                "batch_index": int(batch.index),
+                "sample_index": int(i),
+                "global_sample_index": int(self._global_sample_index),
+            }
+            row.update(self._extract_parameter_values(target_sample, source="label"))
+            row.update(
+                self._extract_parameter_values(pred_sample, source="reconstructed")
+            )
+
+            self.rows.append(row)
+            self._global_sample_index += 1
+
+        if self.flush_every > 0 and len(self.rows) >= self.flush_every:
+            self._flush_rows()
+
+    def on_end(self, ctx: EvalContext) -> None:
+        self._flush_rows()
+        print(f"saved: {self.saved_rows} beam-parameter rows to {self.csv_path}")
 
 
 class TripletSaverHook(BaseEvalHook):
