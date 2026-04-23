@@ -1,10 +1,82 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from typing import Callable, Generator, List, Optional
+from typing import Any, Callable, Generator, Iterable, List, Optional, Union
 
 import numpy as np
 from scipy.stats import beta
+
+PatternSource = Union[Iterable[Any], Callable[[], Iterable[Any]]]
+
+
+def _to_2d_float32(x: Any) -> np.ndarray:
+    """Convert an image-like input to a finite 2D float32 array."""
+    arr = np.asarray(x)
+    arr = np.squeeze(arr)
+
+    if arr.ndim == 3:
+        if arr.shape[-1] in (1, 3, 4):
+            # Channel-last layout: (H, W, C)
+            arr = arr[..., 0] if arr.shape[-1] == 1 else arr[..., :3].mean(axis=-1)
+        elif arr.shape[0] in (1, 3, 4):
+            # Channel-first layout: (C, H, W)
+            arr = arr[0] if arr.shape[0] == 1 else arr[:3].mean(axis=0)
+
+    if arr.ndim != 2:
+        raise ValueError(f"Pattern must be 2D after transforms, got shape {arr.shape}.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("Pattern contains non-finite values.")
+
+    return arr.astype(np.float32, copy=False)
+
+
+def image_pattern_stream(
+    source: PatternSource,
+    *,
+    transforms: Optional[List[Callable[[Any], Any]]] = None,
+    shuffle: bool = True,
+    seed: Optional[int] = None,
+) -> Generator[np.ndarray, None, None]:
+    """Yield an infinite stream of 2D float32 patterns from image inputs.
+
+    This generator is intentionally lightweight and decoupled from pipeline classes.
+    It accepts either:
+      - an iterable of image-like items, or
+      - a callable returning such an iterable (for provider-style sources).
+
+    Each item may be an image directly, or a ``(id, image)`` tuple where only the
+    image component is used.
+
+    Args:
+        source: Iterable source or callable returning an iterable source.
+        transforms: Optional per-item transform callables applied in order.
+        shuffle: If True, reshuffle item order each full pass.
+        seed: Optional RNG seed for deterministic shuffling.
+
+    Yields:
+        2D ``np.float32`` arrays suitable for pattern-provider contracts.
+    """
+    fns = list(transforms or [])
+    items = list(source() if callable(source) else source)
+
+    if not items:
+        raise ValueError("image_pattern_stream source is empty.")
+
+    rng = np.random.default_rng(seed)
+    order = np.arange(len(items), dtype=np.int64)
+
+    while True:
+        if shuffle and len(order) > 1:
+            rng.shuffle(order)
+
+        for i in order:
+            raw = items[int(i)]
+            x = raw[1] if isinstance(raw, tuple) and len(raw) == 2 else raw
+
+            for fn in fns:
+                x = fn(x)
+
+            yield _to_2d_float32(x)
 
 
 class DynamicPatterns:
