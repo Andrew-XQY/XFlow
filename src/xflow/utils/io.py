@@ -1,5 +1,6 @@
 """Input/Output utilities for file operations."""
 
+import re
 import shutil
 import tarfile
 import tempfile
@@ -58,6 +59,35 @@ def create_directory(path: PathLikeStr) -> Path:
 
     dir_path.mkdir(parents=True, exist_ok=True)
     return dir_path
+
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._\-]+")
+
+
+def _safe_filename_stem(value, max_len: int = 120) -> str:
+    """
+    Turn any metadata value into a filesystem-safe filename stem.
+    Returns '' if the result would be empty or useless.
+    """
+    if value is None:
+        return ""
+    try:
+        raw = str(value).strip()
+    except Exception:
+        return ""
+    if not raw:
+        return ""
+
+    # Strip directory prefix and extension; we control the suffix downstream.
+    stem = Path(raw).name
+    stem = Path(stem).stem
+
+    # Replace anything outside [A-Za-z0-9._-] with underscore, trim edges.
+    cleaned = _UNSAFE_FILENAME_CHARS.sub("_", stem).strip("._-")
+
+    if not cleaned:
+        return ""
+    return cleaned[:max_len]
 
 
 def scan_files(

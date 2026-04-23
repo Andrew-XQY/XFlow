@@ -17,6 +17,25 @@ except ImportError:
     TF_AVAILABLE = False
 
 
+@TransformRegistry.register("split_copies")
+def split_copies(tensor: TensorLike, num_copies: int = 2) -> Tuple[TensorLike, ...]:
+    """Split one input into multiple independent deep-copied branches.
+
+    Args:
+        tensor: Input object to duplicate for downstream transforms.
+        num_copies: Number of deep copies to emit.
+
+    Returns:
+        Tuple containing ``num_copies`` deep-copied instances.
+    """
+    import copy
+
+    if num_copies < 1:
+        raise ValueError("num_copies must be >= 1")
+
+    return tuple(copy.deepcopy(tensor) for _ in range(num_copies))
+
+
 @TransformRegistry.register("split_width_with_analysis")
 def split_width_with_analysis(
     image: TensorLike,

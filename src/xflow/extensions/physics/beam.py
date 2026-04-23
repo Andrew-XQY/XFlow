@@ -43,7 +43,7 @@ def extract_beam_parameters(
     try:
         import numpy as np
 
-        # Convert to numpy if needed        
+        # Convert to numpy if needed
         image_np = to_numpy_image(image)
 
         # Background subtraction - subtract minimum pixel value
@@ -96,6 +96,93 @@ def extract_beam_parameters(
         import traceback
 
         logger.warning(f"Beam parameter extraction failed: {e}")
+        logger.warning(
+            f"Image type: {type(image)}, shape: {getattr(image, 'shape', 'unknown')}"
+        )
+        logger.warning(f"Full traceback:\n{traceback.format_exc()}")
+        return None
+
+
+def extract_beam_core_size_parameters(
+    image: TensorLike,
+    threshold_level: float = 0.9,
+    as_array: bool = False,
+    normalize: bool = True,
+) -> Optional[Dict[str, float]]:
+    """Extract core beam size using a thresholded-profile Gaussian sigma.
+
+    The input image is first background-subtracted (minimum pixel value). Horizontal
+    and vertical 1D projections are then computed. For each projection, only the
+    core portion above ``threshold_level * peak`` is used in a Gaussian fit, and the
+    fitted sigma is reported as the core size along that axis.
+
+    This is a common robust practice for non-Gaussian tails or multi-beamlet profiles:
+    tail/halo structure is suppressed by thresholding, while the fit focuses on the
+    high-intensity core region.
+
+    Args:
+        image: 2D tensor representing transverse beam distribution.
+        threshold_level: Fraction of projection peak used to define the core mask.
+            Example: 0.9 keeps samples with intensity >= 90% of the peak.
+        as_array: If True, return [h_core_sigma, v_core_sigma] instead of dict.
+        normalize: If True, normalize sigmas to [0, 1] by image width/height.
+
+    Returns:
+        Dict or list containing core sigmas, or None if extraction fails.
+    """
+    try:
+        import numpy as np
+
+        image_np = to_numpy_image(image)
+
+        # Background subtraction to reduce DC offset before projections.
+        min_val = np.min(image_np)
+        image_bg_sub = image_np - min_val
+
+        h_projection = np.sum(image_bg_sub, axis=0)
+        v_projection = np.sum(image_bg_sub, axis=1)
+
+        threshold = float(max(0.0, min(1.0, threshold_level)))
+        h_sigma = _calculate_core_sigma_gaussian_1d(h_projection, threshold)
+        v_sigma = _calculate_core_sigma_gaussian_1d(v_projection, threshold)
+
+        raw_params = {
+            "h_core_sigma": float(h_sigma),
+            "v_core_sigma": float(v_sigma),
+        }
+
+        if not normalize:
+            if as_array:
+                return [raw_params["h_core_sigma"], raw_params["v_core_sigma"]]
+            return raw_params
+
+        image_shape = image_np.shape
+        if len(image_shape) == 2:
+            height, width = image_shape
+        elif len(image_shape) == 3:
+            height, width, _ = image_shape
+        elif len(image_shape) == 4:
+            _, height, width, _ = image_shape
+        else:
+            logger.warning(f"Unexpected image shape: {image_shape}")
+            return None
+
+        normalized_params = {
+            "h_core_sigma": normalize_to_range(raw_params["h_core_sigma"], 0, width),
+            "v_core_sigma": normalize_to_range(raw_params["v_core_sigma"], 0, height),
+        }
+
+        if as_array:
+            return [
+                normalized_params["h_core_sigma"],
+                normalized_params["v_core_sigma"],
+            ]
+        return normalized_params
+
+    except Exception as e:
+        import traceback
+
+        logger.warning(f"Core beam size extraction failed: {e}")
         logger.warning(
             f"Image type: {type(image)}, shape: {getattr(image, 'shape', 'unknown')}"
         )
@@ -201,6 +288,73 @@ def _get_beam_analysis_function(method: str):
     else:
         logger.warning(f"Unknown method '{method}', falling back to 'moments'")
         return calculate_beam_moments_1d
+
+
+def _calculate_core_sigma_gaussian_1d(
+    projection: TensorLike,
+    threshold_level: float,
+) -> float:
+    """Fit Gaussian sigma on thresholded core samples of a 1D projection."""
+    import numpy as np
+    from scipy.optimize import curve_fit
+
+    if hasattr(projection, "numpy"):
+        proj_np = projection.numpy()
+    else:
+        proj_np = np.asarray(projection)
+
+    total_intensity = float(np.sum(proj_np))
+    if total_intensity <= 0.0:
+        return 0.0
+
+    length = len(proj_np)
+    if length < 3:
+        _, sigma = calculate_beam_moments_1d(proj_np)
+        return float(sigma)
+
+    peak = float(np.max(proj_np))
+    if peak <= 0.0:
+        return 0.0
+
+    core_mask = proj_np >= (float(threshold_level) * peak)
+    if int(np.sum(core_mask)) < 3:
+        # Not enough high-intensity samples; fall back to moments.
+        _, sigma = calculate_beam_moments_1d(proj_np)
+        return float(sigma)
+
+    core_coords = np.where(core_mask)[0].astype(np.float32)
+    core_values = proj_np[core_mask].astype(np.float32)
+
+    def gaussian(x, amplitude, mean, sigma):
+        return amplitude * np.exp(-0.5 * ((x - mean) / sigma) ** 2)
+
+    amp_est = float(np.max(core_values))
+    mean_est = float(np.sum(core_coords * core_values) / np.sum(core_values))
+    sigma_est = float(np.std(core_coords))
+    sigma_est = max(0.2, sigma_est)
+
+    min_sigma = max(0.2, length * 0.001)
+    max_sigma = max(min_sigma * 2.0, length * 0.6)
+
+    try:
+        popt, _ = curve_fit(
+            gaussian,
+            core_coords,
+            core_values,
+            p0=[amp_est, mean_est, sigma_est],
+            maxfev=1500,
+            bounds=(
+                [0.0, 0.0, min_sigma],
+                [np.inf, length - 1.0, max_sigma],
+            ),
+        )
+        sigma = float(popt[2])
+        if not np.isfinite(sigma) or sigma <= 0.0:
+            raise ValueError("Invalid sigma from core Gaussian fit")
+        return sigma
+    except Exception:
+        _, sigma = calculate_beam_moments_1d(np.where(core_mask, proj_np, 0.0))
+        return float(sigma)
 
 
 def calculate_beam_gaussian_1d(projection: TensorLike) -> Tuple[float, float]:
