@@ -302,11 +302,26 @@ def squeeze(image: np.ndarray, axis: Optional[Tuple[int, ...]] = None) -> np.nda
 
 
 @TransformRegistry.register("split_width")
-def split_width(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Split image at width midpoint."""
-    height, width = image.shape[:2]
+def split_width(
+    image: np.ndarray, swap: bool = False, width_dim: int = 1
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Split array at width midpoint along specified dimension.
+
+    Args:
+        image: Input array to split.
+        swap: If True, return (right_half, left_half).
+        width_dim: Dimension to split along. Defaults to 1 for HWC arrays.
+
+    Returns:
+        Tuple of (left_half, right_half) or swapped order if swap=True.
+    """
+    width = image.shape[width_dim]
     mid_point = width // 2
-    return image[:, :mid_point], image[:, mid_point:]
+    left_half, right_half = np.split(image, [mid_point], axis=width_dim)
+
+    if swap:
+        return right_half, left_half
+    return left_half, right_half
 
 
 @TransformRegistry.register("join_image")
@@ -525,15 +540,16 @@ def tf_to_grayscale(image: TensorLike) -> TensorLike:
 
 @TransformRegistry.register("tf_split_width")
 def tf_split_width(
-    image: TensorLike, swap: bool = False
+    image: TensorLike, swap: bool = False, width_dim: int = 1
 ) -> Tuple[TensorLike, TensorLike]:
-    """Split image at width midpoint using TensorFlow."""
+    """Split tensor at width midpoint using TensorFlow."""
     import tensorflow as tf
 
-    width = tf.shape(image)[1]
+    width = tf.shape(image)[width_dim]
     mid_point = width // 2
-    left_half = image[:, :mid_point]
-    right_half = image[:, mid_point:]
+    left_half, right_half = tf.split(
+        image, [mid_point, width - mid_point], axis=width_dim
+    )
 
     if swap:
         return right_half, left_half
@@ -1103,6 +1119,46 @@ def torch_clip_below_zero(tensor: TensorLike) -> TensorLike:
         return torch.clamp_min(tensor, 0)
     except ImportError:
         raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("threshold")
+@TransformRegistry.register("narray_threshold")
+def threshold(
+    image: np.ndarray,
+    threshold: float = 5.0,
+    threshold_value: float = 0.0,
+    threshold_mode: str = "below",
+) -> np.ndarray:
+    """Apply thresholding with selectable mode and replacement value (NumPy).
+
+    Args:
+        image: Input array.
+        threshold: Threshold value.
+        threshold_value: Replacement value for entries selected by threshold_mode.
+        threshold_mode: One of {"below", "below_equal", "above", "above_equal"}.
+            - "below": replace values < threshold
+            - "below_equal": replace values <= threshold
+            - "above": replace values > threshold
+            - "above_equal": replace values >= threshold
+    """
+    arr = np.asarray(image)
+    mode = str(threshold_mode).lower()
+
+    if mode == "below":
+        mask = arr < threshold
+    elif mode == "below_equal":
+        mask = arr <= threshold
+    elif mode == "above":
+        mask = arr > threshold
+    elif mode == "above_equal":
+        mask = arr >= threshold
+    else:
+        raise ValueError(
+            "threshold_mode must be one of {'below', 'below_equal', 'above', 'above_equal'}"
+        )
+
+    fill = np.asarray(threshold_value, dtype=arr.dtype)
+    return np.where(mask, fill, arr)
 
 
 @TransformRegistry.register("torch_threshold")

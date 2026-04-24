@@ -1,7 +1,7 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generator, Iterable, List, Optional, Union
+from typing import Any, Callable, Generator, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
 from scipy.stats import beta
@@ -77,6 +77,83 @@ def image_pattern_stream(
                 x = fn(x)
 
             yield _to_2d_float32(x)
+
+
+def weighted_stream(
+    sources: Sequence[PatternSource],
+    *,
+    probabilities: Optional[Sequence[float]] = None,
+    seed: Optional[int] = None,
+) -> Generator[Any, None, None]:
+    """Yield items by sampling from multiple sources using source probabilities.
+
+    This utility is intentionally source-agnostic: each source can be an iterable
+    or a callable returning an iterable. It is suitable for mixing any stream-like
+    outputs that share a downstream contract.
+
+    Args:
+        sources: Sequence of source iterables or source callables.
+        probabilities: Optional non-negative sampling weights per source.
+            If None, sources are sampled uniformly.
+        seed: Optional RNG seed for deterministic source selection.
+
+    Yields:
+        Items from selected source iterators.
+
+    Raises:
+        ValueError: If sources/weights are invalid.
+        RuntimeError: If a selected source is exhausted.
+        TypeError: If a source is not iterable.
+    """
+    if not sources:
+        raise ValueError("weighted_stream requires at least one source.")
+
+    n_sources = len(sources)
+
+    if probabilities is None:
+        probs = np.full(n_sources, 1.0 / n_sources, dtype=np.float64)
+    else:
+        if len(probabilities) != n_sources:
+            raise ValueError(
+                "probabilities length must match number of sources: "
+                f"got {len(probabilities)} vs {n_sources}."
+            )
+
+        probs = np.asarray(probabilities, dtype=np.float64)
+        if np.any(~np.isfinite(probs)):
+            raise ValueError("probabilities must be finite numbers.")
+        if np.any(probs < 0.0):
+            raise ValueError("probabilities must be >= 0.")
+
+        total = float(np.sum(probs))
+        if total <= 0.0:
+            raise ValueError("probabilities must sum to a value > 0.")
+        probs = probs / total
+
+    iterators = []
+    for idx, src in enumerate(sources):
+        resolved = src() if callable(src) else src
+        if not hasattr(resolved, "__iter__"):
+            raise TypeError(
+                f"Source at index {idx} is not iterable: {type(resolved)!r}."
+            )
+        iterators.append(iter(resolved))
+
+    rng = np.random.default_rng(seed)
+
+    while True:
+        src_idx = int(rng.choice(n_sources, p=probs))
+        try:
+            yield next(iterators[src_idx])
+        except StopIteration as e:
+            raise RuntimeError(
+                f"Source at index {src_idx} is exhausted. "
+                "Ensure each source is infinite or restartable for weighted_stream."
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"Source at index {src_idx} failed while producing an item: {e}"
+            ) from e
 
 
 class DynamicPatterns:
