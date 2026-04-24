@@ -91,6 +91,16 @@ SampleValidator = Callable[
 # Coordinate convention: top-left is (0, 0), bottom-right is (1, 1).
 BasisPositionExtractor = Callable[[Any, Any], Tuple[float, float]]
 
+# Intensity scaling contract for map-driven combinators:
+#   - float: fixed scale
+#   - (min, max): per-sample uniform random scale
+#   - callable: (coeff_map, rng) -> scale
+IntensityScaleSpec = Union[
+    float,
+    Tuple[float, float],
+    Callable[[np.ndarray, np.random.Generator], float],
+]
+
 
 class BasisAccessor:
     """Interface for combinators to request basis items by index."""
@@ -730,6 +740,31 @@ def _squeeze_2d(x: Any) -> np.ndarray:
     return x
 
 
+def _resolve_intensity_scale(
+    spec: IntensityScaleSpec,
+    coeff_map: np.ndarray,
+    rng: np.random.Generator,
+) -> float:
+    """Resolve per-sample global intensity scale for map coefficients."""
+    if callable(spec):
+        scale = float(spec(coeff_map, rng))
+    elif isinstance(spec, tuple):
+        if len(spec) != 2:
+            raise ValueError(f"intensity_scale tuple must be (min, max), got {spec!r}")
+        lo, hi = float(spec[0]), float(spec[1])
+        if lo <= 0.0 or hi <= 0.0 or lo > hi:
+            raise ValueError(
+                f"Invalid intensity_scale range {spec!r}; expected 0 < min <= max."
+            )
+        scale = float(rng.uniform(lo, hi))
+    else:
+        scale = float(spec)
+
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError(f"Intensity scale must be finite and > 0, got {scale}.")
+    return scale
+
+
 def make_centroid_position_extractor(
     *,
     method: str = "first_moment",
@@ -806,6 +841,8 @@ class IndexCombinator(Combinator):
         *,
         skip_zero: bool = True,
         eps: float = 0.0,
+        intensity_scale: IntensityScaleSpec = 1.0,
+        clip_output: Tuple[float, float] = (0.0, 1.0),
         transforms: Optional[
             List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
         ] = None,
@@ -819,6 +856,8 @@ class IndexCombinator(Combinator):
 
         self.skip_zero = skip_zero
         self.eps = eps
+        self.intensity_scale = intensity_scale
+        self.clip_output = clip_output
 
         self.transforms = [
             (
@@ -829,6 +868,7 @@ class IndexCombinator(Combinator):
             for fn in (transforms or [])
         ]
         self.last_coeff_map: Optional[np.ndarray] = None
+        self.last_intensity_scale: float = 1.0
 
     def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
         # Get coefficient map and flatten to 1D
@@ -836,20 +876,23 @@ class IndexCombinator(Combinator):
             np.float32, copy=False
         )
         self.last_coeff_map = coeff_map
-        coeffs = coeff_map.ravel()
+        raw_coeffs = coeff_map.ravel()
+        scale = _resolve_intensity_scale(self.intensity_scale, coeff_map, rng)
+        self.last_intensity_scale = scale
+        coeffs = raw_coeffs * scale
 
-        if len(accessor) < coeffs.size:
+        if len(accessor) < raw_coeffs.size:
             raise ValueError(
-                f"Need {coeffs.size} basis items for map shape {coeff_map.shape}, "
+                f"Need {raw_coeffs.size} basis items for map shape {coeff_map.shape}, "
                 f"but only {len(accessor)} available."
             )
 
         # Figure out which coefficients are active
         if self.skip_zero:
-            mask = np.abs(coeffs) > self.eps if self.eps > 0 else coeffs != 0
+            mask = np.abs(raw_coeffs) > self.eps if self.eps > 0 else raw_coeffs != 0
             active = np.flatnonzero(mask)
         else:
-            active = np.arange(coeffs.size)
+            active = np.arange(raw_coeffs.size)
 
         sample0 = accessor[0]
         is_multi = isinstance(sample0, (tuple, list))
@@ -887,14 +930,18 @@ class IndexCombinator(Combinator):
         for fn in self.transforms:
             out = fn(out)
 
+        lo, hi = self.clip_output
         if is_multi:
             if not isinstance(out, (tuple, list)):
                 raise ValueError(
                     "transforms must return tuple/list for multi-component samples"
                 )
-            out = tuple(np.asarray(component, dtype=np.float32) for component in out)
+            out = tuple(
+                np.clip(np.asarray(component, dtype=np.float32), lo, hi)
+                for component in out
+            )
         else:
-            out = np.asarray(out, dtype=np.float32)
+            out = np.clip(np.asarray(out, dtype=np.float32), lo, hi)
 
         self._last_record = CombinationRecord(indices=used_idx, coefficients=used_coef)
         return out
@@ -933,6 +980,8 @@ class SpatialNearestCombinator(Combinator):
         eps: float = 0.0,
         jitter_mode: str = "none",
         jitter_alpha: float = 0.0,
+        intensity_scale: IntensityScaleSpec = 1.0,
+        clip_output: Tuple[float, float] = (0.0, 1.0),
         transforms: Optional[
             List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
         ] = None,
@@ -956,6 +1005,8 @@ class SpatialNearestCombinator(Combinator):
             raise ValueError(f"jitter_alpha must be in [0, 1], got {jitter_alpha}.")
         self.jitter_mode = mode
         self.jitter_alpha = float(jitter_alpha)
+        self.intensity_scale = intensity_scale
+        self.clip_output = clip_output
         self.transforms = [
             (
                 fn
@@ -966,6 +1017,7 @@ class SpatialNearestCombinator(Combinator):
         ]
 
         self.last_coeff_map: Optional[np.ndarray] = None
+        self.last_intensity_scale: float = 1.0
         self._basis_positions: Optional[np.ndarray] = None
         self._nearest_cache: Dict[Tuple[int, int], np.ndarray] = {}
 
@@ -1048,7 +1100,10 @@ class SpatialNearestCombinator(Combinator):
             np.float32, copy=False
         )
         self.last_coeff_map = coeff_map
-        coeffs = coeff_map.ravel()
+        raw_coeffs = coeff_map.ravel()
+        scale = _resolve_intensity_scale(self.intensity_scale, coeff_map, rng)
+        self.last_intensity_scale = scale
+        coeffs = raw_coeffs * scale
 
         if self._basis_positions is None:
             raise RuntimeError(
@@ -1071,10 +1126,10 @@ class SpatialNearestCombinator(Combinator):
             )
 
         if self.skip_zero:
-            mask = np.abs(coeffs) > self.eps if self.eps > 0 else coeffs != 0
+            mask = np.abs(raw_coeffs) > self.eps if self.eps > 0 else raw_coeffs != 0
             active = np.flatnonzero(mask)
         else:
-            active = np.arange(coeffs.size)
+            active = np.arange(raw_coeffs.size)
 
         weights = np.zeros(len(accessor), dtype=np.float32)
         if active.size > 0:
@@ -1109,14 +1164,18 @@ class SpatialNearestCombinator(Combinator):
         for fn in self.transforms:
             out = fn(out)
 
+        lo, hi = self.clip_output
         if is_multi:
             if not isinstance(out, (tuple, list)):
                 raise ValueError(
                     "transforms must return tuple/list for multi-component samples"
                 )
-            out = tuple(np.asarray(component, dtype=np.float32) for component in out)
+            out = tuple(
+                np.clip(np.asarray(component, dtype=np.float32), lo, hi)
+                for component in out
+            )
         else:
-            out = np.asarray(out, dtype=np.float32)
+            out = np.clip(np.asarray(out, dtype=np.float32), lo, hi)
 
         self._last_record = CombinationRecord(
             indices=[int(i) for i in used_idx.tolist()],
