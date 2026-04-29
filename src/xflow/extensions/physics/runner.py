@@ -8,6 +8,7 @@ import os
 from typing import Callable, Dict, List, Sequence, Tuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from ...evaluation.runner import (
     BaseEvalHook,
@@ -288,6 +289,23 @@ class BeamParamCSVHook(BaseEvalHook):
                     "Use append=False to overwrite or provide a different csv_path."
                 )
 
+    def _compute_prediction_row(
+        self,
+        pred_sample: TensorLike,
+        target_sample: TensorLike,
+    ) -> Dict[str, float]:
+        """Build the prediction half of a row. Override to swap in a baseline."""
+        row: Dict[str, float] = {}
+        row.update(self._extract_parameter_values(pred_sample, source="reconstructed"))
+        row.update(self._extract_core_size_values(pred_sample, source="reconstructed"))
+        row.update(
+            self._extract_image_distance_values(
+                reconstructed=pred_sample,
+                label=target_sample,
+            )
+        )
+        return row
+
     def on_batch(self, ctx: EvalContext, batch: EvalBatch) -> None:
         if batch.targets is None:
             raise ValueError("BeamParamCSVHook requires batch.targets.")
@@ -306,18 +324,7 @@ class BeamParamCSVHook(BaseEvalHook):
             }
             row.update(self._extract_parameter_values(target_sample, source="label"))
             row.update(self._extract_core_size_values(target_sample, source="label"))
-            row.update(
-                self._extract_parameter_values(pred_sample, source="reconstructed")
-            )
-            row.update(
-                self._extract_core_size_values(pred_sample, source="reconstructed")
-            )
-            row.update(
-                self._extract_image_distance_values(
-                    reconstructed=pred_sample,
-                    label=target_sample,
-                )
-            )
+            row.update(self._compute_prediction_row(pred_sample, target_sample))
 
             self.rows.append(row)
             self._global_sample_index += 1
@@ -328,6 +335,39 @@ class BeamParamCSVHook(BaseEvalHook):
     def on_end(self, ctx: EvalContext) -> None:
         self._flush_rows()
         print(f"saved: {self.saved_rows} beam-parameter rows to {self.csv_path}")
+
+
+class RandomBeamParamCSVHook(BeamParamCSVHook):
+    """
+    Uninformed reference baseline: predictions are uniform random in
+    `value_range`, ignoring `batch.predictions` entirely. Image-distance
+    columns are NaN since no reconstructed image exists.
+    """
+
+    def __init__(
+        self,
+        *args,
+        seed: int = 0,
+        value_range: Tuple[float, float] = (0.0, 1.0),
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.rng = np.random.default_rng(seed)
+        self.low, self.high = value_range
+
+    def _compute_prediction_row(
+        self,
+        pred_sample: TensorLike,
+        target_sample: TensorLike,
+    ) -> Dict[str, float]:
+        row: Dict[str, float] = {}
+        for col in self._parameter_columns("reconstructed"):
+            row[col] = float(self.rng.uniform(self.low, self.high))
+        for col in self._core_size_columns("reconstructed"):
+            row[col] = float(self.rng.uniform(self.low, self.high))
+        for key in self.IMAGE_DISTANCE_KEYS:
+            row[key] = float("nan")
+        return row
 
 
 class TripletSaverHook(BaseEvalHook):
