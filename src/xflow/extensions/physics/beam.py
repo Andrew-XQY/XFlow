@@ -1,7 +1,7 @@
 """Beam diagnostics utilities for transverse beam parameter extraction."""
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from ...utils.typing import TensorLike
 from ...utils.visualization import to_numpy_image
@@ -29,16 +29,20 @@ def extract_beam_parameters(
     method: str = "gaussian",
     as_array: bool = True,
     normalize: bool = True,
-) -> Optional[Dict[str, float]]:
+) -> Optional[Union[Dict[str, float], List[float]]]:
     """Extract normalized transverse beam parameters from beam distribution image.
 
     Args:
-        image: 2D tensor representing transverse beam distribution
-        method: Analysis method to use ("moments", "gaussian", etc.)
-        as_array: If True, return parameters as a list [h_centroid, h_width, v_centroid, v_width] instead of dict.
+        image: 2D tensor representing transverse beam distribution.
+        method: Analysis method to use ("moments", "gaussian", etc.).
+        as_array: If True, return parameters as a list
+            [h_centroid, v_centroid, h_width, v_width] instead of a dict.
+        normalize: If True, return normalized values. If False, return raw
+            pixel-unit values in the same order.
 
     Returns:
-        Dictionary or list of normalized beam parameters (0-1 range), or None if extraction fails.
+        Dict or list of beam parameters, or None if extraction fails or the
+        extracted parameters are considered invalid.
     """
     try:
         import numpy as np
