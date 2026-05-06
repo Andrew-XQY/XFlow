@@ -4,6 +4,7 @@ import itertools
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Union
 
 import numpy as np
@@ -272,6 +273,200 @@ class InMemoryPipeline(BasePipeline):
                         torch_dataset, dataset_ops
                     )
                 return torch_dataset
+            except ImportError:
+                raise RuntimeError("PyTorch not available")
+        else:
+            raise NotImplementedError(f"Framework {framework} not implemented")
+
+
+def _default_key_fn(raw_item: Any, idx: int) -> str:
+    """Derive a key from a raw item.
+
+    Uses ``Path(raw_item).stem`` when the item looks path-like (str or Path),
+    otherwise falls back to the integer index rendered as a string.
+    """
+    if isinstance(raw_item, (str, Path)):
+        return Path(raw_item).stem
+    return str(idx)
+
+
+def _default_meta_fn(raw_item: Any, idx: int) -> Dict[str, Any]:
+    """Default per-sample metadata: original raw item and its position."""
+    return {"raw": raw_item, "index": idx}
+
+
+class KeyedPipeline(BasePipeline):
+    """In-memory pipeline with key-based random access.
+
+    Behaves like :class:`InMemoryPipeline` (eager preprocessing, all results
+    held in memory) but additionally stores each preprocessed sample under a
+    user-supplied string key alongside an optional per-sample metadata dict.
+    Useful for inspection, evaluation, and reproducibility workflows where you
+    need to look up specific samples by name rather than by position.
+
+    Args:
+        data_provider: DataProvider yielding raw data items.
+        transforms: Sequential transforms applied to each item.
+        key_fn: Callable ``(raw_item, idx) -> str`` returning a unique key per
+            sample. Defaults to ``Path(raw_item).stem`` for path-like items,
+            otherwise ``str(idx)``. Duplicate keys raise ``ValueError``.
+        meta_fn: Callable ``(raw_item, idx) -> dict`` returning per-sample
+            metadata. Defaults to ``{"raw": raw_item, "index": idx}``.
+        seed: See :class:`BasePipeline`.
+        pre_transform_hook: See :class:`BasePipeline`.
+        post_transform_hook: See :class:`BasePipeline`.
+        logger: See :class:`BasePipeline`.
+        skip_errors: See :class:`BasePipeline`.
+
+    Attributes:
+        data: ``Dict[str, Any]`` mapping key -> preprocessed sample.
+        meta: ``Dict[str, Dict[str, Any]]`` mapping key -> metadata dict.
+
+    Example:
+        >>> import numpy as np
+        >>> from xflow.data import FileProvider, KeyedPipeline
+        >>> provider = FileProvider("data/", extensions=[".csv"])
+        >>> pipeline = KeyedPipeline(provider, transforms=[np.loadtxt])
+        >>> pipeline["sample_001"]          # preprocessed array
+        >>> pipeline.get_meta("sample_001") # {"raw": Path(...), "index": 0}
+        >>> for x in pipeline: ...          # iterate values, like other pipelines
+
+    Raises:
+        ValueError: If ``key_fn`` produces a duplicate key.
+    """
+
+    def __init__(
+        self,
+        data_provider: DataProvider,
+        transforms: Optional[List[Union[Callable[[Any], Any], Transform]]] = None,
+        *,
+        key_fn: Optional[Callable[[Any, int], str]] = None,
+        meta_fn: Optional[Callable[[Any, int], Dict[str, Any]]] = None,
+        seed: Optional[int] = None,
+        pre_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+        post_transform_hook: Optional[Callable[[Any, Any], Any]] = None,
+        logger: Optional[logging.Logger] = None,
+        skip_errors: bool = True,
+    ) -> None:
+        super().__init__(
+            data_provider,
+            transforms,
+            seed=seed,
+            pre_transform_hook=pre_transform_hook,
+            post_transform_hook=post_transform_hook,
+            logger=logger,
+            skip_errors=skip_errors,
+        )
+        self._key_fn = key_fn or _default_key_fn
+        self._meta_fn = meta_fn or _default_meta_fn
+        self.data: Dict[str, Any] = {}
+        self.meta: Dict[str, Dict[str, Any]] = {}
+        self._build()
+        self.in_memory_sample_count = len(self.data)
+
+    def _build(self) -> None:
+        """Iterate the provider once, populating ``self.data`` and ``self.meta``."""
+        for idx, raw_item in enumerate(self.data_provider()):
+            key = self._key_fn(raw_item, idx)
+            if key in self.data:
+                raise ValueError(
+                    f"Duplicate key {key!r} produced at index {idx}; keys must be unique."
+                )
+            current_transform: Optional[Transform] = None
+            try:
+                item = raw_item
+                if self._pre_transform_hook is not None:
+                    item = self._pre_transform_hook(item, idx)
+                for fn in self.transforms:
+                    current_transform = fn
+                    item = fn(item)
+                if self._post_transform_hook is not None:
+                    item = self._post_transform_hook(item, idx)
+                if item is None:
+                    self.error_count += 1
+                    self.logger.warning(
+                        "Preprocessed item is None for key %r, skipping.", key
+                    )
+                    continue
+                self.data[key] = item
+                self.meta[key] = self._meta_fn(raw_item, idx)
+            except Exception as e:
+                self.error_count += 1
+                tname = (
+                    getattr(current_transform, "name", repr(current_transform))
+                    if current_transform is not None
+                    else None
+                )
+                self.logger.warning(
+                    "Failed to preprocess key %r in transform %r: %s", key, tname, e
+                )
+                if not self.skip_errors:
+                    raise
+
+    def __iter__(self) -> Iterator[Any]:
+        """Iterate preprocessed values in insertion (provider) order."""
+        return iter(self.data.values())
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, key: Union[str, int]) -> Any:
+        """Return a preprocessed sample by string key or integer position."""
+        if isinstance(key, int):
+            try:
+                key = next(itertools.islice(self.data.keys(), key, key + 1))
+            except StopIteration:
+                raise IndexError(f"Index {key} out of range") from None
+        return self.data[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.data
+
+    def keys(self):
+        """Return a view of sample keys in insertion order."""
+        return self.data.keys()
+
+    def items(self):
+        """Return a view of ``(key, sample)`` pairs in insertion order."""
+        return self.data.items()
+
+    def get_meta(self, key: str) -> Dict[str, Any]:
+        """Return the metadata dict associated with ``key``."""
+        return self.meta[key]
+
+    def to_framework_dataset(
+        self, framework: str = "tensorflow", dataset_ops: List[Dict] = None
+    ) -> Any:
+        """Convert preprocessed values to a framework-native dataset.
+
+        Note: keys and metadata are dropped in the conversion; the resulting
+        dataset is positional. Use the keyed API directly for lookup workflows.
+        """
+        values = list(self.data.values())
+        if framework.lower() == "tensorflow":
+            try:
+                import tensorflow as tf
+
+                dataset = tf.data.Dataset.from_tensor_slices(values)
+                if dataset_ops:
+                    from .transform import apply_dataset_operations_from_config
+
+                    dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
+                return dataset
+            except ImportError:
+                raise RuntimeError("TensorFlow not available")
+        elif framework.lower() in ("pytorch", "torch"):
+            try:
+                import torch
+                from torch.utils.data import TensorDataset
+
+                from .transform import apply_dataset_operations_from_config
+
+                stacked = torch.stack([torch.as_tensor(v) for v in values])
+                dataset = TensorDataset(stacked)
+                if dataset_ops:
+                    dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
+                return dataset
             except ImportError:
                 raise RuntimeError("PyTorch not available")
         else:

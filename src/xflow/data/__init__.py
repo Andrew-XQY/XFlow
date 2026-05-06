@@ -8,6 +8,7 @@ from .pipeline import (
     BasePipeline,
     DataPipeline,
     InMemoryPipeline,
+    KeyedPipeline,
     PyTorchPipeline,
     TensorFlowPipeline,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "DataPipeline",
     "FileProvider",
     "InMemoryPipeline",
+    "KeyedPipeline",
     "Pipeline",
     "PyTorchPipeline",
     "ShufflePipeline",
