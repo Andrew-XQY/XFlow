@@ -408,6 +408,8 @@ class StaticGaussianDistribution(Distribution):
         std_2: float = 0.12,
         max_intensity: float = 10,
         fade_rate: float = 0.5,
+        area_boost_scale: float = 0.25,
+        max_peak_intensity: Optional[float] = None,
         distribution: str = "",
     ) -> None:
         # std sampling (in relative units)
@@ -442,8 +444,21 @@ class StaticGaussianDistribution(Distribution):
         self.intensity = float(np.random.uniform(min_intensity, float(max_intensity)))
 
         if self.intensity > 0:
-            area_scaling = (self._width * self._height) / (self.std_x * self.std_y)
-            self.intensity += float(np.random.uniform(0.0, area_scaling / 4.0))
+            # Smaller spots can have higher peaks for the same charge, but keep
+            # the inverse-area boost tunable so tiny Gaussians do not dominate.
+            boost_scale = max(0.0, float(area_boost_scale))
+            if boost_scale > 0.0:
+                area_scaling = (self._width * self._height) / (
+                    self.std_x * self.std_y
+                )
+                self.intensity += float(
+                    np.random.uniform(0.0, area_scaling * boost_scale)
+                )
+            if max_peak_intensity is not None:
+                peak_cap = float(max_peak_intensity)
+                if peak_cap <= 0:
+                    raise ValueError("max_peak_intensity must be > 0 when set")
+                self.intensity = min(self.intensity, peak_cap)
 
             self.rotation = np.deg2rad(np.random.uniform(0.0, 360.0))
             self.dx = float(np.random.uniform(0.0, self._width / 2.25))
