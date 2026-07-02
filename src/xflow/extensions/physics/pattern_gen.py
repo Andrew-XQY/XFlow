@@ -36,6 +36,7 @@ def image_pattern_stream(
     transforms: Optional[List[Callable[[Any], Any]]] = None,
     shuffle: bool = True,
     seed: Optional[int] = None,
+    cache_transformed: bool = False,
 ) -> Generator[np.ndarray, None, None]:
     """Yield an infinite stream of 2D float32 patterns from image inputs.
 
@@ -52,6 +53,8 @@ def image_pattern_stream(
         transforms: Optional per-item transform callables applied in order.
         shuffle: If True, reshuffle item order each full pass.
         seed: Optional RNG seed for deterministic shuffling.
+        cache_transformed: If True, apply transforms once and reuse the resulting
+            patterns on every pass.
 
     Yields:
         2D ``np.float32`` arrays suitable for pattern-provider contracts.
@@ -65,18 +68,21 @@ def image_pattern_stream(
     rng = np.random.default_rng(seed)
     order = np.arange(len(items), dtype=np.int64)
 
+    def process(raw: Any) -> np.ndarray:
+        x = raw[1] if isinstance(raw, tuple) and len(raw) == 2 else raw
+        for fn in fns:
+            x = fn(x)
+        return _to_2d_float32(x)
+
+    patterns = [process(raw) for raw in items] if cache_transformed else None
+
     while True:
         if shuffle and len(order) > 1:
             rng.shuffle(order)
 
         for i in order:
-            raw = items[int(i)]
-            x = raw[1] if isinstance(raw, tuple) and len(raw) == 2 else raw
-
-            for fn in fns:
-                x = fn(x)
-
-            yield _to_2d_float32(x)
+            idx = int(i)
+            yield patterns[idx] if patterns is not None else process(items[idx])
 
 
 def weighted_stream(

@@ -191,6 +191,93 @@ class TransformRegistry:
         return list(cls._transforms.keys())
 
 
+_MEAN_BACKGROUND_CACHE: Dict[Tuple[str, str, str, bool], np.ndarray] = {}
+
+
+def _resolve_background_paths(background_source: PathLikeStr, camera: str) -> List[Path]:
+    root = Path(background_source).expanduser()
+    db_path = root if root.suffix == ".db" else root / "dataset.db"
+    data_root = db_path.parent if root.suffix == ".db" else root
+
+    if db_path.exists():
+        import sqlite3
+
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT png_path
+                FROM images
+                WHERE camera = ?
+                  AND png_path IS NOT NULL
+                ORDER BY sample_id, frame_index, png_path
+                """,
+                (camera,),
+            ).fetchall()
+        paths = [Path(row[0]) for row in rows]
+        return [p if p.is_absolute() else data_root / p for p in paths]
+
+    return sorted((data_root / camera).glob("*.png"))
+
+
+def _as_background_array(path: Path, grayscale: bool) -> np.ndarray:
+    with Image.open(path) as img:
+        arr = np.array(img, dtype=np.float32)
+    if grayscale and arr.ndim == 3:
+        arr = arr[..., :3].mean(axis=-1)
+    return arr
+
+
+def _mean_background(
+    background_source: PathLikeStr,
+    camera: str,
+    *,
+    method: str = "mean",
+    grayscale: bool = True,
+) -> np.ndarray:
+    if method != "mean":
+        raise ValueError(f"Unsupported background method {method!r}; expected 'mean'.")
+
+    source_key = str(Path(background_source).expanduser().resolve())
+    key = (source_key, camera, method, grayscale)
+    if key in _MEAN_BACKGROUND_CACHE:
+        return _MEAN_BACKGROUND_CACHE[key]
+
+    paths = _resolve_background_paths(background_source, camera)
+    if not paths:
+        raise ValueError(
+            f"No background images found for camera={camera!r} in {background_source!r}."
+        )
+
+    total = None
+    for path in paths:
+        arr = _as_background_array(path, grayscale=grayscale)
+        if total is None:
+            total = np.zeros_like(arr, dtype=np.float32)
+        elif arr.shape != total.shape:
+            raise ValueError(
+                "Background image shape mismatch: "
+                f"{path} has {arr.shape}, expected {total.shape}."
+            )
+        total += arr
+
+    mean = total / float(len(paths))
+    _MEAN_BACKGROUND_CACHE[key] = mean
+    return mean
+
+
+def _match_background_shape(image: np.ndarray, background: np.ndarray) -> np.ndarray:
+    if image.shape == background.shape:
+        return background
+    if image.ndim == 3 and background.ndim == 2 and image.shape[:2] == background.shape:
+        return background[..., np.newaxis]
+    if image.ndim == 3 and background.ndim == 2 and image.shape[-2:] == background.shape:
+        return background[np.newaxis, ...]
+    raise ValueError(
+        "Background shape does not match image shape: "
+        f"image {image.shape}, background {background.shape}."
+    )
+
+
 # Core transforms
 @TransformRegistry.register("load_image")
 def load_image(path: PathLikeStr) -> Image.Image:
@@ -263,6 +350,34 @@ def clip_range(
             f"clip_min must be <= clip_max, got clip_min={clip_min}, clip_max={clip_max}"
         )
     return np.clip(np.asarray(image), clip_min, clip_max)
+
+
+@TransformRegistry.register("subtract_background")
+def subtract_background(
+    image: np.ndarray,
+    background_source: PathLikeStr,
+    camera: str,
+    method: str = "mean",
+    clip_min: Optional[float] = 0.0,
+    clip_max: Optional[float] = None,
+    grayscale: bool = True,
+) -> np.ndarray:
+    """Subtract a cached per-camera mean background image."""
+    arr = np.asarray(image, dtype=np.float32)
+    background = _mean_background(
+        background_source,
+        camera,
+        method=method,
+        grayscale=grayscale,
+    )
+    out = arr - _match_background_shape(arr, background)
+    if clip_min is not None and clip_max is not None:
+        out = np.clip(out, clip_min, clip_max)
+    elif clip_min is not None:
+        out = np.maximum(out, clip_min)
+    elif clip_max is not None:
+        out = np.minimum(out, clip_max)
+    return out.astype(np.float32, copy=False)
 
 
 @TransformRegistry.register("resize")
@@ -1134,6 +1249,46 @@ def torch_subtract_tensor(
             )
 
         return tensor - subtract_tensor
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
+@TransformRegistry.register("torch_subtract_background")
+def torch_subtract_background(
+    tensor: TensorLike,
+    background_source: PathLikeStr,
+    camera: str,
+    method: str = "mean",
+    clip_min: Optional[float] = 0.0,
+    clip_max: Optional[float] = None,
+    grayscale: bool = True,
+) -> TensorLike:
+    """Subtract a cached per-camera mean background image from a tensor."""
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+
+        background = _mean_background(
+            background_source,
+            camera,
+            method=method,
+            grayscale=grayscale,
+        )
+        bg = torch.as_tensor(background, device=tensor.device, dtype=torch.float32)
+        if tensor.dim() == 3 and bg.dim() == 2:
+            bg = bg.unsqueeze(0)
+        if tuple(tensor.shape[-2:]) != tuple(bg.shape[-2:]):
+            raise ValueError(
+                "Background shape does not match tensor shape: "
+                f"tensor {tuple(tensor.shape)}, background {tuple(bg.shape)}."
+            )
+
+        out = tensor.to(torch.float32) - bg
+        if clip_min is not None or clip_max is not None:
+            out = torch.clamp(out, min=clip_min, max=clip_max)
+        return out
     except ImportError:
         raise RuntimeError("Transform failed, please check the source code")
 
