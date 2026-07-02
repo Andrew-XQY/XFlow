@@ -289,6 +289,36 @@ def resize(
     )
 
 
+@TransformRegistry.register("shrink_to_canvas")
+def shrink_to_canvas(
+    image: np.ndarray,
+    scale: float = 1.0,
+    fill: float = 0.0,
+    interpolation: str = "bilinear",
+) -> np.ndarray:
+    """Shrink image content onto a same-size canvas, leaving a constant border."""
+    if not 0.0 < scale <= 1.0:
+        raise ValueError(f"scale must be in (0, 1], got {scale}")
+
+    arr = np.asarray(image)
+    if scale == 1.0:
+        return arr
+
+    height, width = arr.shape[:2]
+    target_height = max(1, int(round(height * scale)))
+    target_width = max(1, int(round(width * scale)))
+
+    shrunk = resize(arr, (target_height, target_width), interpolation=interpolation)
+    if arr.ndim == 3 and shrunk.ndim == 2:
+        shrunk = shrunk[..., np.newaxis]
+
+    canvas = np.full(arr.shape, fill, dtype=arr.dtype)
+    top = (height - target_height) // 2
+    left = (width - target_width) // 2
+    canvas[top : top + target_height, left : left + target_width, ...] = shrunk
+    return canvas
+
+
 @TransformRegistry.register("expand_dims")
 def expand_dims(image: np.ndarray, axis: int = -1) -> np.ndarray:
     """Add a dimension of size 1 at the specified axis."""
