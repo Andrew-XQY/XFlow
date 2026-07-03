@@ -178,6 +178,10 @@ class CachedBasisPipeline(BasePipeline):
         sample_validator: Optional quality gate for generated samples.
                           Signature: (sample, CombinationRecord | None) -> bool | (bool, reason)
         retry_policy: Retry behavior when validation fails (default: skip after 8 retries).
+        generation_batch_size: Generate samples in blocks of this size when the
+                  combinator supports batched generation and no sample_validator
+                  is set (one GEMM per block instead of one GEMV per sample).
+                  Sample values and order are unchanged. Set to 1 to disable.
     """
 
     def __init__(
@@ -195,6 +199,7 @@ class CachedBasisPipeline(BasePipeline):
         basis_position_extractor: Optional[BasisPositionExtractor] = None,
         sample_validator: Optional[SampleValidator] = None,
         retry_policy: Optional[RetryPolicy] = None,
+        generation_batch_size: int = 32,
         **base_kwargs,
     ):
         super().__init__(
@@ -215,6 +220,10 @@ class CachedBasisPipeline(BasePipeline):
         self.retry_policy = retry_policy or RetryPolicy()
         self.accepted_count: int = 0
         self.rejected_count: int = 0
+
+        # Batched generation
+        self.generation_batch_size = max(1, int(generation_batch_size or 1))
+        self._batch_buffer: List[Any] = []
 
         # Cached state
         self._basis: Optional[List[Any]] = None
@@ -393,6 +402,30 @@ class CachedBasisPipeline(BasePipeline):
             f"Sample validation failed after {self.retry_policy.max_retries + 1} attempts."
         )
 
+    def _next_sample(self, accessor: BasisAccessor) -> Optional[Any]:
+        """Get one sample, using batched generation when possible.
+
+        Batched generation (one GEMM per ``generation_batch_size`` samples) is
+        used when no validator is set and the combinator supports it; otherwise
+        falls back to per-sample generation. Sample values and ordering match
+        per-sample generation.
+        """
+        if (
+            self.sample_validator is not None
+            or self.generation_batch_size <= 1
+            or not hasattr(self.combinator, "generate_batch")
+        ):
+            return self._generate_one(accessor)
+
+        if not self._batch_buffer:
+            batch = self.combinator.generate_batch(
+                accessor, self.rng, self.generation_batch_size
+            )
+            self.accepted_count += len(batch)
+            batch.reverse()  # pop() from the end preserves generation order
+            self._batch_buffer = batch
+        return self._batch_buffer.pop()
+
     def __iter__(self) -> Iterator[Any]:
         self._load_basis()
         accessor = BasisAccessor(self._basis, self._ids)
@@ -412,7 +445,7 @@ class CachedBasisPipeline(BasePipeline):
                     "or changing on_exhausted policy."
                 )
             attempts += 1
-            sample = self._generate_one(accessor)
+            sample = self._next_sample(accessor)
             if sample is None:
                 continue
             yielded += 1
@@ -442,7 +475,7 @@ class CachedBasisPipeline(BasePipeline):
                     return len(inner_self.pipeline)
 
                 def __getitem__(inner_self, idx):
-                    sample = inner_self.pipeline._generate_one(inner_self.accessor)
+                    sample = inner_self.pipeline._next_sample(inner_self.accessor)
                     if sample is None:
                         raise RuntimeError(
                             "Validation exhausted with 'skip' policy in dataset __getitem__. "
@@ -1020,6 +1053,14 @@ class SpatialNearestCombinator(Combinator):
         self.last_intensity_scale: float = 1.0
         self._basis_positions: Optional[np.ndarray] = None
         self._nearest_cache: Dict[Tuple[int, int], np.ndarray] = {}
+        self._kdtree = None
+
+        # Flattened copy of the basis, built lazily on first __call__ so the
+        # weighted sum runs as one matrix-vector product instead of a Python loop.
+        self._basis_matrix: Optional[np.ndarray] = None
+        self._basis_is_multi: bool = False
+        self._basis_shapes: List[Tuple[int, ...]] = []
+        self._basis_sizes: List[int] = []
 
         if basis_positions is not None:
             self.set_basis_positions(basis_positions)
@@ -1038,6 +1079,48 @@ class SpatialNearestCombinator(Combinator):
 
         self._basis_positions = positions
         self._nearest_cache.clear()
+        # Positions are (re)set whenever the basis changes; drop the stacked copy.
+        self._basis_matrix = None
+        # KD-tree makes nearest lookups O(P log N) instead of O(P N). On exact
+        # distance ties it may pick a different (equally near) basis item than
+        # np.argmin's first-occurrence rule; ties are measure-zero for
+        # real-valued centroid positions. Falls back to brute force without scipy.
+        try:
+            from scipy.spatial import cKDTree
+
+            self._kdtree = cKDTree(positions)
+        except ImportError:
+            self._kdtree = None
+
+    def _build_basis_matrix(self, accessor: BasisAccessor) -> None:
+        """Stack all basis items into one flat float32 matrix of shape (N, D).
+
+        Multi-component items (e.g. left/right image pairs) are flattened and
+        concatenated along D; original shapes are kept for reconstruction.
+        Built once, so each generated sample costs a single matrix-vector
+        product instead of a Python loop over basis items.
+        """
+        sample0 = accessor[0]
+        is_multi = isinstance(sample0, (tuple, list))
+        elements = list(sample0) if is_multi else [sample0]
+        shapes = [np.asarray(e).shape for e in elements]
+        sizes = [int(np.prod(shape)) for shape in shapes]
+
+        matrix = np.empty((len(accessor), int(sum(sizes))), dtype=np.float32)
+        for i in range(len(accessor)):
+            item = accessor[i]
+            components = item if is_multi else (item,)
+            offset = 0
+            for component, size in zip(components, sizes):
+                matrix[i, offset : offset + size] = np.asarray(
+                    component, dtype=np.float32
+                ).ravel()
+                offset += size
+
+        self._basis_matrix = matrix
+        self._basis_is_multi = is_multi
+        self._basis_shapes = shapes
+        self._basis_sizes = sizes
 
     def _sample_global_jitter(
         self, pattern_shape: Tuple[int, int], rng: np.random.Generator
@@ -1086,16 +1169,25 @@ class SpatialNearestCombinator(Combinator):
             pattern_centers[:, 0] = np.clip(pattern_centers[:, 0] + dx, 0.0, 1.0)
             pattern_centers[:, 1] = np.clip(pattern_centers[:, 1] + dy, 0.0, 1.0)
 
-        d2 = np.sum(
-            (pattern_centers[:, None, :] - self._basis_positions[None, :, :]) ** 2,
-            axis=2,
-        )
-        nearest = np.argmin(d2, axis=1).astype(np.int64)
+        if self._kdtree is not None:
+            # O(P log N) nearest lookup.
+            nearest = self._kdtree.query(pattern_centers)[1].astype(np.int64)
+        else:
+            # Brute force O(P N); per-coordinate to avoid the (P, N, 2) intermediate.
+            dx = pattern_centers[:, 0, None] - self._basis_positions[None, :, 0]
+            dy = pattern_centers[:, 1, None] - self._basis_positions[None, :, 1]
+            d2 = dx * dx + dy * dy
+            nearest = np.argmin(d2, axis=1).astype(np.int64)
         if jitter_offset is None:
             self._nearest_cache[pattern_shape] = nearest
         return nearest
 
-    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+    def _weights_for_one(self, rng: np.random.Generator, n_basis: int) -> np.ndarray:
+        """Draw one pattern and map it to per-basis weights of shape (n_basis,).
+
+        Consumes RNG in the same order as the single-sample path:
+        pattern, intensity scale, jitter.
+        """
         coeff_map = _squeeze_2d(self.pattern_provider(rng)).astype(
             np.float32, copy=False
         )
@@ -1110,10 +1202,10 @@ class SpatialNearestCombinator(Combinator):
                 "Missing basis positions. Use set_basis_positions(...) or "
                 "CachedBasisPipeline(basis_position_extractor=...)."
             )
-        if len(accessor) != len(self._basis_positions):
+        if n_basis != len(self._basis_positions):
             raise ValueError(
                 "basis_positions length must match cached basis length: "
-                f"got {len(self._basis_positions)} vs {len(accessor)}."
+                f"got {len(self._basis_positions)} vs {n_basis}."
             )
 
         jitter_offset = self._sample_global_jitter(coeff_map.shape, rng)
@@ -1131,41 +1223,26 @@ class SpatialNearestCombinator(Combinator):
         else:
             active = np.arange(raw_coeffs.size)
 
-        weights = np.zeros(len(accessor), dtype=np.float32)
+        weights = np.zeros(n_basis, dtype=np.float32)
         if active.size > 0:
             np.add.at(weights, nearest[active], coeffs[active])
+        return weights
 
-        used_idx = np.flatnonzero(weights != 0)
-        used_coef = [float(weights[i]) for i in used_idx]
-
-        sample0 = accessor[0]
-        is_multi = isinstance(sample0, (tuple, list))
-
-        if is_multi:
-            n_elements = len(sample0)
-            out = [
-                np.zeros_like(np.asarray(sample0[j]), dtype=np.float32)
-                for j in range(n_elements)
-            ]
-
-            for i in used_idx:
-                c = float(weights[i])
-                item = accessor[int(i)]
-                for j in range(n_elements):
-                    out[j] += c * np.asarray(item[j], dtype=np.float32)
-            out = tuple(out)
-        else:
-            out = np.zeros_like(np.asarray(sample0), dtype=np.float32)
-            for i in used_idx:
-                out += float(weights[i]) * np.asarray(
-                    accessor[int(i)], dtype=np.float32
-                )
+    def _finalize_flat(self, flat: np.ndarray) -> Any:
+        """Reshape one flat combined vector into output components, then apply
+        transforms and output clipping (the single-sample tail)."""
+        parts = []
+        offset = 0
+        for shape, size in zip(self._basis_shapes, self._basis_sizes):
+            parts.append(flat[offset : offset + size].reshape(shape))
+            offset += size
+        out = tuple(parts) if self._basis_is_multi else parts[0]
 
         for fn in self.transforms:
             out = fn(out)
 
         lo, hi = self.clip_output
-        if is_multi:
+        if self._basis_is_multi:
             if not isinstance(out, (tuple, list)):
                 raise ValueError(
                     "transforms must return tuple/list for multi-component samples"
@@ -1176,12 +1253,60 @@ class SpatialNearestCombinator(Combinator):
             )
         else:
             out = np.clip(np.asarray(out, dtype=np.float32), lo, hi)
+        return out
+
+    def __call__(self, accessor: BasisAccessor, rng: np.random.Generator) -> Any:
+        weights = self._weights_for_one(rng, len(accessor))
+        used_idx = np.flatnonzero(weights != 0)
+        used_coef = [float(weights[i]) for i in used_idx]
+
+        if self._basis_matrix is None:
+            self._build_basis_matrix(accessor)
+
+        # Weighted sum over basis items as one matrix-vector product. With few
+        # active items, gathering those rows first is faster; when most are
+        # active, the plain product avoids the gather copy. Zero-weight rows
+        # contribute exactly zero, so both paths yield the same result.
+        if used_idx.size < len(weights) // 4:
+            flat = weights[used_idx] @ self._basis_matrix[used_idx]
+        else:
+            flat = weights @ self._basis_matrix
+
+        out = self._finalize_flat(flat)
 
         self._last_record = CombinationRecord(
             indices=[int(i) for i in used_idx.tolist()],
             coefficients=used_coef,
         )
         return out
+
+    def generate_batch(
+        self, accessor: BasisAccessor, rng: np.random.Generator, batch_size: int
+    ) -> List[Any]:
+        """Generate ``batch_size`` samples with one (B, N) @ (N, D) product.
+
+        Per-sample math and RNG consumption order are identical to calling
+        the combinator ``batch_size`` times; the basis matrix is read once
+        per batch instead of once per sample. ``last_record`` and
+        ``last_coeff_map`` reflect the final sample of the batch.
+        """
+        n = len(accessor)
+        weights = np.empty((batch_size, n), dtype=np.float32)
+        for b in range(batch_size):
+            weights[b] = self._weights_for_one(rng, n)
+
+        if self._basis_matrix is None:
+            self._build_basis_matrix(accessor)
+        flats = weights @ self._basis_matrix  # one GEMM for the whole batch
+
+        samples = [self._finalize_flat(flats[b]) for b in range(batch_size)]
+
+        used_idx = np.flatnonzero(weights[-1] != 0)
+        self._last_record = CombinationRecord(
+            indices=[int(i) for i in used_idx.tolist()],
+            coefficients=[float(weights[-1][i]) for i in used_idx],
+        )
+        return samples
 
 
 # ============================================================
