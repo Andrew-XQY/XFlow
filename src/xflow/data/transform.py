@@ -1293,6 +1293,54 @@ def torch_subtract_background(
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("torch_sensor_noise")
+def torch_sensor_noise(
+    tensor: TensorLike,
+    a: float = 0.106,
+    b: float = 2.81,
+    count_scale: float = 1600.0,
+    param_jitter: float = 2.0,
+    gain: Optional[Tuple[float, float]] = None,
+    clip_min: Optional[float] = 0.0,
+) -> TensorLike:
+    """Add measured affine (Poisson-Gaussian) camera noise: var = a*signal + b.
+
+    Domain-randomization transform for synthetic inputs. ``a`` (counts) and ``b``
+    (counts^2) come from a photon-transfer fit of real frames in the SAME image
+    space this tensor lives in (e.g. bg-subtracted, avg-binned). ``count_scale``
+    maps the normalized tensor back to counts (the remap_range current_max).
+    Per call: ``a``/``b`` are jittered log-uniformly within
+    [1/param_jitter, param_jitter], and an optional global gain is sampled from
+    ``gain`` (source-intensity variation). Noise is applied in counts, clipped at
+    ``clip_min`` (replicating the real pipeline's background-subtraction
+    truncation), then rescaled back to normalized units.
+    """
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        counts = tensor.to(torch.float32) * float(count_scale)
+
+        if gain is not None:
+            g_lo, g_hi = float(gain[0]), float(gain[1])
+            counts = counts * (g_lo + (g_hi - g_lo) * float(torch.rand(())))
+
+        j = 1.0
+        if param_jitter and float(param_jitter) > 1.0:
+            log_j = float(np.log(float(param_jitter)))
+            j = float(torch.empty(()).uniform_(-log_j, log_j).exp())
+
+        var = (float(a) * j) * torch.clamp(counts, min=0.0) + (float(b) * j)
+        noisy = counts + torch.sqrt(var) * torch.randn_like(counts)
+
+        if clip_min is not None:
+            noisy = torch.clamp(noisy, min=float(clip_min) * float(count_scale))
+        return noisy / float(count_scale)
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
 @TransformRegistry.register("torch_clip_below_zero")
 def torch_clip_below_zero(tensor: TensorLike) -> TensorLike:
     """Set all negative values to zero using PyTorch."""
