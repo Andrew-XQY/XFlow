@@ -1055,6 +1055,27 @@ def torch_load_image(path: PathLikeStr) -> TensorLike:
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("load_image16")
+def load_image16(path: PathLikeStr, require_16bit: bool = True) -> np.ndarray:
+    """Load a grayscale PNG via PIL as raw integer counts, shaped (1, H, W).
+
+    Deterministic 16-bit decode (no torchvision dependency, whose 16-bit PNG
+    behavior varies by version). Asserts on the decoded mode — not on pixel
+    values, since legitimately dim frames can stay below 255. Drop-in for
+    ``torch_load_image`` in (C, H, W) pipelines; follow with ``torch_to_tensor``.
+    """
+    with Image.open(Path(path)) as img:
+        if require_16bit and img.mode not in ("I;16", "I;16B", "I;16L", "I"):
+            raise ValueError(
+                f"Expected a 16-bit grayscale PNG, got PIL mode {img.mode!r} for {path}. "
+                "Set require_16bit=False only if 8-bit input is intended."
+            )
+        arr = np.asarray(img).astype(np.int32)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2D grayscale image, got shape {arr.shape} for {path}.")
+    return arr[np.newaxis, :, :]
+
+
 @TransformRegistry.register("torch_load_image_with_meta")
 def torch_load_image_with_meta(
     path: PathLikeStr,
