@@ -1362,6 +1362,42 @@ def torch_sensor_noise(
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("torch_render_centroid_kernel")
+def torch_render_centroid_kernel(tensor: TensorLike, sigma: float = 4.0) -> TensorLike:
+    """Replace an image by an energy-preserving Gaussian at its own centroid.
+
+    For basis-target sharpening: a measured spot image (finite PSF) becomes a
+    rendered Gaussian with the SAME total energy at the SAME intensity centroid,
+    so weighted sums over a basis assemble the underlying distribution instead
+    of distribution-convolved-with-spot. Keep ``sigma`` >= ~half the basis grid
+    spacing or assembled targets turn into a comb. Zero-energy inputs return
+    zeros unchanged.
+    """
+    try:
+        import torch
+
+        if not torch.is_tensor(tensor):
+            tensor = torch.as_tensor(tensor)
+        x = tensor.to(torch.float32)
+        img = x.reshape(x.shape[-2], x.shape[-1])
+        energy = img.sum()
+        if float(energy) <= 0.0:
+            return torch.zeros_like(x)
+
+        h, w = img.shape
+        xs = torch.arange(w, dtype=torch.float32, device=img.device)
+        ys = torch.arange(h, dtype=torch.float32, device=img.device)
+        cx = (img.sum(dim=0) @ xs) / energy
+        cy = (img.sum(dim=1) @ ys) / energy
+
+        s2 = 2.0 * float(sigma) * float(sigma)
+        g = torch.exp(-(((xs - cx) ** 2)[None, :] + ((ys - cy) ** 2)[:, None]) / s2)
+        g = g * (energy / g.sum())  # exact energy preservation, incl. edge truncation
+        return g.reshape(x.shape)
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+
+
 @TransformRegistry.register("torch_clip_below_zero")
 def torch_clip_below_zero(tensor: TensorLike) -> TensorLike:
     """Set all negative values to zero using PyTorch."""
