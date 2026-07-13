@@ -406,24 +406,67 @@ class CachedBasisPipeline(BasePipeline):
         """Get one sample, using batched generation when possible.
 
         Batched generation (one GEMM per ``generation_batch_size`` samples) is
-        used when no validator is set and the combinator supports it; otherwise
-        falls back to per-sample generation. Sample values and ordering match
-        per-sample generation.
+        used whenever the combinator supports it. Without a validator, sample
+        values and ordering match per-sample generation exactly. With a
+        validator, whole batches are generated and filtered (rejected samples
+        are discarded), so RNG consumption differs from the per-sample retry
+        path but throughput stays GEMM-bound even at high rejection rates.
         """
-        if (
-            self.sample_validator is not None
-            or self.generation_batch_size <= 1
-            or not hasattr(self.combinator, "generate_batch")
+        if self.generation_batch_size <= 1 or not hasattr(
+            self.combinator, "generate_batch"
         ):
             return self._generate_one(accessor)
 
+        if self.sample_validator is None:
+            if not self._batch_buffer:
+                batch = self.combinator.generate_batch(
+                    accessor, self.rng, self.generation_batch_size
+                )
+                self.accepted_count += len(batch)
+                batch.reverse()  # pop() from the end preserves generation order
+                self._batch_buffer = batch
+            return self._batch_buffer.pop()
+
+        # Batched generation + validation: generate a block, keep survivors.
         if not self._batch_buffer:
-            batch = self.combinator.generate_batch(
-                accessor, self.rng, self.generation_batch_size
-            )
-            self.accepted_count += len(batch)
-            batch.reverse()  # pop() from the end preserves generation order
-            self._batch_buffer = batch
+            last_sample = None
+            for _ in range(self.retry_policy.max_retries + 1):
+                batch = self.combinator.generate_batch(
+                    accessor, self.rng, self.generation_batch_size
+                )
+                survivors = []
+                for sample in batch:
+                    result = self.sample_validator(sample, None)
+                    ok = result[0] if isinstance(result, tuple) else bool(result)
+                    if ok:
+                        survivors.append(sample)
+                        self.accepted_count += 1
+                    else:
+                        self.rejected_count += 1
+                        last_sample = sample
+                if survivors:
+                    survivors.reverse()  # pop() preserves generation order
+                    self._batch_buffer = survivors
+                    break
+            else:
+                # No survivor in (max_retries + 1) whole batches.
+                total = self.accepted_count + self.rejected_count
+                self.logger.warning(
+                    "Validator rejected %d consecutive batches "
+                    "(overall acceptance %.1f%%). Check validator bands.",
+                    self.retry_policy.max_retries + 1,
+                    100.0 * self.accepted_count / max(1, total),
+                )
+                mode = self.retry_policy.on_exhausted
+                if mode == "yield_last":
+                    self.accepted_count += 1
+                    return last_sample
+                if mode == "skip":
+                    return None
+                raise RuntimeError(
+                    "Sample validation failed for "
+                    f"{self.retry_policy.max_retries + 1} consecutive batches."
+                )
         return self._batch_buffer.pop()
 
     def __iter__(self) -> Iterator[Any]:
