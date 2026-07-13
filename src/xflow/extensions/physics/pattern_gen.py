@@ -1,7 +1,7 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generator, Iterable, List, Optional, Sequence, Union
+from typing import Any, Callable, Generator, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from scipy.stats import beta
@@ -411,21 +411,40 @@ class StaticGaussianDistribution(Distribution):
         area_boost_scale: float = 0.25,
         max_peak_intensity: Optional[float] = None,
         distribution: str = "",
+        intensity_range: Optional[Tuple[float, float]] = None,
+        center_radius_range: Optional[Tuple[float, float]] = None,
+        aspect_range: Optional[Tuple[float, float]] = None,
     ) -> None:
+        """Randomize blob parameters.
+
+        Optional config-driven priors (each None -> exact legacy behavior):
+            intensity_range: (lo, hi), lo > 0. Intensity ~ U(lo, hi). Replaces
+                the fade_rate formula, whose lower bound is always <= 0 (so a
+                fraction of faint/empty blobs was unavoidable).
+            center_radius_range: (r_lo, r_hi) in relative units (fraction of the
+                smaller canvas side). Blob center placed area-uniformly in the
+                annulus r_lo <= r <= r_hi around the canvas center. Replaces the
+                legacy hardcoded dx,dy ~ U(0, side/2.25).
+            aspect_range: (lo, hi) multiplier for the second-axis std
+                (legacy hardcoded U(0.5, 2.0)).
+        """
         # std sampling (in relative units)
         if distribution == "beta":
             self.std_x = self._beta_scaled(std_1)
             self.std_y = self._beta_scaled(std_2)
         else:
+            aspect_lo, aspect_hi = (
+                aspect_range if aspect_range is not None else (0.5, 2.0)
+            )
             min_std = float(min(std_1, std_2))
             max_std = float(max(std_1, std_2))
             std = np.random.uniform(low=min_std, high=max_std)
             if np.random.uniform(-1.0, 1.0) < 0:
                 self.std_x = std
-                self.std_y = self.std_x * np.random.uniform(0.5, 2.0)
+                self.std_y = self.std_x * np.random.uniform(aspect_lo, aspect_hi)
             else:
                 self.std_y = std
-                self.std_x = self.std_y * np.random.uniform(0.5, 2.0)
+                self.std_x = self.std_y * np.random.uniform(aspect_lo, aspect_hi)
 
         # scale std to pixel units
         self.std_x *= float(self._width)
@@ -433,15 +452,25 @@ class StaticGaussianDistribution(Distribution):
         self.std_x = max(self.std_x, 1e-6)
         self.std_y = max(self.std_y, 1e-6)
 
-        # intensity sampling (kept consistent with your formula; guard fade_rate == 1)
-        if fade_rate == 1:
-            min_intensity = -float(max_intensity)
+        # intensity sampling
+        if intensity_range is not None:
+            lo, hi = float(intensity_range[0]), float(intensity_range[1])
+            if not (0.0 < lo <= hi):
+                raise ValueError(
+                    f"intensity_range must satisfy 0 < lo <= hi, got {intensity_range!r}"
+                )
+            self.intensity = float(np.random.uniform(lo, hi))
         else:
-            min_intensity = (
-                float(fade_rate) * float(max_intensity) / (float(fade_rate) - 1.0)
+            # legacy formula (kept consistent; guard fade_rate == 1)
+            if fade_rate == 1:
+                min_intensity = -float(max_intensity)
+            else:
+                min_intensity = (
+                    float(fade_rate) * float(max_intensity) / (float(fade_rate) - 1.0)
+                )
+            self.intensity = float(
+                np.random.uniform(min_intensity, float(max_intensity))
             )
-
-        self.intensity = float(np.random.uniform(min_intensity, float(max_intensity)))
 
         if self.intensity > 0:
             # Smaller spots can have higher peaks for the same charge, but keep
@@ -461,8 +490,33 @@ class StaticGaussianDistribution(Distribution):
                 self.intensity = min(self.intensity, peak_cap)
 
             self.rotation = np.deg2rad(np.random.uniform(0.0, 360.0))
-            self.dx = float(np.random.uniform(0.0, self._width / 2.25))
-            self.dy = float(np.random.uniform(0.0, self._height / 2.25))
+
+            if center_radius_range is not None:
+                r_lo, r_hi = (
+                    float(center_radius_range[0]),
+                    float(center_radius_range[1]),
+                )
+                if not (0.0 <= r_lo <= r_hi):
+                    raise ValueError(
+                        "center_radius_range must satisfy 0 <= lo <= hi, "
+                        f"got {center_radius_range!r}"
+                    )
+                side = float(min(self._width, self._height))
+                # area-uniform radius in the annulus, uniform angle
+                rho = side * np.sqrt(np.random.uniform(r_lo**2, r_hi**2))
+                phi = np.random.uniform(0.0, 2.0 * np.pi)
+                ox = rho * np.cos(phi)  # desired center offset from canvas center (px)
+                oy = rho * np.sin(phi)
+                # pattern_generation places the peak at [x; y] = R^{-1}(-[dx; dy])
+                # with R = [[c, -s], [s, c]]; to land it at (ox, oy):
+                #   [dx; dy] = -R [ox; oy]   (verified <1px placement error)
+                c, s = np.cos(self.rotation), np.sin(self.rotation)
+                self.dx = float(-(c * ox - s * oy))
+                self.dy = float(-(s * ox + c * oy))
+            else:
+                # legacy hardcoded behavior
+                self.dx = float(np.random.uniform(0.0, self._width / 2.25))
+                self.dy = float(np.random.uniform(0.0, self._height / 2.25))
 
     def pattern_generation(self) -> np.ndarray:
         if self.intensity <= 0:
