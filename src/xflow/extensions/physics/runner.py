@@ -19,7 +19,11 @@ from ...evaluation.runner import (
 )
 from ...utils.io import _safe_filename_stem
 from ...utils.typing import TensorLike
-from .beam import extract_beam_core_size_parameters, extract_beam_parameters
+from .beam import (
+    calculate_beam_gaussian_1d,
+    extract_beam_core_size_parameters,
+    extract_beam_parameters,
+)
 from .metrics import compute_image_distance_metrics
 
 # Beam parameter CSV contract shared by all hook internals.
@@ -413,6 +417,14 @@ class TripletSaverHook(BaseEvalHook):
                 pass
         return f"inference_{self.saved:05d}.png"
 
+    def _prepare_overlays(self, images):
+        """Prepare per-image payloads reused across both display rows."""
+        return [None] * len(images)
+
+    def _draw_overlay(self, ax, overlay) -> None:
+        """Draw a prepared overlay; the base triplet saver stays undecorated."""
+        pass
+
     def on_start(self, ctx):
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -461,21 +473,35 @@ class TripletSaverHook(BaseEvalHook):
             ]
             normalized_images = [x_norm, y_norm, p_norm]
             fixed_images = [x_img, y_img, p_img]
+            overlays = self._prepare_overlays(fixed_images)
 
             top_mappable = None
-            for ax, title, image in zip(axes[0], top_titles, normalized_images):
-                top_mappable = ax.imshow(image, cmap=self.cmap, vmin=0.0, vmax=1.0)
+            for ax, title, image, overlay in zip(
+                axes[0], top_titles, normalized_images, overlays
+            ):
+                top_mappable = ax.imshow(
+                    image,
+                    cmap=self.cmap,
+                    vmin=0.0,
+                    vmax=1.0,
+                    origin="upper",
+                )
                 ax.set_title(title)
+                self._draw_overlay(ax, overlay)
 
             bottom_mappable = None
-            for ax, title, image in zip(axes[1], bottom_titles, fixed_images):
+            for ax, title, image, overlay in zip(
+                axes[1], bottom_titles, fixed_images, overlays
+            ):
                 bottom_mappable = ax.imshow(
                     image,
                     cmap=self.cmap,
                     vmin=fixed_min,
                     vmax=fixed_max,
+                    origin="upper",
                 )
                 ax.set_title(title)
+                self._draw_overlay(ax, overlay)
 
             for row in axes:
                 for ax in row:
@@ -496,3 +522,127 @@ class TripletSaverHook(BaseEvalHook):
 
     def on_end(self, ctx):
         print(f"saved: {self.saved} images to {self.save_dir}")
+
+
+class BeamProfileTripletSaverHook(TripletSaverHook):
+    """Save triplets with Gaussian beam profiles on label and reconstruction.
+
+    The first column (input fiber speckle) is unchanged. The ground-truth and
+    reconstruction columns receive bottom/right orange Gaussian profile curves
+    plus white dashed centroid lines. Each image is fitted once and the result is
+    reused for the normalized and fixed-range rows.
+
+    The first three constructor arguments and output contract remain compatible
+    with ``TripletSaverHook``.
+    """
+
+    PROFILE_COLOR = "orange"
+    PROFILE_SCALE_FRAC = 0.18
+    CENTROID_COLOR = "white"
+    CENTROID_LINE_WIDTH = 2.0
+    CENTROID_LINESTYLE = "--"
+
+    def __init__(
+        self,
+        save_dir: str,
+        cmap: str = "viridis",
+        dpi: int = 80,
+        profile_line_width: float = 3.0,
+        profile_scale: float = 1.0,
+    ) -> None:
+        """Configure triplet saving and the orange profile curves.
+
+        ``profile_line_width`` is in Matplotlib points. ``profile_scale`` is a
+        multiplier on the default profile height; for example, ``0.5`` makes
+        both horizontal and vertical curves half as tall.
+        """
+        super().__init__(save_dir=save_dir, cmap=cmap, dpi=dpi)
+
+        self.profile_line_width = float(profile_line_width)
+        self.profile_scale = float(profile_scale)
+        if not np.isfinite(self.profile_line_width) or self.profile_line_width <= 0:
+            raise ValueError("profile_line_width must be a positive finite number.")
+        if not np.isfinite(self.profile_scale) or self.profile_scale < 0:
+            raise ValueError("profile_scale must be a non-negative finite number.")
+
+    def _fit_gaussian_overlay(self, image):
+        image = np.asarray(image, dtype=float)
+        if image.ndim != 2 or image.size == 0:
+            return None
+
+        image = np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0)
+        image = image - float(image.min())
+        if float(image.sum()) <= 0.0:
+            return None
+
+        h_projection = image.sum(axis=0)
+        v_projection = image.sum(axis=1)
+        try:
+            h_centroid, h_sigma = calculate_beam_gaussian_1d(h_projection)
+            v_centroid, v_sigma = calculate_beam_gaussian_1d(v_projection)
+        except Exception:
+            return None
+
+        fit_values = np.asarray([h_centroid, h_sigma, v_centroid, v_sigma], dtype=float)
+        if not np.all(np.isfinite(fit_values)) or h_sigma <= 0 or v_sigma <= 0:
+            return None
+
+        h_coords = np.arange(image.shape[1], dtype=float)
+        v_coords = np.arange(image.shape[0], dtype=float)
+        h_curve = np.exp(-0.5 * ((h_coords - h_centroid) / h_sigma) ** 2)
+        v_curve = np.exp(-0.5 * ((v_coords - v_centroid) / v_sigma) ** 2)
+
+        # Meet the image edges cleanly, matching the notebook profile renderer.
+        if h_curve.size > 1:
+            h_curve[[0, -1]] = 0.0
+        if v_curve.size > 1:
+            v_curve[[0, -1]] = 0.0
+
+        return h_curve, v_curve, float(h_centroid), float(v_centroid)
+
+    def _prepare_overlays(self, images):
+        return [None] + [self._fit_gaussian_overlay(image) for image in images[1:]]
+
+    def _draw_overlay(self, ax, overlay) -> None:
+        if overlay is None:
+            return
+
+        h_curve, v_curve, h_centroid, v_centroid = overlay
+        height = int(v_curve.size)
+        width = int(h_curve.size)
+        h_coords = np.arange(width, dtype=float)
+        v_coords = np.arange(height, dtype=float)
+
+        profile_style = {
+            "color": self.PROFILE_COLOR,
+            "linewidth": self.profile_line_width,
+            "clip_on": True,
+            "antialiased": False,
+            "solid_capstyle": "butt",
+            "solid_joinstyle": "miter",
+            "zorder": 3,
+        }
+        ax.plot(
+            h_coords,
+            height
+            - 0.5
+            - h_curve * height * self.PROFILE_SCALE_FRAC * self.profile_scale,
+            **profile_style,
+        )
+        ax.plot(
+            width
+            - 0.5
+            - v_curve * width * self.PROFILE_SCALE_FRAC * self.profile_scale,
+            v_coords,
+            **profile_style,
+        )
+
+        centroid_style = {
+            "color": self.CENTROID_COLOR,
+            "linewidth": self.CENTROID_LINE_WIDTH,
+            "linestyle": self.CENTROID_LINESTYLE,
+            "antialiased": False,
+            "zorder": 4,
+        }
+        ax.axvline(h_centroid, **centroid_style)
+        ax.axhline(v_centroid, **centroid_style)
