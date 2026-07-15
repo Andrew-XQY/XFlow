@@ -1362,6 +1362,25 @@ def torch_sensor_noise(
         raise RuntimeError("Transform failed, please check the source code")
 
 
+@TransformRegistry.register("torch_random_offset")
+def torch_random_offset(
+    tensor: TensorLike, low: float = 0.0, high: float = 0.0
+) -> TensorLike:
+    """Add one uniform scalar offset ~ U(low, high) to the whole tensor.
+
+    Domain-randomization transform: models a residual background pedestal
+    (session-level ambient/dark-level drift surviving fixed-background
+    subtraction). Range should be measured from real frames; e.g. a measured
+    +0.019 normalized pedestal -> low=0.0, high=0.03.
+    """
+    import torch
+
+    if not torch.is_tensor(tensor):
+        tensor = torch.as_tensor(tensor)
+    off = float(low) + (float(high) - float(low)) * float(torch.rand(()))
+    return tensor + off
+
+
 @TransformRegistry.register("torch_render_centroid_kernel")
 def torch_render_centroid_kernel(tensor: TensorLike, sigma: float = 4.0) -> TensorLike:
     """Replace an image by an energy-preserving Gaussian at its own centroid.
