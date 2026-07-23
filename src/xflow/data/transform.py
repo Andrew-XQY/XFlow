@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 
 from ..utils.decorator import with_progress
-from ..utils.io import resolve_save_path
+from ..utils.io import resolve_resource_dir, resolve_save_path
 from ..utils.typing import ImageLike, PathLikeStr, TensorLike
 from ..utils.visualization import to_numpy_image
 from .pipeline import BasePipeline, Transform
@@ -196,6 +196,8 @@ _MEAN_BACKGROUND_CACHE: Dict[Tuple[str, str, str, bool], np.ndarray] = {}
 
 def _resolve_background_paths(background_source: PathLikeStr, camera: str) -> List[Path]:
     root = Path(background_source).expanduser()
+    if root.suffix != ".db":
+        root = resolve_resource_dir(root)
     db_path = root if root.suffix == ".db" else root / "dataset.db"
     data_root = db_path.parent if root.suffix == ".db" else root
 
