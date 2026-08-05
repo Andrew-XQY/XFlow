@@ -1,12 +1,64 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generator, Iterable, List, Optional, Sequence, Tuple, Union
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from scipy.stats import beta
 
 PatternSource = Union[Iterable[Any], Callable[[], Iterable[Any]]]
+
+
+def _sample_center_offset(
+    width: int,
+    height: int,
+    center_radius_range: Tuple[float, float],
+    center_angle_range: Optional[Tuple[float, float]] = None,
+) -> Tuple[float, float]:
+    """Sample a rendered center offset in image coordinates."""
+    r_lo, r_hi = (
+        float(center_radius_range[0]),
+        float(center_radius_range[1]),
+    )
+    if not (0.0 <= r_lo <= r_hi):
+        raise ValueError(
+            "center_radius_range must satisfy 0 <= lo <= hi, "
+            f"got {center_radius_range!r}"
+        )
+
+    side = float(min(width, height))
+    # Sample radius area-uniformly within the requested annulus.
+    rho = side * np.sqrt(np.random.uniform(r_lo**2, r_hi**2))
+    if center_angle_range is None:
+        # Keep the existing full-circle draw and image-coordinate convention.
+        phi = np.random.uniform(0.0, 2.0 * np.pi)
+        return float(rho * np.cos(phi)), float(rho * np.sin(phi))
+
+    angle_lo, angle_hi = (
+        float(center_angle_range[0]),
+        float(center_angle_range[1]),
+    )
+    if not (np.isfinite(angle_lo) and np.isfinite(angle_hi) and angle_lo <= angle_hi):
+        raise ValueError(
+            "center_angle_range must contain finite degrees and satisfy "
+            f"lo <= hi, got {center_angle_range!r}"
+        )
+    angle = np.deg2rad(np.random.uniform(angle_lo, angle_hi))
+    # Angles use Cartesian semantics even though image y increases downward:
+    # 0 degrees points right and 90 degrees points up.
+    return float(rho * np.cos(angle)), float(-rho * np.sin(angle))
 
 
 def _to_2d_float32(x: Any) -> np.ndarray:
@@ -290,22 +342,133 @@ class DynamicPatterns:
         self.canvas = np.clip(self.canvas, 0.0, self.max_pixel_value)
         self.thresholding()
 
-    def update(self, *args, **kwargs) -> None:
+    def _validate_component_params(
+        self,
+        component_params: Optional[Sequence[Mapping[str, Any]]],
+    ) -> Optional[List[dict]]:
+        """Validate and copy per-distribution keyword overrides."""
+        if component_params is None:
+            return None
+        if isinstance(component_params, (str, bytes)) or not isinstance(
+            component_params, SequenceABC
+        ):
+            raise TypeError("component_params must be a sequence of mappings or None")
+        if len(component_params) != len(self._distributions):
+            raise ValueError(
+                "component_params length must match number of distributions: "
+                f"got {len(component_params)} vs {len(self._distributions)}"
+            )
+
+        reserved = {"rendered_center_offset", "shared_center"}
+        validated = []
+        for idx, params in enumerate(component_params):
+            if not isinstance(params, MappingABC):
+                raise TypeError(
+                    f"component_params[{idx}] must be a mapping, "
+                    f"got {type(params)!r}"
+                )
+            conflicts = reserved.intersection(params)
+            if conflicts:
+                names = ", ".join(sorted(conflicts))
+                raise ValueError(
+                    f"component_params[{idx}] cannot set reserved key(s): {names}"
+                )
+            validated.append(dict(params))
+        return validated
+
+    def update(
+        self,
+        *args,
+        component_params: Optional[Sequence[Mapping[str, Any]]] = None,
+        **kwargs,
+    ) -> None:
         """
         Update all distributions (recompute patterns), then apply them.
+
+        ``component_params`` optionally supplies one mapping per distribution.
+        Each mapping overrides the common keyword arguments for that component.
         """
         self.clear_canvas()
-        for dst in self._distributions:
-            dst.update(*args, **kwargs)
+        component_params = self._validate_component_params(component_params)
+        shared_center = kwargs.pop("shared_center", False)
+        if not isinstance(shared_center, (bool, np.bool_)):
+            raise TypeError("shared_center must be a boolean")
+        if shared_center:
+            if kwargs.get("center_radius_range") is None:
+                raise ValueError("shared_center=True requires center_radius_range")
+            if not all(
+                isinstance(dst, StaticGaussianDistribution)
+                for dst in self._distributions
+            ):
+                raise TypeError(
+                    "shared_center is supported only for StaticGaussianDistribution"
+                )
+            kwargs["rendered_center_offset"] = _sample_center_offset(
+                self._width,
+                self._height,
+                kwargs["center_radius_range"],
+                kwargs.get("center_angle_range"),
+            )
+        if component_params is None:
+            # Keep the legacy path unchanged, including its RNG draw order.
+            for dst in self._distributions:
+                dst.update(*args, **kwargs)
+        else:
+            for dst, overrides in zip(self._distributions, component_params):
+                component_kwargs = dict(kwargs)
+                component_kwargs.update(overrides)
+                # The shared offset is internal coordination state and must win
+                # over every user-supplied per-component override.
+                if shared_center:
+                    component_kwargs["rendered_center_offset"] = kwargs[
+                        "rendered_center_offset"
+                    ]
+                dst.update(*args, **component_kwargs)
         self.apply_distribution()
 
-    def fast_update(self, *args, **kwargs) -> None:
+    def fast_update(
+        self,
+        *args,
+        component_params: Optional[Sequence[Mapping[str, Any]]] = None,
+        **kwargs,
+    ) -> None:
         """
         Update distribution parameters without generating new patterns.
         """
         self.clear_canvas()
-        for dst in self._distributions:
-            dst.fast_update(*args, **kwargs)
+        component_params = self._validate_component_params(component_params)
+        shared_center = kwargs.pop("shared_center", False)
+        if not isinstance(shared_center, (bool, np.bool_)):
+            raise TypeError("shared_center must be a boolean")
+        if shared_center:
+            if kwargs.get("center_radius_range") is None:
+                raise ValueError("shared_center=True requires center_radius_range")
+            if not all(
+                isinstance(dst, StaticGaussianDistribution)
+                for dst in self._distributions
+            ):
+                raise TypeError(
+                    "shared_center is supported only for StaticGaussianDistribution"
+                )
+            kwargs["rendered_center_offset"] = _sample_center_offset(
+                self._width,
+                self._height,
+                kwargs["center_radius_range"],
+                kwargs.get("center_angle_range"),
+            )
+        if component_params is None:
+            # Keep the legacy path unchanged, including its RNG draw order.
+            for dst in self._distributions:
+                dst.fast_update(*args, **kwargs)
+        else:
+            for dst, overrides in zip(self._distributions, component_params):
+                component_kwargs = dict(kwargs)
+                component_kwargs.update(overrides)
+                if shared_center:
+                    component_kwargs["rendered_center_offset"] = kwargs[
+                        "rendered_center_offset"
+                    ]
+                dst.fast_update(*args, **component_kwargs)
 
     def get_image(self) -> np.ndarray:
         if not self._postprocess_fns:
@@ -329,12 +492,17 @@ class DynamicPatterns:
     def get_distributions_metadata(self) -> List[dict]:
         return [dst.get_metadata() for dst in self._distributions]
 
-    def pattern_stream(self, **update_kwargs) -> Generator[np.ndarray, None, None]:
+    def pattern_stream(
+        self,
+        *,
+        component_params: Optional[Sequence[Mapping[str, Any]]] = None,
+        **update_kwargs,
+    ) -> Generator[np.ndarray, None, None]:
         """
         Infinite generator. Call next(stream) to get frames.
         """
         while True:
-            self.update(**update_kwargs)
+            self.update(component_params=component_params, **update_kwargs)
             yield self.get_image()
 
 
@@ -414,6 +582,9 @@ class StaticGaussianDistribution(Distribution):
         intensity_range: Optional[Tuple[float, float]] = None,
         center_radius_range: Optional[Tuple[float, float]] = None,
         aspect_range: Optional[Tuple[float, float]] = None,
+        orientation_range: Optional[Tuple[float, float]] = None,
+        center_angle_range: Optional[Tuple[float, float]] = None,
+        rendered_center_offset: Optional[Tuple[float, float]] = None,
     ) -> None:
         """Randomize blob parameters.
 
@@ -427,6 +598,17 @@ class StaticGaussianDistribution(Distribution):
                 legacy hardcoded dx,dy ~ U(0, side/2.25).
             aspect_range: (lo, hi) multiplier for the second-axis std
                 (legacy hardcoded U(0.5, 2.0)).
+            orientation_range: (lo, hi) rendered major-axis orientation in
+                degrees, measured from the horizontal image axis. The sampled
+                angle is compensated for whichever internal Gaussian axis is
+                wider. The legacy path samples the internal rotation uniformly
+                over 0..360 degrees.
+            center_angle_range: (lo, hi) center-displacement angle in degrees,
+                where 0 points right and 90 points up in the rendered image.
+                Negative and narrow ranges are supported. Requires
+                center_radius_range. None keeps the full-circle legacy draw.
+            rendered_center_offset: Internal rendered ``(x, y)`` pixel offset
+                used by DynamicPatterns to coordinate a shared frame center.
         """
         # std sampling (in relative units)
         if distribution == "beta":
@@ -477,9 +659,7 @@ class StaticGaussianDistribution(Distribution):
             # the inverse-area boost tunable so tiny Gaussians do not dominate.
             boost_scale = max(0.0, float(area_boost_scale))
             if boost_scale > 0.0:
-                area_scaling = (self._width * self._height) / (
-                    self.std_x * self.std_y
-                )
+                area_scaling = (self._width * self._height) / (self.std_x * self.std_y)
                 self.intensity += float(
                     np.random.uniform(0.0, area_scaling * boost_scale)
                 )
@@ -489,34 +669,64 @@ class StaticGaussianDistribution(Distribution):
                     raise ValueError("max_peak_intensity must be > 0 when set")
                 self.intensity = min(self.intensity, peak_cap)
 
-            self.rotation = np.deg2rad(np.random.uniform(0.0, 360.0))
-
-            if center_radius_range is not None:
-                r_lo, r_hi = (
-                    float(center_radius_range[0]),
-                    float(center_radius_range[1]),
-                )
-                if not (0.0 <= r_lo <= r_hi):
-                    raise ValueError(
-                        "center_radius_range must satisfy 0 <= lo <= hi, "
-                        f"got {center_radius_range!r}"
-                    )
-                side = float(min(self._width, self._height))
-                # area-uniform radius in the annulus, uniform angle
-                rho = side * np.sqrt(np.random.uniform(r_lo**2, r_hi**2))
-                phi = np.random.uniform(0.0, 2.0 * np.pi)
-                ox = rho * np.cos(phi)  # desired center offset from canvas center (px)
-                oy = rho * np.sin(phi)
-                # pattern_generation places the peak at [x; y] = R^{-1}(-[dx; dy])
-                # with R = [[c, -s], [s, c]]; to land it at (ox, oy):
-                #   [dx; dy] = -R [ox; oy]   (verified <1px placement error)
-                c, s = np.cos(self.rotation), np.sin(self.rotation)
-                self.dx = float(-(c * ox - s * oy))
-                self.dy = float(-(s * ox + c * oy))
+            if orientation_range is None:
+                # Preserve the exact legacy random-orientation path.
+                self.rotation = np.deg2rad(np.random.uniform(0.0, 360.0))
             else:
+                angle_lo, angle_hi = (
+                    float(orientation_range[0]),
+                    float(orientation_range[1]),
+                )
+                if not (
+                    np.isfinite(angle_lo)
+                    and np.isfinite(angle_hi)
+                    and angle_lo <= angle_hi
+                ):
+                    raise ValueError(
+                        "orientation_range must contain finite degrees and satisfy "
+                        f"lo <= hi, got {orientation_range!r}"
+                    )
+                major_axis_angle = np.deg2rad(np.random.uniform(angle_lo, angle_hi))
+                # pattern_generation applies R(theta) to the coordinates. Its
+                # rendered x-axis therefore lies at -theta; its y-axis lies at
+                # pi/2-theta. Compensate for the random std_x/std_y assignment
+                # so this option always controls the *major* rendered axis.
+                if self.std_x >= self.std_y:
+                    rotation = -major_axis_angle
+                else:
+                    rotation = np.pi / 2.0 - major_axis_angle
+                self.rotation = float(rotation % (2.0 * np.pi))
+
+            if rendered_center_offset is not None:
+                ox, oy = (
+                    float(rendered_center_offset[0]),
+                    float(rendered_center_offset[1]),
+                )
+                if not (np.isfinite(ox) and np.isfinite(oy)):
+                    raise ValueError(
+                        "rendered_center_offset must contain finite pixel offsets"
+                    )
+            elif center_radius_range is not None:
+                ox, oy = _sample_center_offset(
+                    self._width,
+                    self._height,
+                    center_radius_range,
+                    center_angle_range,
+                )
+            else:
+                if center_angle_range is not None:
+                    raise ValueError("center_angle_range requires center_radius_range")
                 # legacy hardcoded behavior
                 self.dx = float(np.random.uniform(0.0, self._width / 2.25))
                 self.dy = float(np.random.uniform(0.0, self._height / 2.25))
+                return
+
+            # pattern_generation places the peak at [x; y] = R^{-1}(-[dx; dy])
+            # with R = [[c, -s], [s, c]]; to land it at (ox, oy):
+            #   [dx; dy] = -R [ox; oy]   (verified <1px placement error)
+            c, s = np.cos(self.rotation), np.sin(self.rotation)
+            self.dx = float(-(c * ox - s * oy))
+            self.dy = float(-(s * ox + c * oy))
 
     def pattern_generation(self) -> np.ndarray:
         if self.intensity <= 0:
