@@ -385,11 +385,58 @@ class TripletSaverHook(BaseEvalHook):
     Handles both 3D (single-sample) and 4D (batched) tensors via slice_sample.
     """
 
-    def __init__(self, save_dir: str, cmap: str = "viridis", dpi: int = 80):
+    COLUMN_TITLES: Tuple[str, str, str] = (
+        "input fiber speckle",
+        "ground truth (original image)",
+        "reconstructed image",
+    )
+    TOP_ROW_LABEL = "min-max"
+    COLORBAR_LABEL = "intensity"
+    ROW_LABEL_PAD = 0.04  # axes-fraction gap between the row label and the first image
+    FONTSIZE = 17.0  # titles and row labels; colorbar label/ticks are 2/4 pt smaller
+
+    def __init__(
+        self,
+        save_dir: str,
+        cmap: str = "viridis",
+        dpi: int = 80,
+        column_titles: Sequence[str] | None = None,
+        row_labels: Sequence[str] | None = None,
+        colorbar_label: str | None = None,
+        fontsize: float | None = None,
+    ):
+        """Configure the triplet figure.
+
+        ``column_titles`` are the three per-column titles (shared by both rows).
+        ``row_labels`` are the two vertical labels drawn left of each row; by
+        default the top row reads ``"min-max"`` and the bottom row shows the
+        fixed display range (``"0-1"`` or ``"0-255"``). ``colorbar_label`` is
+        used for both colorbars. ``fontsize`` (points) sets the title and row
+        label size; the colorbar label and ticks follow at 2 and 4 pt smaller.
+        """
         self.save_dir = save_dir
         self.cmap = cmap
         self.dpi = dpi
         self.saved = 0
+
+        titles = self.COLUMN_TITLES if column_titles is None else tuple(column_titles)
+        if len(titles) != 3:
+            raise ValueError("column_titles must contain exactly three entries.")
+        self.column_titles: Tuple[str, str, str] = tuple(str(t) for t in titles)
+
+        if row_labels is not None:
+            row_labels = tuple(row_labels)
+            if len(row_labels) != 2:
+                raise ValueError("row_labels must contain exactly two entries.")
+            row_labels = tuple(str(label) for label in row_labels)
+        self.row_labels = row_labels
+
+        self.colorbar_label = (
+            self.COLORBAR_LABEL if colorbar_label is None else str(colorbar_label)
+        )
+        self.fontsize = float(self.FONTSIZE if fontsize is None else fontsize)
+        if not np.isfinite(self.fontsize) or self.fontsize <= 0:
+            raise ValueError("fontsize must be a positive finite number.")
 
     def _to_numpy_image(self, value):
         return value.squeeze().numpy()
@@ -416,6 +463,24 @@ class TripletSaverHook(BaseEvalHook):
             except (TypeError, IndexError):
                 pass
         return f"inference_{self.saved:05d}.png"
+
+    def _row_labels(self, fixed_min: float, fixed_max: float) -> Tuple[str, str]:
+        if self.row_labels is not None:
+            return self.row_labels
+        return (self.TOP_ROW_LABEL, f"{fixed_min:.0f}-{fixed_max:.0f}")
+
+    def _draw_row_label(self, ax, text: str) -> None:
+        """Vertical label left of a row's first image (axes are switched off)."""
+        ax.text(
+            -self.ROW_LABEL_PAD,
+            0.5,
+            text,
+            transform=ax.transAxes,
+            rotation=90,
+            ha="right",
+            va="center",
+            fontsize=self.fontsize,
+        )
 
     def _prepare_overlays(self, images):
         """Prepare per-image payloads reused across both display rows."""
@@ -461,16 +526,8 @@ class TripletSaverHook(BaseEvalHook):
             top_cbar_ax = fig.add_subplot(grid[0, 3])
             bottom_cbar_ax = fig.add_subplot(grid[1, 3])
 
-            top_titles = [
-                "input fiber speckle (min-max)",
-                "ground truth (original image) (min-max)",
-                "reconstructed image (min-max)",
-            ]
-            bottom_titles = [
-                f"input fiber speckle ({fixed_min:.0f}-{fixed_max:.0f})",
-                f"ground truth (original image) ({fixed_min:.0f}-{fixed_max:.0f})",
-                f"reconstructed image ({fixed_min:.0f}-{fixed_max:.0f})",
-            ]
+            top_titles = bottom_titles = list(self.column_titles)
+            top_row_label, bottom_row_label = self._row_labels(fixed_min, fixed_max)
             normalized_images = [x_norm, y_norm, p_norm]
             fixed_images = [x_img, y_img, p_img]
             overlays = self._prepare_overlays(fixed_images)
@@ -486,7 +543,7 @@ class TripletSaverHook(BaseEvalHook):
                     vmax=1.0,
                     origin="upper",
                 )
-                ax.set_title(title)
+                ax.set_title(title, fontsize=self.fontsize)
                 self._draw_overlay(ax, overlay)
 
             bottom_mappable = None
@@ -500,20 +557,24 @@ class TripletSaverHook(BaseEvalHook):
                     vmax=fixed_max,
                     origin="upper",
                 )
-                ax.set_title(title)
+                ax.set_title(title, fontsize=self.fontsize)
                 self._draw_overlay(ax, overlay)
 
             for row in axes:
                 for ax in row:
                     ax.axis("off")
+            self._draw_row_label(axes[0][0], top_row_label)
+            self._draw_row_label(axes[1][0], bottom_row_label)
 
-            if top_mappable is not None:
-                top_colorbar = fig.colorbar(top_mappable, cax=top_cbar_ax)
-                top_colorbar.set_label("normalized intensity")
-
-            if bottom_mappable is not None:
-                bottom_colorbar = fig.colorbar(bottom_mappable, cax=bottom_cbar_ax)
-                bottom_colorbar.set_label("intensity")
+            for mappable, cbar_ax in (
+                (top_mappable, top_cbar_ax),
+                (bottom_mappable, bottom_cbar_ax),
+            ):
+                if mappable is None:
+                    continue
+                colorbar = fig.colorbar(mappable, cax=cbar_ax)
+                colorbar.set_label(self.colorbar_label, fontsize=self.fontsize - 2)
+                colorbar.ax.tick_params(labelsize=self.fontsize - 4)
 
             out_path = os.path.join(self.save_dir, self._output_filename(batch, i))
             fig.savefig(out_path, dpi=self.dpi)
@@ -549,14 +610,17 @@ class BeamProfileTripletSaverHook(TripletSaverHook):
         dpi: int = 80,
         profile_line_width: float = 3.0,
         profile_scale: float = 1.0,
+        **figure_kwargs,
     ) -> None:
         """Configure triplet saving and the orange profile curves.
 
         ``profile_line_width`` is in Matplotlib points. ``profile_scale`` is a
         multiplier on the default profile height; for example, ``0.5`` makes
-        both horizontal and vertical curves half as tall.
+        both horizontal and vertical curves half as tall. Remaining keyword
+        arguments (``column_titles``, ``row_labels``, ``colorbar_label``,
+        ``fontsize``) are forwarded to ``TripletSaverHook``.
         """
-        super().__init__(save_dir=save_dir, cmap=cmap, dpi=dpi)
+        super().__init__(save_dir=save_dir, cmap=cmap, dpi=dpi, **figure_kwargs)
 
         self.profile_line_width = float(profile_line_width)
         self.profile_scale = float(profile_scale)
