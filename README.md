@@ -1,97 +1,150 @@
-# XFlow
+<div align="center">
+  <a href="https://andrew-xqy.github.io/XFlow/">
+    <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/main/images/logo.png"
+         alt="XFlow Logo" width="404" height="156">
+  </a>
 
-[Documentation](https://andrew-xqy.github.io/XFlow/) · [Issues](https://github.com/Andrew-XQY/XFlow/issues) · [MIT license](LICENSE)
+  <p>
+    <a href="https://andrew-xqy.github.io/XFlow/"><b>Documentation</b></a>
+    ·
+    <a href="https://github.com/Andrew-XQY/XFlow/issues">Report Bug</a>
+    ·
+    <a href="https://github.com/Andrew-XQY/XFlow/issues">Request Feature</a>
+  </p>
+</div>
 
-## Overview
+![Downloads](https://img.shields.io/github/downloads/Andrew-XQY/XFlow/total)
+![Contributors](https://img.shields.io/github/contributors/Andrew-XQY/XFlow?color=dark-green)
+![Issues](https://img.shields.io/github/issues/Andrew-XQY/XFlow)
+![License](https://img.shields.io/github/license/Andrew-XQY/XFlow)
+![PyPI version](https://img.shields.io/pypi/v/xflow-py.svg)
+---
 
-XFlow is a Python library for scientific machine learning. It connects data
-sources, preprocessing functions, training loops, and evaluation hooks. It grew
-out of physics research and keeps application-specific work in ordinary Python
-functions and classes.
+## About the Project
 
-The design separates responsibilities: a **provider** selects raw data, a
-**pipeline** transforms each sample, and a **trainer** runs the model on batches.
-You supply the model, optimizer, and loss. Use the pieces independently or join
-them into a workflow.
+**XFlow** is a lightweight modular machine-learning framework.
 
-For the PyTorch example below, use Python 3.12 and install:
+Originally created for physics research, it's now evolving toward generic scientific applications ML workflows: **Data → Processing → Modeling**
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Andrew-XQY/XFlow/ab43da1ef082e09a683d1da21f82e9cef54d4033/images/Xflow.png"
+       alt="XFlow Conceptual Design" width="800">
+</p>
+
+---
+
+## Core Data Processing Pipeline (Computational Map example)
+`flow` is a step-based computation map for data processing.
+
+Inputs (possibly different data types) move through discrete steps. At each step, a sample either passes through unchanged (identity) or is transformed by a node. Nodes can be multi-input and multi-output, so the map can split and merge data streams. Optional meta nodes (debug, checks, routing) can log, validate, stop, or redirect (no loops, deterministic) the pipeline without changing the core step structure.
+
+```mermaid
+%%{init: {"themeVariables": {"fontSize": "15px"}, "flowchart": {"htmlLabels": true}}}%%
+flowchart TD
+  classDef src fill:#0b1220,stroke:#334155,stroke-width:1px,color:#e2e8f0;
+  classDef op fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0;
+  classDef io fill:#111827,stroke:#94a3b8,stroke-width:1px,color:#e5e7eb;
+  classDef gate fill:#1f2937,stroke:#f59e0b,stroke-width:2px,color:#fde68a;
+  classDef stop fill:#2a0f12,stroke:#fb7185,stroke-width:2px,color:#fecdd3;
+
+  subgraph Inputs["Inputs"]
+    DIR["dir: str<br/>/data/run_042"]:::src
+    CFG["config: str<br/>YAML or JSON"]:::src
+    A1["sensor A:<br/>array&lt;float&gt;"]:::src
+    A2["sensor B:<br/>int"]:::src
+  end
+
+  READ["<b>ReadImages</b><br/>(dir -> images)"]:::op
+  PARSE["<b>ParseConfig</b><br/>(str -> dict)"]:::op
+
+  DIR --> READ
+  CFG --> PARSE
+
+  IMGS["images:<br/>tensor[H,W,C,N]"]:::io
+  CONF["config:<br/>dict"]:::io
+
+  READ --> IMGS
+  PARSE --> CONF
+
+  LOG["<b>LogConfig</b><br/>(print or save)"]:::op
+  CONF --> LOG
+
+  JOIN["<b>AlignAndEnrich</b><br/>(images -> 2 outputs)"]:::op
+  IMGS --> JOIN
+
+  subgraph JOIN_OUT[" "]
+    direction LR
+    ALN["aligned_images:<br/>tensor[...]"]:::io
+    REP["report:<br/>md or json"]:::io
+  end
+  style JOIN_OUT fill:transparent,stroke:transparent
+
+  JOIN --> ALN
+  JOIN --> REP
+
+  FUSE["<b>FuseSensors</b><br/>(2 signals -> 1 feature vector)"]:::op
+  A1 --> FUSE
+  A2 --> FUSE
+
+  FEAT["features:<br/>vector&lt;float&gt;"]:::io
+  FUSE --> FEAT
+
+  GATE{"<b>QualityGate</b><br/>(meets requirements?)"}:::gate
+  ALN --> GATE
+
+  FIX["<b>Remediate</b><br/>(cleanup, re-run, notify)"]:::op
+  STOP["STOP<br/>(fail fast)"]:::stop
+
+  GATE -->|fail| FIX
+  FIX --> STOP
+
+  subgraph Outputs["Outputs"]
+    OUT["artifacts:<br/>aligned_images + features + report"]:::io
+  end
+
+  ALN --> OUT
+  FEAT --> OUT
+  REP --> OUT
+
+  GATE -->|pass| OUT
+```
+
+## Getting Started
+
+### Installation
+
+Install from PyPI:
 
 ```bash
-python -m pip install "xflow-py[ml_torch]"
+pip install xflow-py
 ```
 
-For this checkout, use `python -m pip install -e ".[ml_torch]"` from the repository
-root. The base install, `pip install xflow-py`, provides the data and configuration
-tools. TensorFlow dataset adapters are available with the `ml_tf` extra; the
-concrete general training loop is `TorchTrainer`.
+Clone the repository and install in editable mode:
 
-This example creates a tiny dataset, learns `y = 2x + 1`, and saves model weights
-and training history:
-
-```python
-from pathlib import Path
-import numpy as np
-import torch
-from torch.utils.data import DataLoader
-from xflow import FileProvider, PyTorchPipeline, TorchTrainer
-
-# Make a small regression dataset: one CSV row (input, target) per file.
-data_dir = Path("xflow-demo-data")
-data_dir.mkdir(exist_ok=True)
-for i, x in enumerate(np.linspace(-1, 1, 64)):
-    np.savetxt(data_dir / f"{i:03d}.csv", [[x, 2 * x + 1]], delimiter=",")
-
-def load_sample(path):
-    row = np.loadtxt(path, delimiter=",", dtype=np.float32)
-    return torch.from_numpy(row[:1]), torch.from_numpy(row[1:])
-
-provider = FileProvider(data_dir, extensions=".csv")
-train_source, val_source = provider.split(ratio=0.8, seed=42)
-train = PyTorchPipeline(train_source, transforms=[load_sample], skip_errors=False)
-val = PyTorchPipeline(val_source, transforms=[load_sample], skip_errors=False)
-train_loader = DataLoader(train.to_framework_dataset(), batch_size=8, shuffle=True)
-val_loader = DataLoader(val.to_framework_dataset(), batch_size=8)
-
-model = torch.nn.Linear(1, 1)
-trainer = TorchTrainer(
-    model=model,
-    data_pipeline=train,
-    output_dir="xflow-demo-run",
-    optimizer=torch.optim.SGD(model.parameters(), lr=0.1),
-    criterion=torch.nn.MSELoss(),
-    device="cpu",
-)
-history = trainer.fit(epochs=10, train_loader=train_loader, val_loader=val_loader)
-trainer.save_history()
-trainer.save_model()
-print(history["val_loss"][-1])
+```bash
+git clone https://github.com/Andrew-XQY/XFlow.git
+cd XFlow
+pip install -e .
 ```
+---
 
-For your own dataset, replace the data creation and `load_sample` function.
-Each transformed sample here is an `(input_tensor, target_tensor)` pair.
-`FileProvider` selects paths; `PyTorchPipeline` loads samples on access;
-`DataLoader` batches them; `fit()` runs training and validation. The example uses
-the default `num_workers=0`.
+## Built With
 
-Extend XFlow with a callable in `transforms`, a provider implementing the
-`DataProvider` interface, or a callback with hooks such as `on_epoch_end(ctx)`.
-For configuration-based transforms, register a callable with
-`TransformRegistry.register("name")` and pass a list of `{"name": ..., "params": ...}`
-entries to `build_transforms_from_config`. Import the module containing the
-registration first. Keep custom extensions in your own package; the repository's
-`xflow.extensions` modules are excluded from published wheels. See the
-[overview](https://andrew-xqy.github.io/XFlow/quickstart.html) for a short example.
+<p>
+  <a href="https://www.python.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" height="40px" width="40px" /></a>
+  <a href="https://www.tensorflow.org/"><img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/tensorflow/tensorflow-original.svg" height="40px" width="40px" /></a>
+  <a href="https://keras.io/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/keras/keras-original.svg" height="40px" width="40px" /></a>
+  <a href="https://pytorch.org/"><img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/pytorch/pytorch-original.svg" height="40px" width="40px" /></a>
+</p>
+</p>
 
-## Core API
+- Python 3.12
+- TensorFlow 2.x
+- Keras 3.x
+- PyTorch 2.5.x
 
-| Module | Main interfaces | Responsibility |
-| --- | --- | --- |
-| `xflow.data` | `FileProvider`, `SqlProvider`, `DataPipeline`, `InMemoryPipeline`, `PyTorchPipeline`, `TensorFlowPipeline` | Select data and transform samples. |
-| `xflow.data.core` | `pipe`, `flow`, `compose`, `consume` | Compose preprocessing, including tuple branches and joins. |
-| `xflow.models` | `BaseModel` | Optional abstract model interface; `TorchTrainer` accepts a native `torch.nn.Module`. |
-| `xflow.trainers` | `BaseTrainer`, `TorchTrainer`, `CallbackRegistry` | Train, validate, record history, and dispatch callbacks. |
-| `xflow.evaluation` | `run_evaluation`, `BaseEvalHook`, `InMemoryCollector` | Run PyTorch inference and process predictions. |
-| `xflow.utils` | `ConfigManager`, `load_validated_config` | Load and manage configuration dictionaries. |
+---
 
-The [core API reference](https://andrew-xqy.github.io/XFlow/api/index.html)
-documents the main contracts and methods.
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
