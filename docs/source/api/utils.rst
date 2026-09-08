@@ -1,44 +1,30 @@
-Utils Module
-============
+Configuration
+=============
 
-The utils module provides configuration management and utility functions.
+Import from ``xflow.utils``.
 
-.. currentmodule:: xflow.utils
+.. py:function:: xflow.utils.config.load_validated_config(file_path, schema=None)
 
-.. autoclass:: ConfigManager
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   Load a configuration dictionary. With a schema, instantiate it with the
+   loaded values and return ``model_dump()``. YAML and JSON are supported.
+   A schema is a class, not a path to a schema file.
 
-.. autofunction:: get_base_dir
+.. py:class:: xflow.utils.config.ConfigManager(initial_config)
 
-.. autofunction:: load_validated_config
+   Keep an original configuration and an editable working copy.
+   Access nested values as dictionary keys, for example
+   ``config["training"]["epochs"]``.
 
-.. autofunction:: plot_image
+   ``update(updates)`` merges nested dictionaries and returns the manager.
+   ``get()`` returns an independent snapshot; ``reset()`` restores the original.
+   ``save_config(file_path)`` writes the current configuration.
 
+.. code-block:: python
 
-Helper Functions (Internal)
----------------------------
+   from xflow.utils import ConfigManager
 
-.. currentmodule:: xflow.utils.helper
+   config = ConfigManager({"training": {"epochs": 10}})
+   config.update({"training": {"epochs": 20}})
+   assert config["training"]["epochs"] == 20
 
-.. autofunction:: split_sequence
-
-.. autofunction:: subsample_sequence
-
-.. autofunction:: deep_update
-
-IO Functions (Internal)
------------------------
-
-.. currentmodule:: xflow.utils.io
-
-.. autofunction:: scan_files
-
-.. autofunction:: copy_file
-
-.. currentmodule:: xflow.utils.parser
-
-.. autofunction:: load_file
-
-.. autofunction:: save_file
+To load a file, use ``ConfigManager(load_validated_config("config.yaml"))``.

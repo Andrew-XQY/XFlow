@@ -37,7 +37,7 @@ class DataProvider(ABC):
             n_samples: Exact number of samples to take
             fraction: Fraction of total samples (0.0 to 1.0)
             seed: Random seed for reproducible subsampling
-            strategy: "random", "first", "last", "every_nth"
+            strategy: "random", "first", "last", "stride", "reservoir"
 
         Returns:
             New provider with subsampled data
@@ -68,7 +68,7 @@ class DataProvider(ABC):
         """
         Split provider into multiple providers.
 
-        Default implementation supports ratio-based split.
+        The base implementation raises NotImplementedError.
         Subclasses can override for different splitting strategies.
 
         Args:

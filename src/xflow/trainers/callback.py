@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple, Any, Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -714,9 +714,12 @@ def make_torch_batch_progress_bar(
 
     return TorchBatchProgressBar()
 
+
 @CallbackRegistry.register("torch_total_training_time")
 def make_torch_training_time_only(save_dir: str):
-    import os, json, time
+    import json
+    import os
+    import time
 
     class TorchTrainingTimeOnly(PyTorchCallback):
         def __init__(self):
@@ -732,24 +735,34 @@ def make_torch_training_time_only(save_dir: str):
             os.makedirs(self.save_dir, exist_ok=True)
             path = os.path.join(self.save_dir, "training_meta.json")
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"framework": "torch", "total_wall_time_sec": round(elapsed, 4)}, f, indent=2)
+                json.dump(
+                    {"framework": "torch", "total_wall_time_sec": round(elapsed, 4)},
+                    f,
+                    indent=2,
+                )
             print(f"[torch_training_time_only] Saved {path}")
 
     return TorchTrainingTimeOnly()
 
 
-
 @CallbackRegistry.register("torch_training_meta_info")
 def make_torch_training_meta_info(
-    save_dir: str,                           # core arg required
-    example_input: Any = None,               # e.g. a torch.Tensor or tuple of tensors
-    input_shape: Optional[Tuple[int, ...]] = None,  # used to synthesize a dummy batch, core arg
-    method: str = "auto",                    # "auto" | "profiler" | "thop"
-    backward_factor: float = 2.0,            # used when fallback to thop forward-only estimate
+    save_dir: str,  # core arg required
+    example_input: Any = None,  # e.g. a torch.Tensor or tuple of tensors
+    input_shape: Optional[
+        Tuple[int, ...]
+    ] = None,  # used to synthesize a dummy batch, core arg
+    method: str = "auto",  # "auto" | "profiler" | "thop"
+    backward_factor: float = 2.0,  # used when fallback to thop forward-only estimate
     grad_accum_steps: int = 1,
     model_name: Optional[str] = None,
 ):
-    import os, json, time, datetime, traceback
+    import datetime
+    import json
+    import os
+    import time
+    import traceback
+
     """
     PyTorch callback that records total wall-time and estimates training FLOPs,
     then writes JSON to <save_dir>/training_meta.json.
@@ -816,6 +829,7 @@ def make_torch_training_meta_info(
         def _count_params(self, model):
             try:
                 import torch
+
                 return int(sum(p.numel() for p in model.parameters()))
             except Exception:
                 return None
@@ -823,6 +837,7 @@ def make_torch_training_meta_info(
         def _infer_device(self, model):
             try:
                 import torch
+
                 p = next(model.parameters(), None)
                 if p is not None:
                     return str(p.device)
@@ -833,6 +848,7 @@ def make_torch_training_meta_info(
         def _dist_info(self):
             try:
                 import torch.distributed as dist
+
                 if dist.is_available() and dist.is_initialized():
                     return dist.get_world_size(), dist.get_rank()
             except Exception:
@@ -842,6 +858,7 @@ def make_torch_training_meta_info(
         def _make_dummy_from_shape(self, shape, device, dtype=None):
             try:
                 import torch
+
                 if dtype is None:
                     dtype = torch.float32
                 return torch.randn(*shape, device=device, dtype=dtype)
@@ -861,6 +878,7 @@ def make_torch_training_meta_info(
                 # accept tensor, or (tensor, y) pairs, or dict with 'inputs'
                 try:
                     import torch
+
                     if isinstance(c, torch.Tensor):
                         return (c,)
                     if isinstance(c, (tuple, list)) and len(c) > 0:
@@ -889,6 +907,7 @@ def make_torch_training_meta_info(
         def _maybe_set_batch_size(self, inputs_tuple):
             try:
                 import torch
+
                 x0 = inputs_tuple[0]
                 if isinstance(x0, torch.Tensor) and x0.dim() >= 1:
                     b = int(x0.shape[0])
@@ -899,18 +918,43 @@ def make_torch_training_meta_info(
 
         def _profile_one_train_step(self, model, optimizer=None, **kwargs):
             """
-            Try to measure FLOPs of a full train step (fwd+backward+step) once.
+            Try to measure FLOPs of a full train step (fwd+backward) once.
+            Runs on a throwaway deep copy of the model: the live model, its
+            optimizer and its per-module state are never touched.
             Sets per_step_flops and per_forward_flops on success.
             """
             if self._did_profile_once:
                 return
+            # Exactly one attempt, whether it succeeds or not; a failing probe
+            # must never be re-run on every batch.
+            self._did_profile_once = True
             inputs = self._ensure_example_input(model, **kwargs)
             if inputs is None:
                 self.flops_notes = "No example input available; FLOPs not estimated."
                 return
 
-            # shallow copy model to avoid altering caller's state
-            m = model
+            # Profile a deep copy. Even a forward pass can mutate a live module
+            # (Embedding(max_norm=...) renormalises weights in place, BatchNorm
+            # updates running stats, per-module train/eval flags), so the copy
+            # is the only state the probe is allowed to change.
+            try:
+                import copy
+
+                import torch
+
+                src = model
+                if isinstance(
+                    src,
+                    (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel),
+                ):
+                    src = src.module  # one replica is what a step costs
+                m = copy.deepcopy(src)
+            except Exception as e:
+                self.flops_notes = (
+                    f"Model could not be deep-copied for profiling ({e}); "
+                    "FLOPs not estimated."
+                )
+                return
             per_step = None
             fwd = None
             notes = []
@@ -926,10 +970,8 @@ def make_torch_training_meta_info(
                     if torch.cuda.is_available():
                         activities.append(prof.ProfilerActivity.CUDA)
 
-                    m_train = m.train()
-                    for p in m_train.parameters():
-                        p.requires_grad_(True)
-
+                    # The copy keeps the live model's train/eval flags and
+                    # requires_grad flags, so this is the cost of a real step.
                     with torch.enable_grad():
                         with prof.profile(
                             activities=activities,
@@ -937,17 +979,20 @@ def make_torch_training_meta_info(
                             with_flops=True,
                             profile_memory=False,
                         ) as p:
-                            out = m_train(*inputs)
+                            out = m(*inputs)
                             # generic scalar loss; if not scalar, sum it
                             if isinstance(out, (tuple, list)):
                                 out = out[0]
-                            loss = out.sum() if hasattr(out, "sum") else (out if out.ndim == 0 else None)
+                            loss = (
+                                out.sum()
+                                if hasattr(out, "sum")
+                                else (out if out.ndim == 0 else None)
+                            )
                             if loss is None:
-                                raise RuntimeError("Cannot reduce model output to scalar for backward()")
+                                raise RuntimeError(
+                                    "Cannot reduce model output to scalar for backward()"
+                                )
                             loss.backward()
-                            if optimizer is not None:
-                                optimizer.step()
-                                optimizer.zero_grad(set_to_none=True)
 
                     ka = p.key_averages()
                     # sum flops across ops
@@ -962,7 +1007,9 @@ def make_torch_training_meta_info(
                         per_step = int(total_flops)
                         # We also try a forward-only pass to estimate per-forward if desired
                         # Fallback: assume forward ≈ per_step / (1 + backward_factor)
-                        fwd = int(round(per_step / max(1.0, 1.0 + self.backward_factor)))
+                        fwd = int(
+                            round(per_step / max(1.0, 1.0 + self.backward_factor))
+                        )
                     else:
                         notes.append("Profiler returned zero flops; falling back.")
                 except Exception as e:
@@ -976,23 +1023,27 @@ def make_torch_training_meta_info(
 
                     m_eval = m.eval()
                     with torch.no_grad():
-                        macs, _params = thop_profile(m_eval, inputs=inputs, verbose=False)
+                        macs, _params = thop_profile(
+                            m_eval, inputs=inputs, verbose=False
+                        )
                     fwd = int(macs * 2)  # MACs→FLOPs
                     used_method = "thop (forward-only)"
                     per_step = int(round(fwd * (1.0 + self.backward_factor)))
                 except Exception as e:
                     notes.append(f"THOP failed: {e}")
 
+            del m  # release the probe copy
+
             if per_step is None:
-                self.flops_notes = " | ".join(notes) if notes else "FLOPs estimation unavailable."
+                self.flops_notes = (
+                    " | ".join(notes) if notes else "FLOPs estimation unavailable."
+                )
                 return
 
             self.per_step_flops = per_step
             self.per_forward_flops = fwd
             self.flops_method = used_method
             self.flops_notes = "Estimated from a single train step."
-
-            self._did_profile_once = True
 
         def _finalize_flops_totals(self):
             if self.per_step_flops is None:
@@ -1001,17 +1052,22 @@ def make_torch_training_meta_info(
             self.total_training_flops = int(self.per_step_flops * steps)
             # Approximate per-epoch if we know per-epoch batches
             if self.total_batches_declared:
-                epoch_steps = max(1, self.total_batches_declared // self.grad_accum_steps)
+                epoch_steps = max(
+                    1, self.total_batches_declared // self.grad_accum_steps
+                )
                 self.per_epoch_flops = int(self.per_step_flops * epoch_steps)
 
         def _build_payload(self, torch_module=None):
             versions = {}
             try:
                 import torch
+
                 versions = {
                     "torch": getattr(torch, "__version__", None),
                     "cuda": getattr(torch.version, "cuda", None),
-                    "cudnn": getattr(getattr(torch.backends, "cudnn", None), "version", lambda: None)(),
+                    "cudnn": getattr(
+                        getattr(torch.backends, "cudnn", None), "version", lambda: None
+                    )(),
                 }
             except Exception:
                 pass
@@ -1081,7 +1137,9 @@ def make_torch_training_meta_info(
 
         def on_train_end(self, model=None, **kwargs):
             self._train_end_ts = time.time()
-            self._wall_time_sec = float(self._train_end_ts - (self._train_start_ts or self._train_end_ts))
+            self._wall_time_sec = float(
+                self._train_end_ts - (self._train_start_ts or self._train_end_ts)
+            )
             # finalize FLOPs totals
             self._finalize_flops_totals()
 
@@ -1109,9 +1167,9 @@ def make_torch_training_meta_info(
 @CallbackRegistry.register("torch_grad_monitor")
 def make_torch_grad_monitor(
     save_dir: str,
-    track_per_param: bool = False,   # False = per-layer summary only (recommended)
-    log_every_n_batches: int = 1,    # collect every n batches (increase to reduce overhead)
-    clip_large_values_at: float = 0, # 0 = no clipping; else clip abs grads for robust stats
+    track_per_param: bool = False,  # False = per-layer summary only (recommended)
+    log_every_n_batches: int = 1,  # collect every n batches (increase to reduce overhead)
+    clip_large_values_at: float = 0,  # 0 = no clipping; else clip abs grads for robust stats
 ):
     """
     Gradient-flow monitor (safe & robust).
@@ -1123,9 +1181,14 @@ def make_torch_grad_monitor(
       (per-parameter detail can be enabled but increases JSON size)
     - Saves one JSON per epoch: grads_epoch_{epoch+1}.json
     """
-    import torch
+    import json
+    import math
+    import os
+    import traceback
     from collections import defaultdict
-    import os, json, math, traceback
+
+    import torch
+
     class TorchGradMonitor(PyTorchCallback):
         def __init__(self):
             super().__init__()
@@ -1143,21 +1206,37 @@ def make_torch_grad_monitor(
             self._batch_any_inf = False
 
             # per-batch per-layer accumulators
-            self._batch_layer = defaultdict(lambda: {
-                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
-                "mean_abs_sum": 0.0, "std_sum": 0.0,
-                "zeros": 0, "numel": 0, "finite": 0
-            })
+            self._batch_layer = defaultdict(
+                lambda: {
+                    "count": 0,
+                    "l2": 0.0,
+                    "l1": 0.0,
+                    "max_abs": 0.0,
+                    "mean_abs_sum": 0.0,
+                    "std_sum": 0.0,
+                    "zeros": 0,
+                    "numel": 0,
+                    "finite": 0,
+                }
+            )
             # per-epoch aggregated stats
             self._epoch_batches = 0
             self._epoch_global_norms = []  # sample per logged batch
             self._epoch_any_nan = 0
             self._epoch_any_inf = 0
-            self._epoch_layer = defaultdict(lambda: {
-                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
-                "mean_abs_sum": 0.0, "std_sum": 0.0,
-                "zeros": 0, "numel": 0, "finite": 0
-            })
+            self._epoch_layer = defaultdict(
+                lambda: {
+                    "count": 0,
+                    "l2": 0.0,
+                    "l1": 0.0,
+                    "max_abs": 0.0,
+                    "mean_abs_sum": 0.0,
+                    "std_sum": 0.0,
+                    "zeros": 0,
+                    "numel": 0,
+                    "finite": 0,
+                }
+            )
 
         # ----------------- helpers -----------------
         def _atomic_write_json(self, path: str, payload: Dict[str, Any]):
@@ -1180,10 +1259,16 @@ def make_torch_grad_monitor(
 
             if finite.numel() == 0:
                 return {
-                    "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
-                    "mean_abs": 0.0, "std": 0.0,
-                    "zeros": zeros, "numel": numel, "finite": 0,
-                    "any_nan": True, "any_inf": True
+                    "l2": 0.0,
+                    "l1": 0.0,
+                    "max_abs": 0.0,
+                    "mean_abs": 0.0,
+                    "std": 0.0,
+                    "zeros": zeros,
+                    "numel": numel,
+                    "finite": 0,
+                    "any_nan": True,
+                    "any_inf": True,
                 }
 
             absf = finite.abs()
@@ -1191,16 +1276,23 @@ def make_torch_grad_monitor(
             l1 = float(absf.sum().item())
             max_abs = float(absf.max().item())
             mean_abs = float(absf.mean().item())
-            std = float(finite.std(unbiased=False).item()) if finite.numel() > 1 else 0.0
+            std = (
+                float(finite.std(unbiased=False).item()) if finite.numel() > 1 else 0.0
+            )
             any_nan = bool(torch.isnan(t).any().item())
             any_inf = bool(torch.isinf(t).any().item())
 
             return {
-                "l2": l2, "l1": l1, "max_abs": max_abs,
-                "mean_abs": mean_abs, "std": std,
-                "zeros": int(zeros), "numel": int(numel),
+                "l2": l2,
+                "l1": l1,
+                "max_abs": max_abs,
+                "mean_abs": mean_abs,
+                "std": std,
+                "zeros": int(zeros),
+                "numel": int(numel),
                 "finite": int(finite.numel()),
-                "any_nan": any_nan, "any_inf": any_inf,
+                "any_nan": any_nan,
+                "any_inf": any_inf,
             }
 
         def _attach_hooks(self, model):
@@ -1221,7 +1313,7 @@ def make_torch_grad_monitor(
                     def _hook(grad):
                         s = self._safe_stats(grad)
                         # global
-                        self._batch_global_sumsq += (s["l2"] ** 2)
+                        self._batch_global_sumsq += s["l2"] ** 2
                         self._batch_any_nan |= s["any_nan"]
                         self._batch_any_inf |= s["any_inf"]
                         # per-layer (group by module/param prefix)
@@ -1239,11 +1331,20 @@ def make_torch_grad_monitor(
 
                         if self.track_per_param:
                             # store minimal per-param details lazily
-                            PP = self._batch_layer.setdefault(f"{layer}::{pname}", {
-                                "count": 0, "l2": 0.0, "l1": 0.0, "max_abs": 0.0,
-                                "mean_abs_sum": 0.0, "std_sum": 0.0,
-                                "zeros": 0, "numel": 0, "finite": 0
-                            })
+                            PP = self._batch_layer.setdefault(
+                                f"{layer}::{pname}",
+                                {
+                                    "count": 0,
+                                    "l2": 0.0,
+                                    "l1": 0.0,
+                                    "max_abs": 0.0,
+                                    "mean_abs_sum": 0.0,
+                                    "std_sum": 0.0,
+                                    "zeros": 0,
+                                    "numel": 0,
+                                    "finite": 0,
+                                },
+                            )
                             PP["count"] += 1
                             PP["l2"] += s["l2"]
                             PP["l1"] += s["l1"]
@@ -1253,6 +1354,7 @@ def make_torch_grad_monitor(
                             PP["zeros"] += s["zeros"]
                             PP["numel"] += s["numel"]
                             PP["finite"] += s["finite"]
+
                     return _hook
 
                 self._hooks.append(p.register_hook(make_hook(name)))
@@ -1296,8 +1398,12 @@ def make_torch_grad_monitor(
                     "max_abs": round(v["max_abs"], 6),
                     "mean_abs_mean": round(v["mean_abs_sum"] / c, 6),
                     "std_mean": round(v["std_sum"] / c, 6),
-                    "zero_frac": round((v["zeros"] / v["numel"]) if v["numel"] else 0.0, 6),
-                    "finite_frac": round((v["finite"] / v["numel"]) if v["numel"] else 0.0, 6),
+                    "zero_frac": round(
+                        (v["zeros"] / v["numel"]) if v["numel"] else 0.0, 6
+                    ),
+                    "finite_frac": round(
+                        (v["finite"] / v["numel"]) if v["numel"] else 0.0, 6
+                    ),
                 }
 
             return {
@@ -1305,9 +1411,29 @@ def make_torch_grad_monitor(
                 "batches_logged": self._epoch_batches,
                 "global_grad_norm": {
                     "num_samples": len(self._epoch_global_norms),
-                    "mean": round(float(sum(self._epoch_global_norms) / max(1, len(self._epoch_global_norms))), 6),
-                    "max": round(float(max(self._epoch_global_norms)) if self._epoch_global_norms else 0.0, 6),
-                    "min": round(float(min(self._epoch_global_norms)) if self._epoch_global_norms else 0.0, 6),
+                    "mean": round(
+                        float(
+                            sum(self._epoch_global_norms)
+                            / max(1, len(self._epoch_global_norms))
+                        ),
+                        6,
+                    ),
+                    "max": round(
+                        (
+                            float(max(self._epoch_global_norms))
+                            if self._epoch_global_norms
+                            else 0.0
+                        ),
+                        6,
+                    ),
+                    "min": round(
+                        (
+                            float(min(self._epoch_global_norms))
+                            if self._epoch_global_norms
+                            else 0.0
+                        ),
+                        6,
+                    ),
                 },
                 "any_nan_batches": self._epoch_any_nan,
                 "any_inf_batches": self._epoch_any_inf,
@@ -1351,7 +1477,12 @@ def make_torch_grad_monitor(
             except Exception as e:
                 print(f"[torch_grad_monitor] Failed to save epoch grads: {e}")
                 try:
-                    with open(os.path.join(self.save_dir, f"grads_epoch_{epoch+1:04d}.error.txt"), "w") as f:
+                    with open(
+                        os.path.join(
+                            self.save_dir, f"grads_epoch_{epoch+1:04d}.error.txt"
+                        ),
+                        "w",
+                    ) as f:
                         traceback.print_exc(file=f)
                 except Exception:
                     pass

@@ -253,11 +253,11 @@ def flow(
         Transformed samples
 
     Examples:
-        >>> list(pipe_each([1, 2, 3], lambda x: x * 2))
+        >>> list(flow([1, 2, 3], lambda x: x * 2))
         [2, 4, 6]
 
         >>> # With broadcast and join
-        >>> list(pipe_each(
+        >>> list(flow(
         ...     [(p, {}) for p in paths],
         ...     [load, None],
         ...     [split_width, None],

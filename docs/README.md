@@ -1,39 +1,19 @@
-# XFlow Documentation
+# Documentation
 
-This directory contains the Sphinx documentation for XFlow.
+From the repository root, using Python 3.12:
 
-## Building the Documentation
+```bash
+python -m pip install -e ".[docs]"
+python docs/build.py
+```
 
-1. Install dependencies:
-   ```bash
-   pip install sphinx sphinx-rtd-theme
-   ```
+Open `docs/build/html/index.html`. To treat documentation warnings as errors:
 
-2. Build the documentation:
-   ```bash
-   python build.py
-   ```
+```bash
+python -m sphinx -W --keep-going -b html docs/source docs/build/html
+```
 
-   Or manually:
-   ```bash
-   cd docs
-   sphinx-build -b html source build/html
-   ```
-
-3. Open `build/html/index.html` in your browser.
-
-## Structure
-
-- `source/` - Documentation source files (RST format)
-- `source/api/` - API reference documentation
-- `source/examples/` - Usage examples
-- `source/_static/` - Static files (CSS, images)
-- `build/` - Generated HTML files (created after building)
-
-## Customization
-
-- `source/conf.py` - Sphinx configuration
-- `source/_static/custom.css` - Custom styling
-- Theme: sphinx_rtd_theme with custom styling for dark mode support
-
-The documentation structure follows the API organization defined in `src/xflow/_api_registry.py`.
+The reader documentation has two parts: `source/quickstart.rst` (overview and a
+small training example) and `source/api/` (core interfaces). Keep the reference
+focused on common workflows. The site uses Sphinx with Furo; its configuration
+is in `source/conf.py`.

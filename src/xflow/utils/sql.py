@@ -113,18 +113,50 @@ class SQLiteDB(Database):
         super().__init__()
         self.connection = sqlite3.connect(db_path)
         self.cursor = self.connection.cursor()
+        self._transaction_depth = 0
         self.tables = self.list_tables()
         print(f"Connected to SQLite database with {len(self.tables)} tables")
 
     @contextmanager
     def transaction(self):
-        """Context manager for database transactions."""
-        try:
-            yield self.connection
+        """Context manager for database transactions.
+
+        The outermost block issues an explicit BEGIN, so DDL (create/drop/alter
+        table) is covered as well as DML, and commits or rolls back everything
+        at its exit. Nested blocks become SAVEPOINTs: a failing inner block is
+        rolled back to its savepoint even if the outer block catches the
+        exception. Outside any block every write method commits as before.
+        """
+        if self._transaction_depth == 0:
+            if not self.connection.in_transaction:
+                self.connection.execute("BEGIN")
+            self._transaction_depth += 1
+            try:
+                yield self.connection
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                raise
+            finally:
+                self._transaction_depth -= 1
+        else:
+            savepoint = f"xflow_sp_{self._transaction_depth}"
+            self.connection.execute(f"SAVEPOINT {savepoint}")
+            self._transaction_depth += 1
+            try:
+                yield self.connection
+                self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except BaseException:
+                self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+                raise
+            finally:
+                self._transaction_depth -= 1
+
+    def _commit(self) -> None:
+        """Commit now unless inside ``transaction()``, whose outer boundary commits."""
+        if self._transaction_depth == 0:
             self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
 
     def _build_where_clause(self, where: Dict[str, Any]) -> tuple:
         """Build WHERE clause with parameters."""
@@ -149,14 +181,14 @@ class SQLiteDB(Database):
         columns = ", ".join(f"{col} {dtype}" for col, dtype in schema.items())
         sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})"
         self.cursor.execute(sql)
-        self.connection.commit()
+        self._commit()
         self.tables = self.list_tables()  # Refresh table list
 
     def drop_table(self, table_name: str) -> None:
         """Drop an existing table."""
         sql = f"DROP TABLE IF EXISTS {table_name}"
         self.cursor.execute(sql)
-        self.connection.commit()
+        self._commit()
         self.tables = self.list_tables()  # Refresh table list
 
     def list_tables(self) -> List[str]:
@@ -170,7 +202,7 @@ class SQLiteDB(Database):
         """Add a new column to existing table."""
         sql = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {data_type}"
         self.cursor.execute(sql)
-        self.connection.commit()
+        self._commit()
 
     # CRUD operations
     def insert(self, table_name: str, data: Dict[str, Any]) -> None:
@@ -179,20 +211,29 @@ class SQLiteDB(Database):
         placeholders = ", ".join("?" * len(data))
         sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
         self.cursor.execute(sql, tuple(data.values()))
-        self.connection.commit()
+        self._commit()
 
     def insert_many(self, table_name: str, data: List[Dict[str, Any]]) -> None:
         """Insert multiple records."""
         if not data:
             return
 
-        columns = ", ".join(data[0].keys())
-        placeholders = ", ".join("?" * len(data[0]))
+        column_names = list(data[0].keys())
+        columns = ", ".join(column_names)
+        placeholders = ", ".join("?" * len(column_names))
         sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
 
-        values = [tuple(row.values()) for row in data]
+        # One fixed column order for every row: a dict's key order must never
+        # decide which column a value lands in.
+        for i, row in enumerate(data):
+            if set(row.keys()) != set(column_names):
+                raise ValueError(
+                    f"insert_many row {i} has columns {sorted(row.keys())}, "
+                    f"expected {sorted(column_names)}"
+                )
+        values = [tuple(row[col] for col in column_names) for row in data]
         self.cursor.executemany(sql, values)
-        self.connection.commit()
+        self._commit()
 
     def select(
         self,
@@ -222,7 +263,7 @@ class SQLiteDB(Database):
         params = tuple(data.values()) + where_params
 
         self.cursor.execute(sql, params)
-        self.connection.commit()
+        self._commit()
         return self.cursor.rowcount
 
     def delete(self, table_name: str, where: Dict[str, Any]) -> int:
@@ -231,14 +272,14 @@ class SQLiteDB(Database):
         sql = f"DELETE FROM {table_name}{where_clause}"
 
         self.cursor.execute(sql, params)
-        self.connection.commit()
+        self._commit()
         return self.cursor.rowcount
 
     # Raw SQL operations
     def execute(self, sql: str, params: Optional[List[Any]] = None) -> None:
         """Execute raw SQL command."""
         self.cursor.execute(sql, params or [])
-        self.connection.commit()
+        self._commit()
 
     def query(self, sql: str, params: Optional[List[Any]] = None) -> pd.DataFrame:
         """Execute raw SQL query and return DataFrame."""

@@ -40,9 +40,7 @@ def generate_all_apis():
 
     # Generate main package __init__.py
     main_init = src_dir / "xflow" / "__init__.py"
-    main_content = generate_init(
-        CORE_API, "xflow", include_version=True
-    )  # <-- add flag
+    main_content = generate_init(CORE_API, "xflow", include_version=True)
     print(f"Generating {main_init}")
     with open(main_init, "w") as f:
         f.write(main_content)

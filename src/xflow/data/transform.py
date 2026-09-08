@@ -97,17 +97,20 @@ class ShufflePipeline(BasePipeline):
         self.buffer_size = buffer_size
 
     def __iter__(self) -> Iterator[Any]:
+        # Shuffle buffer: fill it, then for every further item emit one random
+        # buffered item and store the new item in its slot; shuffle and drain
+        # the buffer at the end. Every item is yielded exactly once.
         it = self.base.__iter__()
-        buf = list(itertools.islice(it, self.buffer_size))
-        random.shuffle(buf)
-
-        for x in buf:
-            yield x
+        buf = list(itertools.islice(it, max(1, self.buffer_size)))
 
         for x in it:
-            buf[random.randrange(self.buffer_size)] = x
-            random.shuffle(buf)
-            yield buf.pop()
+            i = random.randrange(len(buf))
+            yield buf[i]
+            buf[i] = x
+
+        random.shuffle(buf)
+        for x in buf:
+            yield x
 
     def __len__(self) -> int:
         return len(self.base)
@@ -194,7 +197,9 @@ class TransformRegistry:
 _MEAN_BACKGROUND_CACHE: Dict[Tuple[str, str, str, bool], np.ndarray] = {}
 
 
-def _resolve_background_paths(background_source: PathLikeStr, camera: str) -> List[Path]:
+def _resolve_background_paths(
+    background_source: PathLikeStr, camera: str
+) -> List[Path]:
     root = Path(background_source).expanduser()
     if root.suffix != ".db":
         root = resolve_resource_dir(root)
@@ -272,7 +277,11 @@ def _match_background_shape(image: np.ndarray, background: np.ndarray) -> np.nda
         return background
     if image.ndim == 3 and background.ndim == 2 and image.shape[:2] == background.shape:
         return background[..., np.newaxis]
-    if image.ndim == 3 and background.ndim == 2 and image.shape[-2:] == background.shape:
+    if (
+        image.ndim == 3
+        and background.ndim == 2
+        and image.shape[-2:] == background.shape
+    ):
         return background[np.newaxis, ...]
     raise ValueError(
         "Background shape does not match image shape: "
@@ -795,7 +804,7 @@ def build_transforms_from_config(
             processed_params["transforms"] = nested_transforms
             transform_fn = partial(TransformRegistry.get(name), **processed_params)
         else:
-            # Regular transform - original behavior preserved
+            # Resolve a single transform.
             transform_fn = TransformRegistry.get(name)
             if params:
                 transform_fn = partial(transform_fn, **params)
@@ -1074,7 +1083,9 @@ def load_image16(path: PathLikeStr, require_16bit: bool = True) -> np.ndarray:
             )
         arr = np.asarray(img).astype(np.int32)
     if arr.ndim != 2:
-        raise ValueError(f"Expected 2D grayscale image, got shape {arr.shape} for {path}.")
+        raise ValueError(
+            f"Expected 2D grayscale image, got shape {arr.shape} for {path}."
+        )
     return arr[np.newaxis, :, :]
 
 
@@ -2212,6 +2223,15 @@ def identity(x):
 
 
 # PyTorch dataset operations
+def _seed_worker(worker_id):
+    """Picklable DataLoader ``worker_init_fn``: seed numpy/random per worker."""
+    import torch
+
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
 @DatasetOperationRegistry.register("torch_batch")
 def torch_batch(
     dataset: "_TorchDataset",
@@ -2224,7 +2244,7 @@ def torch_batch(
     pin_memory_device: str = "",
     worker_init_fn=None,
     prefetch_factor: Optional[int] = None,
-    seed: Optional[int] = None,  # <--- new
+    seed: Optional[int] = None,  # Optional shuffle seed.
 ):
     """Wrap a dataset in a PyTorch DataLoader for batching with optional seed."""
     import torch
@@ -2236,13 +2256,7 @@ def torch_batch(
         generator.manual_seed(int(seed))
 
         if worker_init_fn is None and num_workers > 0:
-
-            def seed_worker(worker_id):
-                worker_seed = torch.initial_seed() % 2**32
-                np.random.seed(worker_seed)
-                random.seed(worker_seed)
-
-            worker_init_fn = seed_worker
+            worker_init_fn = _seed_worker  # module-level, so workers can pickle it
 
     return DataLoader(
         dataset,
@@ -2256,7 +2270,7 @@ def torch_batch(
         collate_fn=collate_fn,
         worker_init_fn=worker_init_fn,
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
-        generator=generator,  # <--- key for deterministic shuffle
+        generator=generator,  # Generator controls deterministic shuffling.
     )
 
 
@@ -2377,6 +2391,54 @@ class TorchDataset(_TorchDataset):
         return self.pipeline[idx]
 
 
+class PyTorchTransformDataset(_TorchDataset):
+    """Map-style Dataset applying a pipeline's hooks and transforms on access.
+
+    Module-level so DataLoader workers can pickle it (spawn start method on
+    Windows/macOS). Mirrors ``BasePipeline.__iter__``: pre-hook, transforms,
+    post-hook, with the sample index passed to the hooks.
+    """
+
+    def __init__(
+        self,
+        data_provider,
+        transforms,
+        pre_transform_hook=None,
+        post_transform_hook=None,
+    ):
+        self.data_provider = data_provider
+        self.transforms = transforms
+        self.pre_transform_hook = pre_transform_hook
+        self.post_transform_hook = post_transform_hook
+        self._file_paths = list(data_provider())
+
+    def __len__(self):
+        return len(self._file_paths)
+
+    def __getitem__(self, idx):
+        item = self._file_paths[idx]
+        if self.pre_transform_hook is not None:
+            item = self.pre_transform_hook(item, idx)
+        for transform in self.transforms:
+            item = transform.fn(item)
+        if self.post_transform_hook is not None:
+            item = self.post_transform_hook(item, idx)
+        return item
+
+
+class _MemoryListDataset(_TorchDataset):
+    """Map-style Dataset over preprocessed in-memory samples (module-level, picklable)."""
+
+    def __init__(self, data: List[Any]) -> None:
+        self._data = data
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __getitem__(self, idx: int) -> Any:
+        return self._data[idx]
+
+
 @TransformRegistry.register("save_image")
 def save_image(
     data: TensorLike,
@@ -2439,6 +2501,11 @@ def save_image(
         try:
             import cv2
 
+            # to_numpy_image yields channel-last RGB(A); OpenCV writes BGR(A).
+            if array.ndim == 3 and array.shape[-1] == 3:
+                array = cv2.cvtColor(np.ascontiguousarray(array), cv2.COLOR_RGB2BGR)
+            elif array.ndim == 3 and array.shape[-1] == 4:
+                array = cv2.cvtColor(np.ascontiguousarray(array), cv2.COLOR_RGBA2BGRA)
             ok = cv2.imwrite(str(output_path), array)
             if not ok:
                 raise RuntimeError("cv2.imwrite returned False")
@@ -2582,7 +2649,7 @@ def discard(data: Any) -> None:
 def raise_if_none(data: Any, message: str = "Discarded sample") -> Any:
     """Raise exception if data is None, allowing pipeline to skip it.
 
-    Use with skip_errors=True in pipe_each to filter out None samples.
+    Use with skip_errors=True in flow to filter out None samples.
 
     Args:
         data: Input data
@@ -2596,7 +2663,7 @@ def raise_if_none(data: Any, message: str = "Discarded sample") -> Any:
 
     Examples:
         >>> # In pipeline with skip_errors=True
-        >>> results = list(pipe_each(
+        >>> results = list(flow(
         ...     items,
         ...     some_transform,  # might return None
         ...     T.get("raise_if_none"),  # converts None to skip

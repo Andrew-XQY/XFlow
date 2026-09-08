@@ -29,7 +29,7 @@ try:
     from typing import TypeAlias
 except ImportError:
     # backport
-    from typing_extensions import (  # make sure typing-extensions>=4.0.0 is in your deps
+    from typing_extensions import (
         TypeAlias,
     )
 

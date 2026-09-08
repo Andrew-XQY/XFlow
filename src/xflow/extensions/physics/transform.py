@@ -144,7 +144,7 @@ def check_centroid(
         # or None if the image is considered invalid.
         params = extract_beam_parameters(tensor, normalize=False)
 
-        # As requested: if the extractor returns None, immediately raise.
+        # Reject samples when the extractor returns None.
         if params is None:
             raise ValueError("extract_beam_parameters returned None (invalid image)")
 

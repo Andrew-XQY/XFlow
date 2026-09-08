@@ -47,20 +47,14 @@ class BasePipeline(ABC):
         skip_errors: Whether to skip items that fail preprocessing vs. raise errors.
 
     Example:
-        >>> # Using Transform wrapper for clear metadata
-        >>> transforms = [
-        ...     Transform(lambda path: np.loadtxt(path, delimiter=","), "load_csv"),
-        ...     Transform(lambda data: (data[:-1], data[-1]), "split_features_target"),
-        ...     Transform(lambda x: (normalize(x[0]), x[1]), "normalize_features")
-        ... ]
-        >>>
-        >>> files = ListProvider(["data1.csv", "data2.csv"])
-        >>> pipeline = MyPipeline(files, transforms)
-        >>>
-        >>> # Clear, meaningful metadata
-        >>> print(pipeline.get_metadata())
-        >>> # {"pipeline_type": "MyPipeline", "dataset_size": 2,
-        >>> #  "preprocessing_functions": ["load_csv", "split_features_target", "normalize_features"]}
+        >>> from xflow.data import DataPipeline, FileProvider
+        >>> files = FileProvider("data", extensions=".csv")
+        >>> pipeline = DataPipeline(
+        ...     files,
+        ...     transforms=[lambda path: np.loadtxt(path, delimiter=",")],
+        ...     skip_errors=False,
+        ... )
+        >>> samples = pipeline.sample(1)
     """
 
     def __init__(
@@ -484,6 +478,16 @@ class TensorFlowPipeline(BasePipeline):
             raise ValueError(
                 f"TensorFlowPipeline only supports tensorflow, got {framework}"
             )
+        if (
+            self._pre_transform_hook is not None
+            or self._post_transform_hook is not None
+        ):
+            # tf.data.map cannot run the Python (item, idx) hooks; refusing is
+            # better than silently converting without them.
+            raise NotImplementedError(
+                "pre/post transform hooks are not supported by the TensorFlow "
+                "dataset conversion; remove them or iterate the pipeline in Python."
+            )
 
         try:
             import tensorflow as tf
@@ -518,25 +522,19 @@ class PyTorchPipeline(BasePipeline):
             )
 
         try:
-            from .transform import TorchDataset, apply_dataset_operations_from_config
+            from .transform import (
+                PyTorchTransformDataset,
+                apply_dataset_operations_from_config,
+            )
 
-            # Create a PyTorch-compatible dataset that applies transforms on-the-fly
-            class PyTorchTransformDataset(TorchDataset):
-                def __init__(self, data_provider, transforms):
-                    self.data_provider = data_provider
-                    self.transforms = transforms
-                    self._file_paths = list(data_provider())
-
-                def __len__(self):
-                    return len(self._file_paths)
-
-                def __getitem__(self, idx):
-                    item = self._file_paths[idx]
-                    for transform in self.transforms:
-                        item = transform.fn(item)
-                    return item
-
-            dataset = PyTorchTransformDataset(self.data_provider, self.transforms)
+            # Module-level (picklable) dataset applying the same pre-hook,
+            # transforms and post-hook as __iter__, lazily per index.
+            dataset = PyTorchTransformDataset(
+                self.data_provider,
+                self.transforms,
+                pre_transform_hook=self._pre_transform_hook,
+                post_transform_hook=self._post_transform_hook,
+            )
 
             if dataset_ops:
                 dataset = apply_dataset_operations_from_config(dataset, dataset_ops)
@@ -571,7 +569,7 @@ class PyTorchPipeline(BasePipeline):
         Example:
             >>> pipeline = PyTorchPipeline(provider, transforms)
             >>> # Load entire dataset into memory (use carefully!)
-            >>> memory_dataset = pipeline.load_all_into_memory()
+            >>> memory_dataset = pipeline.to_memory_dataset()
             >>> dataloader = DataLoader(memory_dataset, batch_size=32, shuffle=True)
         """
         try:
@@ -581,19 +579,10 @@ class PyTorchPipeline(BasePipeline):
             from torch.utils.data import TensorDataset
             from tqdm.auto import tqdm
 
-            from .transform import apply_dataset_operations_from_config
-
-            class _MemoryListDataset(TorchDataset):
-                """Fallback dataset that returns preprocessed samples without stacking."""
-
-                def __init__(self, data: List[Any]) -> None:
-                    self._data = data
-
-                def __len__(self) -> int:
-                    return len(self._data)
-
-                def __getitem__(self, idx: int) -> Any:
-                    return self._data[idx]
+            from .transform import (
+                _MemoryListDataset,
+                apply_dataset_operations_from_config,
+            )
 
             def _to_tensor_or_keep(value: Any) -> Any:
                 """Convert value to tensor when possible, otherwise leave unchanged."""

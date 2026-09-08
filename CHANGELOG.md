@@ -22,9 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Sphinx build warnings and duplicate object documentation
 
-### Contributors
-- HAL — research copilot enlisted as an ongoing contributor for docs and tooling polish
-
 ## [0.1.0] - 2025-08-01
 
 ### Added
@@ -66,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 1. Move "Unreleased" changes to a new version section
 2. Add the release date
 3. Create a new empty "Unreleased" section
-4. Update the version in `pyproject.toml`
+4. Create the matching `vX.Y.Z` Git tag; package versions are derived with `setuptools_scm`
 
 ### Example entry format:
 ```markdown

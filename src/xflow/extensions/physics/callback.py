@@ -36,7 +36,7 @@ def make_torch_centroid_ellipse_callback(dataset=None, save_dir=None):
         def _refresh_sample(self):
             if self.dataset is None:
                 raise ValueError("Dataset must be set before using the callback.")
-            # Only the (A, y_true, B_img) case, as requested
+            # Handle the (A, y_true, B_img) batch format.
             if isinstance(self.dataset, tuple) and len(self.dataset) == 3:
                 self.sample_batch = self.dataset
             else:
@@ -308,7 +308,7 @@ def plot_centroid_ellipse(
         return fig
 
 
-# --- New Callback for Image Reconstruction ---
+# --- Image reconstruction callback ---
 from datetime import datetime
 
 

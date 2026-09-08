@@ -10,7 +10,7 @@ try:
 except ImportError:
     from typing_extensions import (
         Self,
-    )  # ensure typing-extensions>=4.0.0 is in your deps
+    )
 
 from .helper import deep_update
 from .io import copy_file
@@ -89,9 +89,11 @@ class ConfigManager:
         """Return config items."""
         return self._config.items()
 
-    def add_files(self, file_paths: Union[PathLikeStr, List[PathLikeStr], Tuple[PathLikeStr, ...]]) -> Self:
+    def add_files(
+        self, file_paths: Union[PathLikeStr, List[PathLikeStr], Tuple[PathLikeStr, ...]]
+    ) -> Self:
         """Add files that are part of this configuration.
-        
+
         Args:
             file_paths: Single file path or iterable of file paths
         """
@@ -137,20 +139,22 @@ class ConfigManager:
             for file_path in self._files:
                 copy_file(file_path, target_dir)
 
-    def save(self, output_dir: PathLikeStr, config_filename: Optional[str] = None) -> None:
+    def save(
+        self, output_dir: PathLikeStr, config_filename: Optional[str] = None
+    ) -> None:
         """Save config and copy associated files to target directory.
-        
+
         Args:
             output_dir: Target directory path
-            config_filename: Config filename with extension (e.g., 'config.yaml'). 
+            config_filename: Config filename with extension (e.g., 'config.yaml').
                            If None or empty, only copies associated files.
         """
         output_dir = Path(output_dir)
-        
+
         # Save config only if filename is provided
         if config_filename:
             config_path = output_dir / config_filename
             self.save_config(config_path)
-        
+
         # Always copy associated files
         self.copy_associated_files(output_dir)

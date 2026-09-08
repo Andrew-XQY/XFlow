@@ -62,10 +62,8 @@ def set_aps_single_column(figsize=(3.25, 2.5), scale=1.0, legend_background=True
             # Figure size:
             "figure.figsize": figsize,
             # Spacing
-            "axes.labelpad": 6.0
-            * scale,  # default is 4.0 :contentReference[oaicite:0]{index=0}
-            "xtick.major.pad": 3.0
-            * scale,  # via rc('xtick.major', pad=…) :contentReference[oaicite:1]{index=1}
+            "axes.labelpad": 6.0 * scale,  # default is 4.0
+            "xtick.major.pad": 3.0 * scale,  # via rc('xtick.major', pad=…)
             "ytick.major.pad": 3.0 * scale,
             # Savefig resolution and font embedding:
             "savefig.dpi": 600,  # Resolution for figure saving
@@ -123,10 +121,8 @@ def set_aps_double_column(figsize=(7.0, 3.5), scale=1.0, legend_background=True)
             # Figure size:
             "figure.figsize": figsize,
             # Spacing
-            "axes.labelpad": 5.0
-            * scale,  # default is 4.0 :contentReference[oaicite:0]{index=0}
-            "xtick.major.pad": 3.0
-            * scale,  # default is 3 :contentReference[oaicite:1]{index=1}
+            "axes.labelpad": 5.0 * scale,  # default is 4.0
+            "xtick.major.pad": 3.0 * scale,  # default is 3
             "ytick.major.pad": 3.0 * scale,
             # Savefig resolution and font embedding:
             "savefig.dpi": 600,  # Resolution for figure saving

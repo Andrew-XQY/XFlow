@@ -1,117 +1,128 @@
-Quickstart Guide
-================
+Overview
+========
 
-Installation
-------------
+XFlow connects data sources, preprocessing, training, and evaluation for
+scientific machine learning. It grew out of physics research. Application logic
+stays in Python functions and classes, with each part of the workflow responsible
+for one job:
 
-Install XFlow using pip:
+* **Provider:** select raw files or database records.
+* **Pipeline:** turn each raw item into a sample using ordered callables.
+* **Trainer:** run a supplied model, optimizer, and loss over batches.
+* **Evaluation:** run inference and pass predictions to hooks.
+
+Use these parts independently or combine them. A pipeline does not choose a
+model, and a trainer does not decide how to load files. Native framework objects
+remain accessible.
+
+Install
+-------
+
+Use Python 3.12 for this example:
 
 .. code-block:: bash
 
-   pip install xflow-py
+   python -m pip install "xflow-py[ml_torch]"
 
-Basic Usage
------------
+For a local checkout, run ``python -m pip install -e ".[ml_torch]"`` from the
+repository root. ``pip install xflow-py`` installs the data and configuration
+tools without a training backend. The ``ml_tf`` extra provides TensorFlow
+dataset adapters. XFlow's concrete trainer is ``TorchTrainer``, which uses PyTorch.
 
-XFlow provides a simple and intuitive API for building machine learning pipelines:
+Provider to training
+--------------------
 
-1. **Data Pipeline**
+This runnable example creates 64 CSV files, each containing one input and one
+target. It fits a linear model to ``y = 2x + 1`` and writes a checkpoint and
+history to ``xflow-demo-run``.
 
-   .. code-block:: python
+.. code-block:: python
 
-      from xflow import BasePipeline, InMemoryPipeline
+   from pathlib import Path
+   import numpy as np
+   import torch
+   from torch.utils.data import DataLoader
+   from xflow import FileProvider, PyTorchPipeline, TorchTrainer
 
-      # Create a basic pipeline
-      pipeline = BasePipeline()
+   # Make a small regression dataset: one CSV row (input, target) per file.
+   data_dir = Path("xflow-demo-data")
+   data_dir.mkdir(exist_ok=True)
+   for i, x in enumerate(np.linspace(-1, 1, 64)):
+       np.savetxt(data_dir / f"{i:03d}.csv", [[x, 2 * x + 1]], delimiter=",")
 
-      # Or use in-memory pipeline for small datasets
-      data_pipeline = InMemoryPipeline(data)
+   def load_sample(path):
+       row = np.loadtxt(path, delimiter=",", dtype=np.float32)
+       return torch.from_numpy(row[:1]), torch.from_numpy(row[1:])
 
-2. **Model Creation**
+   provider = FileProvider(data_dir, extensions=".csv")
+   train_source, val_source = provider.split(ratio=0.8, seed=42)
+   train = PyTorchPipeline(train_source, transforms=[load_sample], skip_errors=False)
+   val = PyTorchPipeline(val_source, transforms=[load_sample], skip_errors=False)
+   train_loader = DataLoader(train.to_framework_dataset(), batch_size=8, shuffle=True)
+   val_loader = DataLoader(val.to_framework_dataset(), batch_size=8)
 
-   .. code-block:: python
+   model = torch.nn.Linear(1, 1)
+   trainer = TorchTrainer(
+       model=model,
+       data_pipeline=train,
+       output_dir="xflow-demo-run",
+       optimizer=torch.optim.SGD(model.parameters(), lr=0.1),
+       criterion=torch.nn.MSELoss(),
+       device="cpu",
+   )
+   history = trainer.fit(epochs=10, train_loader=train_loader, val_loader=val_loader)
+   trainer.save_history()
+   trainer.save_model()
+   print(history["val_loss"][-1])
 
-      from xflow import BaseModel
+For an existing dataset, replace the creation loop and ``load_sample``.
+``FileProvider`` returns paths; ``PyTorchPipeline`` applies the loader on access;
+the native ``DataLoader`` shuffles and batches the resulting tensor pairs.
+Pass loaders explicitly to ``fit()``. This example uses the default
+``num_workers=0``.
 
-      # Create a model
-      model = BaseModel()
+``DataPipeline`` offers lazy Python iteration; ``InMemoryPipeline`` processes
+samples once and keeps them in memory. ``BaseModel`` and ``BaseTrainer`` are
+abstract interfaces. A native ``torch.nn.Module`` is enough for ``TorchTrainer``.
 
-3. **Training**
+Compose and extend
+------------------
 
-   .. code-block:: python
+Transforms are callables. ``pipe`` processes one sample; ``flow`` applies the same
+steps lazily to an iterable; ``compose`` packages steps into a reusable callable.
+A list of transforms applies positionally to tuple components, with ``None``
+passing a component through:
 
-      from xflow import BaseTrainer
+.. code-block:: python
 
-      # Create and configure trainer
-      trainer = BaseTrainer(model=model, data=pipeline)
+   from xflow import compose, consume, flow, pipe
 
-      # Start training
-      trainer.train()
+   scale_input = compose([lambda x: x / 255.0, None])
+   assert scale_input((255.0, "label")) == (1.0, "label")
+   assert pipe((2, 3, "label"), [consume(2, sum), None]) == (5, "label")
+   assert list(flow([1, 2], lambda x: x * 2)) == [2, 4]
 
-4. **Data Transforms (PyTorch Support)**
+Add a custom transform directly to ``transforms`` or register it for use in
+configuration. Import its module before building the configured pipeline:
 
-   XFlow now supports PyTorch/torchvision transforms alongside TensorFlow transforms:
+.. code-block:: python
 
-   .. code-block:: python
+   from xflow.data.transform import TransformRegistry, build_transforms_from_config
 
-      from xflow.data.transform import TransformRegistry, build_transforms_from_config
+   @TransformRegistry.register("scale_pair")
+   def scale_pair(sample, factor=1.0):
+       x, y = sample
+       return x * factor, y
 
-      # Use individual PyTorch transforms
-      to_tensor = TransformRegistry.get("torch_to_tensor")
-      resize = TransformRegistry.get("torch_resize")
-      normalize = TransformRegistry.get("torch_normalize")
+   transforms = build_transforms_from_config([
+       {"name": "scale_pair", "params": {"factor": 0.5}}
+   ])
 
-      # Or build from configuration
-      config = [
-          {"name": "torch_to_tensor"},
-          {"name": "torch_resize", "params": {"size": [224, 224]}},
-          {"name": "torch_normalize", "params": {"mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]}}
-      ]
-      transforms = build_transforms_from_config(config)
+For a new data source, implement ``DataProvider`` from ``xflow.data.provider``:
+``__call__()`` returns items, ``__len__()`` reports their count, and ``subsample()``
+returns a subset provider. A training callback can subclass ``Callback`` from
+``xflow.trainers.trainer`` and implement hooks such as ``on_epoch_end(ctx)``.
+Keep custom extensions in your own package. The repository's
+``xflow.extensions`` modules are excluded from published wheels.
 
-      # Convert pipeline to PyTorch dataset
-      torch_dataset = pipeline.to_framework_dataset("pytorch")
-
-5. **Training Callbacks (PyTorch Support)**
-
-   XFlow now supports PyTorch callbacks for training monitoring and control:
-
-   .. code-block:: python
-
-      from xflow.trainers.callback import CallbackRegistry, build_callbacks_from_config
-
-      # Use individual PyTorch callbacks
-      early_stopping = CallbackRegistry.get_handler("torch_early_stopping")(
-          monitor="val_loss", patience=10, restore_best=True
-      )
-      
-      model_checkpoint = CallbackRegistry.get_handler("torch_model_checkpoint")(
-          filepath="best_model.pth", monitor="val_loss", save_best_only=True
-      )
-
-      # Or build from configuration
-      callback_config = [
-          {"name": "torch_early_stopping", "params": {"patience": 10}},
-          {"name": "torch_progress_bar", "params": {"desc": "Training"}},
-          {"name": "torch_lr_scheduler", "params": {"scheduler_class": "StepLR", "step_size": 10}}
-      ]
-      callbacks = build_callbacks_from_config(callback_config, framework="torch")
-
-6. **Configuration Management**
-
-   .. code-block:: python
-
-      from xflow import ConfigManager
-
-      # Load configuration
-      config = ConfigManager.load_config('config.yaml')
-
-      # Access configuration values
-      learning_rate = config.training.learning_rate
-
-Next Steps
-----------
-
-- Check out the :doc:`api/index` for detailed API documentation
-- See :doc:`examples/basic_usage` for more comprehensive examples
-- Explore the core modules: :doc:`api/data`, :doc:`api/models`, :doc:`api/trainers`, :doc:`api/utils`
+See :doc:`api/index` for the core contracts.

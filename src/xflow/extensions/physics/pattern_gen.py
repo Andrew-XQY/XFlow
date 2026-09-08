@@ -1,7 +1,8 @@
 # Minimal core for DynamicPatterns and StaticGaussianDistribution
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from collections.abc import Mapping as MappingABC
+from collections.abc import Sequence as SequenceABC
 from typing import (
     Any,
     Callable,
@@ -544,7 +545,7 @@ class Distribution(ABC):
 
 class StaticGaussianDistribution(Distribution):
     """
-    Your "static gaussian" with randomised params per update.
+    Static Gaussian distribution with randomised parameters per update.
     Uses numpy only (np.random.beta) for the beta branch.
     """
 
@@ -562,7 +563,7 @@ class StaticGaussianDistribution(Distribution):
     def _beta_scaled(
         self, mode: float, loc: float = 0.01, scale: float = 0.99
     ) -> float:
-        # Replicates the intent of your original scipy.stats.beta.rvs(..., loc, scale)
+        # Draw a beta sample with location and scale parameters.
         mode = float(np.clip(mode, 1e-6, 1.0 - 1e-6))
         decay_factor_a = 5.0
         decay_factor_b = 15.0
@@ -736,7 +737,7 @@ class StaticGaussianDistribution(Distribution):
         y = np.linspace(0, self._height - 1, self._height, dtype=float)
         x, y = np.meshgrid(x, y)
 
-        # shift origin to center, then rotate, then translate (same as your code)
+        # Shift the origin to the center, then rotate and translate.
         x -= self._width / 2.0
         y -= self._height / 2.0
 

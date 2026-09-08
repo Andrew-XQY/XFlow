@@ -25,10 +25,10 @@ class CallbackContext:
     scheduler: Any = None
     device: Any = None
     # progress
-    epochs: int = 0  # NEW: total epochs
+    epochs: int = 0  # Total epochs
     epoch: int = 0
     batch_idx: int = -1
-    batch: int = 0  # NEW: alias for PyTorch-style callbacks
+    batch: int = 0  # Alias for PyTorch-style callbacks
     global_step: int = 0
     total_batches: int = 0
     phase: str = "train"
@@ -68,7 +68,7 @@ class CallbackDispatcher:
                 params = inspect.signature(fn).parameters
                 usable = {k: v for k, v in kw.items() if k in params}
                 if usable:
-                    fn(**usable)  # works with your current PyTorch callbacks
+                    fn(**usable)  # Dispatch matching callback parameters.
                 else:
                     fn(ctx)  # also supports modern def on_*(self, ctx)
             except TypeError:
@@ -121,6 +121,22 @@ class ModelIO:
 
 
 # ============================== Base trainer ==============================
+
+
+def _num_samples(batch: Any) -> int:
+    """Sample count of a loader batch: leading dim of its first array-like part.
+
+    Falls back to 1 when it cannot be inferred, which reduces the weighted
+    epoch average below to the plain mean of batch means.
+    """
+    parts = batch if isinstance(batch, (tuple, list)) else (batch,)
+    for part in parts:
+        shape = getattr(part, "shape", None)
+        if shape is not None and len(shape) > 0:
+            return int(shape[0])
+        if isinstance(part, (list, tuple)):
+            return len(part)
+    return 1
 
 
 class BaseTrainer(ABC):
@@ -287,7 +303,7 @@ class TorchTrainer(BaseTrainer):
             total_batches=len(train_loader),
             logs={},
         )
-        ctx.epochs = epochs  # NEW: make epochs visible to callbacks
+        ctx.epochs = epochs  # Total epochs available to callbacks.
         self.cb.call("on_train_begin", ctx)
 
         global_step = 0
@@ -300,13 +316,18 @@ class TorchTrainer(BaseTrainer):
             if hasattr(self, "discriminator") and self.discriminator is not None:
                 self.discriminator.train()
             sum_loss = 0.0
+            n_train = (
+                0  # samples actually processed (correct even after an early break)
+            )
             for i, batch in enumerate(train_loader):
                 ctx.batch_idx = i
-                ctx.batch = i  # NEW: provide PyTorch-style 'batch'
+                ctx.batch = i  # PyTorch-style batch index.
                 self.cb.call("on_batch_begin", ctx)
                 logs = self.train_step(batch)
                 logs["train_loss"] = float(logs.get("loss", 0.0))  # pass train_loss
-                sum_loss += logs.get("loss", 0.0)
+                n = _num_samples(batch)
+                sum_loss += logs.get("loss", 0.0) * n  # batch mean x batch size
+                n_train += n
                 global_step += 1
                 ctx.logs = logs
                 ctx.global_step = global_step
@@ -320,7 +341,7 @@ class TorchTrainer(BaseTrainer):
                 if ctx.request_stop:
                     break
 
-            avg_train = sum_loss / max(1, len(train_loader))
+            avg_train = sum_loss / max(1, n_train)
 
             # -------- validate --------
             val_logs_epoch = {}
@@ -331,18 +352,21 @@ class TorchTrainer(BaseTrainer):
                 if hasattr(self, "discriminator") and self.discriminator is not None:
                     self.discriminator.eval()
                 acc = collections.defaultdict(float)
+                n_val = 0
                 for j, batch in enumerate(val_loader):
                     ctx.batch_idx = j
                     ctx.batch = j
                     self.cb.call("on_val_batch_begin", ctx)
                     logs = self.val_step(batch)
+                    n = _num_samples(batch)
                     for k, v in logs.items():
-                        acc[k] += float(v)
+                        acc[k] += float(v) * n  # per-batch means, sample-weighted
+                    n_val += n
                     ctx.logs = logs
                     self.cb.call("on_val_batch_end", ctx)
                     if ctx.request_stop:
                         break
-                val_logs_epoch = {k: acc[k] / max(1, len(val_loader)) for k in acc}
+                val_logs_epoch = {k: acc[k] / max(1, n_val) for k in acc}
                 ctx.logs = val_logs_epoch
                 self.cb.call("on_val_epoch_end", ctx)
 
@@ -461,7 +485,7 @@ class TorchGANTrainer(TorchTrainer):
                 "val_d_loss": float(d_loss.item()),
             }
             for fn in self.val_metrics:
-                extra = fn(fake, y)  # same signature as your current metrics
+                extra = fn(fake, y)  # Metric callable receives predictions and targets.
                 if extra:
                     logs.update(extra)
             return logs
