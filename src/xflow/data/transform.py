@@ -2376,6 +2376,27 @@ def tuple_select(inputs, index=0):
     return inputs[index]
 
 
+@TransformRegistry.register("torch_cat_slots")
+def torch_cat_slots(inputs, slots=(0, 1), dim=0):
+    """Concatenate the selected tuple slots along ``dim`` into one tensor.
+
+    The remaining slots follow unchanged, so with ``slots=(0, 2)`` a
+    ``(cam1, cam2, cam3)`` sample becomes ``(cat(cam1, cam3), cam2)``.
+    """
+    try:
+        import torch
+    except ImportError:
+        raise RuntimeError("Transform failed, please check the source code")
+    if not isinstance(inputs, (tuple, list)):
+        raise ValueError("inputs must be tuple or list")
+    slots = tuple(int(i) for i in slots)
+    merged = torch.cat(
+        [torch.as_tensor(inputs[i]).float() for i in slots], dim=int(dim)
+    )
+    rest = [item for i, item in enumerate(inputs) if i not in slots]
+    return (merged, *rest)
+
+
 class TorchDataset(_TorchDataset):
     """Map-style Dataset wrapper for an indexable pipeline."""
 

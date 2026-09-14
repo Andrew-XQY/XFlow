@@ -723,9 +723,7 @@ class Embedding3DPlot:
                     )
 
         projection_bg = (
-            "rgba(48,48,48,0.55)"
-            if self._style == "dark"
-            else "rgba(245,245,245,0.5)"
+            "rgba(48,48,48,0.55)" if self._style == "dark" else "rgba(245,245,245,0.5)"
         )
         fig.update_layout(
             scene={
@@ -1190,6 +1188,10 @@ def to_numpy_image(img: ImageLike) -> np.ndarray:
     # Normalize shape for display
     if arr.ndim == 4:  # (B, C, H, W) or (B, H, W, C) → take first
         arr = arr[0]
+    if (
+        arr.ndim == 3 and arr.shape[0] not in (1, 3) and arr.shape[0] <= 8
+    ):  # (C, H, W) → tile channels side by side
+        arr = np.concatenate(list(arr), axis=1)
     if arr.ndim == 3 and arr.shape[0] in (1, 3):  # channel-first → channel-last
         arr = np.transpose(arr, (1, 2, 0))
     if arr.ndim == 3 and arr.shape[-1] == 1:  # single channel → squeeze
