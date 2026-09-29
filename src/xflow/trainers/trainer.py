@@ -367,6 +367,14 @@ class TorchTrainer(BaseTrainer):
                     if ctx.request_stop:
                         break
                 val_logs_epoch = {k: acc[k] / max(1, n_val) for k in acc}
+                # Epoch RMSE must be sqrt(epoch MSE); the sample-weighted mean of
+                # per-batch RMSEs is biased low (Jensen). Recompute it from the
+                # matching *_mse key when one exists.
+                for k in list(val_logs_epoch):
+                    if k.endswith("_rmse"):
+                        mse_key = k[: -len("_rmse")] + "_mse"
+                        if mse_key in val_logs_epoch:
+                            val_logs_epoch[k] = max(0.0, val_logs_epoch[mse_key]) ** 0.5
                 ctx.logs = val_logs_epoch
                 self.cb.call("on_val_epoch_end", ctx)
 

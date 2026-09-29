@@ -439,7 +439,12 @@ class TripletSaverHook(BaseEvalHook):
             raise ValueError("fontsize must be a positive finite number.")
 
     def _to_numpy_image(self, value):
-        return value.squeeze().numpy()
+        image = value.squeeze().numpy()
+        # (C, H, W) multi-channel input: tile channels side by side.
+        # Channels-last RGB/RGBA (H, W, 3|4) is left for imshow as before.
+        if image.ndim == 3 and image.shape[-1] not in (3, 4):
+            image = np.concatenate(list(image), axis=1)
+        return image
 
     def _fixed_range(self, *images) -> tuple[float, float]:
         max_value = max(float(image.max()) for image in images)
