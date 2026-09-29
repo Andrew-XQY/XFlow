@@ -64,15 +64,20 @@ class CallbackDispatcher:
             fn = getattr(cb, name, None)
             if not callable(fn):
                 continue
-            try:
-                params = inspect.signature(fn).parameters
-                usable = {k: v for k, v in kw.items() if k in params}
-                if usable:
-                    fn(**usable)  # Dispatch matching callback parameters.
-                else:
-                    fn(ctx)  # also supports modern def on_*(self, ctx)
-            except TypeError:
-                fn()  # last fallback
+            params = inspect.signature(fn).parameters
+            usable = {k: v for k, v in kw.items() if k in params}
+            takes_positional = any(
+                p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
+                for p in params.values()
+            )
+            # Choose the call form from the signature instead of catching
+            # TypeError, so an error raised inside the callback is not hidden.
+            if usable:
+                fn(**usable)  # Dispatch matching callback parameters.
+            elif takes_positional:
+                fn(ctx)  # also supports modern def on_*(self, ctx)
+            else:
+                fn()  # def on_*(self, **kwargs) or def on_*(self): nothing to pass
 
     @property
     def should_stop(self) -> bool:
@@ -135,6 +140,12 @@ def _num_samples(batch: Any) -> int:
         if shape is not None and len(shape) > 0:
             return int(shape[0])
         if isinstance(part, (list, tuple)):
+            # A list of per-input tensors (multi-input batch): use the first
+            # array-like's leading dim, not the number of inputs.
+            for inner in part:
+                inner_shape = getattr(inner, "shape", None)
+                if inner_shape is not None and len(inner_shape) > 0:
+                    return int(inner_shape[0])
             return len(part)
     return 1
 

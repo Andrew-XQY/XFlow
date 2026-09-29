@@ -432,8 +432,10 @@ def calculate_beam_gaussian_1d(projection: TensorLike) -> Tuple[float, float]:
         return float(mean), float(sigma)
 
     except Exception:
-        # Fallback to moments - reuse existing implementation
-        return calculate_beam_moments_1d(projection)
+        # A failed Gaussian fit is reported as NaN (the sample then fails
+        # validation and is excluded), not silently replaced by the moments
+        # width, which is a different quantity and would mix definitions.
+        return float("nan"), float("nan")
 
 
 def calculate_beam_moments_1d(projection: TensorLike) -> Tuple[float, float]:
