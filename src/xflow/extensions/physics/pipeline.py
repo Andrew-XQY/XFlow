@@ -518,6 +518,12 @@ class CachedBasisPipeline(BasePipeline):
                     return len(inner_self.pipeline)
 
                 def __getitem__(inner_self, idx):
+                    # NOTE (future work): ``idx`` is ignored and samples come from
+                    # the pipeline's own RNG (``pipeline.rng``: jitter, intensity
+                    # scale). With ``num_workers > 0`` every worker holds a copy
+                    # of that RNG state, so those draws repeat across workers.
+                    # Reseed per worker (torch.utils.data.get_worker_info) before
+                    # using multiple workers. All current configs use 0 workers.
                     sample = inner_self.pipeline._next_sample(inner_self.accessor)
                     if sample is None:
                         raise RuntimeError(
@@ -1061,6 +1067,7 @@ class SpatialNearestCombinator(Combinator):
         transforms: Optional[
             List[Union[Callable[[np.ndarray], np.ndarray], Transform]]
         ] = None,
+        max_assign_cells: Optional[float] = None,
     ):
         super().__init__()
         if hasattr(pattern_provider, "__next__"):
@@ -1081,6 +1088,12 @@ class SpatialNearestCombinator(Combinator):
             raise ValueError(f"jitter_alpha must be in [0, 1], got {jitter_alpha}.")
         self.jitter_mode = mode
         self.jitter_alpha = float(jitter_alpha)
+        # Max distance (in pattern cells) from a cell centre to its nearest basis
+        # spot. Cells farther than this get no coefficient instead of being
+        # forced onto a distant spot. None keeps the unconditional assignment.
+        if max_assign_cells is not None and float(max_assign_cells) <= 0.0:
+            raise ValueError(f"max_assign_cells must be > 0 when set, got {max_assign_cells!r}.")
+        self.max_assign_cells = None if max_assign_cells is None else float(max_assign_cells)
         self.intensity_scale = intensity_scale
         self.clip_output = clip_output
         self.transforms = [
@@ -1095,7 +1108,7 @@ class SpatialNearestCombinator(Combinator):
         self.last_coeff_map: Optional[np.ndarray] = None
         self.last_intensity_scale: float = 1.0
         self._basis_positions: Optional[np.ndarray] = None
-        self._nearest_cache: Dict[Tuple[int, int], np.ndarray] = {}
+        self._nearest_cache: Dict[Tuple[int, int], Tuple[np.ndarray, np.ndarray]] = {}
         self._kdtree = None
 
         # Flattened copy of the basis, built lazily on first __call__ so the
@@ -1189,8 +1202,9 @@ class SpatialNearestCombinator(Combinator):
         self,
         pattern_shape: Tuple[int, int],
         jitter_offset: Optional[Tuple[float, float]] = None,
-    ) -> np.ndarray:
-        """Get nearest-basis index for each pattern cell, optionally with global jitter."""
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Nearest-basis index and normalized distance for each pattern cell,
+        optionally with global jitter."""
         if jitter_offset is None and pattern_shape in self._nearest_cache:
             return self._nearest_cache[pattern_shape]
 
@@ -1214,16 +1228,19 @@ class SpatialNearestCombinator(Combinator):
 
         if self._kdtree is not None:
             # O(P log N) nearest lookup.
-            nearest = self._kdtree.query(pattern_centers)[1].astype(np.int64)
+            dist, nearest = self._kdtree.query(pattern_centers)
+            nearest = nearest.astype(np.int64)
+            dist = np.asarray(dist, dtype=np.float32)
         else:
             # Brute force O(P N); per-coordinate to avoid the (P, N, 2) intermediate.
             dx = pattern_centers[:, 0, None] - self._basis_positions[None, :, 0]
             dy = pattern_centers[:, 1, None] - self._basis_positions[None, :, 1]
             d2 = dx * dx + dy * dy
             nearest = np.argmin(d2, axis=1).astype(np.int64)
+            dist = np.sqrt(d2[np.arange(nearest.size), nearest]).astype(np.float32)
         if jitter_offset is None:
-            self._nearest_cache[pattern_shape] = nearest
-        return nearest
+            self._nearest_cache[pattern_shape] = (nearest, dist)
+        return nearest, dist
 
     def _weights_for_one(self, rng: np.random.Generator, n_basis: int) -> np.ndarray:
         """Draw one pattern and map it to per-basis weights of shape (n_basis,).
@@ -1252,7 +1269,7 @@ class SpatialNearestCombinator(Combinator):
             )
 
         jitter_offset = self._sample_global_jitter(coeff_map.shape, rng)
-        nearest = self._get_nearest_indices(
+        nearest, nearest_dist = self._get_nearest_indices(
             coeff_map.shape, jitter_offset=jitter_offset
         )
         if nearest.size != coeffs.size:
@@ -1262,9 +1279,15 @@ class SpatialNearestCombinator(Combinator):
 
         if self.skip_zero:
             mask = np.abs(raw_coeffs) > self.eps if self.eps > 0 else raw_coeffs != 0
-            active = np.flatnonzero(mask)
         else:
-            active = np.arange(raw_coeffs.size)
+            mask = np.ones(raw_coeffs.size, dtype=bool)
+        if self.max_assign_cells is not None:
+            # Drop cells with no basis spot within reach (e.g. outside the
+            # scanned area) instead of piling them onto the nearest edge spot.
+            h, w = coeff_map.shape
+            max_dist = self.max_assign_cells * max(1.0 / float(w), 1.0 / float(h))
+            mask = mask & (nearest_dist <= max_dist)
+        active = np.flatnonzero(mask)
 
         weights = np.zeros(n_basis, dtype=np.float32)
         if active.size > 0:
